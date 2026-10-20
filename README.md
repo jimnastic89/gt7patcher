@@ -2,22 +2,23 @@
 
 GT7Patcher is a standalone PS5 payload for Gran Turismo 7. It provides a browser interface for choosing patches and display preferences, saves those choices on the console, and applies them when GT7 starts.
 
-Supported configuration:
+Tested configuration:
 
 - PS5 firmware 12.40
 - GT7 title ID `PPSA01317`
 - GT7 content version `01.710.000`
 - Web interface on port `7210`
 
-The payload includes offline mode, Debug Settings, Quick Store Rotation, Power Pack and vehicle DLC unlock patches. It also supports language and unit preferences. Only GT7 receives patch writes.
+The payload includes offline mode, Debug Settings, Quick Store Rotation, Power Pack and vehicle DLC unlock patches. It also supports language and unit preferences.
 
 ## Run
 
-1. Fully close GT7 and load `GT7Patcher-v0.1.elf` with a PS5 ELF loader.
-2. Open the **GT7Patcher** shortcut installed on the PS5 home screen, or browse to `http://PS5_IP:7210/`.
-3. Choose the patches and display preferences, then save them.
-4. Start the patch engine from the web interface unless automatic start is enabled.
-5. Launch GT7.
+1. Load `GT7Patcher.elf` with a PS5 ELF loader.
+2. Open the **GT7Patcher** shortcut installed in the media tab, or browse to `http://PS5_IP:7210/`.
+3. Choose the patches and display preferences, then save.
+4. Start the patch engine from the web interface.
+5. Optional: turn on automatic start to start the engine with the saved settings next time the payload runs.
+6. Launch GT7.
 
 Keep the payload running while GT7 launches. The saved settings and home-screen shortcut persist across reboots, but the payload must be loaded again after each reboot. Do not run another patch engine at the same time.
 
