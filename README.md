@@ -1,15 +1,17 @@
 # GT7Patcher 0.1
 
-GT7Patcher is a standalone PS5 payload for Gran Turismo 7. It provides a browser interface for choosing patches and display preferences, saves those choices on the console, and applies them when GT7 starts.
+GT7Patcher is a standalone PS5 payload for Gran Turismo 7 that provides a browser interface for choosing patches, saves those choices on the console, and applies them when GT7 starts.
 
-Tested configuration:
+Features:
 
-- PS5 firmware 12.40
-- GT7 title ID `PPSA01317`
-- GT7 content version `01.710.000`
-- Web interface on port `7210`
+- Offline mode
+- Debug Settings
+- Quick Store Rotation
+- Power Pack and vehicle DLC unlock
+- Language and unit preferences
+- Web interface on port 7210
 
-The payload includes offline mode, Debug Settings, Quick Store Rotation, Power Pack and vehicle DLC unlock patches. It also supports language and unit preferences.
+Tested on firmware 12.40. Only works on a clean version of `PPSA01317` version `01.710.000`
 
 ## Run
 
