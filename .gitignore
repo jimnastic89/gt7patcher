@@ -1,0 +1,15 @@
+# Generated build and release files
+/build/
+/dist/
+__pycache__/
+*.py[cod]
+
+# Local design and editor files
+/icon0.psd
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+*.tmp
+data/PPSA01317-original.xml

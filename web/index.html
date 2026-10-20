@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GT7Patcher</title>
+<style>
+    :root {
+        color-scheme: dark;
+        font: 16px system-ui;
+        background: #101419;
+        color: #e8edf2
+    }
+
+    * {
+        box-sizing: border-box
+    }
+
+    body {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 32px 20px 60px
+    }
+
+    h1 {
+        margin: 6px 0;
+        font-size: 32px
+    }
+
+    .version {
+        color: #8e9dac;
+        font-size: .48em;
+        font-weight: 500
+    }
+
+    p {
+        line-height: 1.55;
+        color: #adb8c5
+    }
+
+    .eyebrow {
+        letter-spacing: .14em;
+        font-size: 12px;
+        color: #72d5ca
+    }
+
+    header {
+        margin-bottom: 28px
+    }
+
+    nav {
+        display: flex;
+        gap: 8px;
+        border-bottom: 1px solid #343e49;
+        margin-bottom: 20px;
+        padding-bottom: 12px
+    }
+
+    button,
+    select {
+        font: inherit;
+        border: 1px solid #46515e;
+        border-radius: 8px;
+        padding: 11px 14px;
+        background: #212a34;
+        color: inherit
+    }
+
+    button {
+        cursor: pointer
+    }
+
+    button[aria-selected=true] {
+        border-color: #72d5ca;
+        color: #8aeadf
+    }
+
+    button:disabled {
+        opacity: .45;
+        cursor: default
+    }
+
+    .card {
+        background: #191f27;
+        border: 1px solid #303b48;
+        border-radius: 12px;
+        padding: 20px;
+        margin: 14px 0
+    }
+
+    .feature {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+        padding: 17px 0;
+        border-bottom: 1px solid #303b48
+    }
+
+    .feature:last-child {
+        border: 0
+    }
+
+    .feature input {
+        width: 20px;
+        height: 20px;
+        accent-color: #72d5ca;
+        flex-shrink: 0
+    }
+
+    .feature label {
+        font-weight: 600
+    }
+
+    .detail {
+        font-size: 14px;
+        margin: 5px 0 0
+    }
+
+    .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px
+    }
+
+    .field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px
+    }
+
+    .field label {
+        font-size: 14px;
+        color: #b9c7d6
+    }
+
+    select {
+        width: 100%
+    }
+
+    .actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 24px
+    }
+
+    .primary {
+        background: #8be0d5;
+        color: #092d28;
+        border-color: #8be0d5;
+        font-weight: 650
+    }
+
+    .danger {
+        border-color: #b65f61;
+        color: #ffb4b4
+    }
+
+    #status {
+        border-left: 3px solid #72d5ca;
+        padding: 12px 16px;
+        background: #17282a;
+        line-height: 1.6;
+        white-space: pre-line
+    }
+
+    .error {
+        border-color: #ff9c8f !important;
+        background: #321e20 !important
+    }
+
+    .badge {
+        font-size: 12px;
+        border: 1px solid #455261;
+        padding: 4px 9px;
+        border-radius: 20px;
+        color: #bbc9d8
+    }
+
+    .warning {
+        color: #eed19b
+    }
+
+    [hidden] {
+        display: none !important
+    }
+
+    @media(max-width:580px) {
+        .grid {
+            grid-template-columns: 1fr
+        }
+
+        h1 {
+            font-size: 27px
+        }
+    }
+</style>
+<header>
+    <h1>GT7Patcher <span id="version" class="version"></span></h1>
+</header>
+<div id="status" role="status" aria-live="polite">Connecting to GT7Patcher…</div>
+<nav role="tablist" aria-label="Settings" style="margin-top:24px"><button id="patch-tab" role="tab"
+        aria-controls="patches" aria-selected="true">Patches</button><button id="game-tab" role="tab"
+        aria-controls="game" aria-selected="false">Game Settings</button><button id="help-tab" role="tab"
+        aria-controls="help" aria-selected="false">Help</button></nav>
+<form id="form">
+    <section id="patches" role="tabpanel" aria-labelledby="patch-tab">
+        <div class="card" id="features"></div>
+        <p class="detail"></p>
+    </section>
+    <section id="game" role="tabpanel" aria-labelledby="game-tab" hidden>
+        <div class="card">
+            <div class="grid">
+                <div class="field"><label for="preset">Region preset</label><select id="preset">
+                        <option value="0">Custom</option>
+                        <option value="1">Australia</option>
+                        <option value="2">Europe</option>
+                        <option value="3">United States</option>
+                        <option value="4">Japan</option>
+                        <option value="5">United Kingdom</option>
+                    </select></div>
+                <div class="field"><label for="language">Game language</label><select
+                        id="language"></select></div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="field"><label for="units">Display units</label><select id="units">
+                    <option value="1">Override with selections below</option>
+                    <option value="0">Game defaults / saved preferences</option>
+                </select></div>
+            <div class="grid" style="margin-top:22px" id="unit-fields">
+                <div class="field"><label for="speed">Distance / speed</label><select id="speed">
+                        <option value="0">Kilometres · km/h</option>
+                        <option value="1">Miles · mph</option>
+                    </select></div>
+                <div class="field"><label for="mass">Weight</label><select id="mass">
+                        <option value="0">Kilograms · kg</option>
+                        <option value="1">Pounds · lb</option>
+                    </select></div>
+                <div class="field"><label for="power">Power</label><select id="power">
+                        <option value="2">Kilowatts · kW</option>
+                        <option value="1">HP / BHP · language-dependent label</option>
+                        <option value="0">Metric horsepower · PS</option>
+                    </select></div>
+                <div class="field"><label for="torque">Torque</label><select id="torque">
+                        <option value="2">Newton-metres · Nm</option>
+                        <option value="1">Pound-feet · ft·lb</option>
+                        <option value="0">Kilogram-force metres · kgf·m</option>
+                    </select></div>
+                <div class="field"><label for="temperature">Temperature</label><select id="temperature">
+                        <option value="1">Celsius · °C</option>
+                        <option value="2">Fahrenheit · °F</option>
+                    </select></div>
+            </div>
+        </div>
+    </section>
+    <section id="help" role="tabpanel" aria-labelledby="help-tab" hidden>
+        <div class="card">
+            <h2>Instructions</h2>
+            <ol>
+                <li>Make sure GT7 is closed before making any changes.</li>
+                <br>
+                <li>Choose your patches and display preferences.</li>
+                <br>
+                <li>Select the "Start Engine" button and wait for notifications to display.</li>
+                <br>
+                <li>When the ready notification appears, it is safe to launch GT7.</li>
+            </ol>
+            <br>
+            <h2>Notes & Troubleshooting</h2>
+            <ul>
+                <li>Patches will only work on a "clean" backported copy of PPSA01317 version 1.710.000. It won't work on previous releases distributed with offline modified files. Try searching for "GT7 clean backport" if you need these files.</li>
+                <br>
+                <li>Most problems are fixed by rebooting the console and trying again.</li>
+                <br>
+                <li>Make sure the game isn't running. Patches only take effect when the game is started.</li>
+                <br>
+                <li>Make sure ps-patch-system isn't running. GT7Patcher is a standalone payload and doesn't require ps-patch-system.</li>
+                <br>
+                <li>Only start the engine once per console boot, or enable automatic start.</li>
+                <br>
+                <li>Automatic start uses your saved patches. Turning this off takes effect next time the payload runs.</li>
+                <br>
+                <li>Disabling a patch omits it on the next game launch.</li>
+                <br>
+                <li>This build requires PS5 firmware 12.40.</li>
+                <br>
+                <li>Region presets affect display preferences only. They do not change the title ID, save location,
+                DLC region, or internal GameRegionCode.</li>
+            </ul>
+            <p class="detail">Copyright © 2026 GT7Patcher contributors. GT7Patcher is free software
+                under GPLv3 with no warranty; you may redistribute it under that license. Source code,
+                license terms, and third-party notices are included with the release.</p>
+            <div class="actions">
+                <button type="button" id="reinstall-shortcut" disabled>Reinstall home screen shortcut</button>
+                <button type="button" id="stop-engine" disabled>Stop engine</button>
+                <button type="button" id="stop-payload" class="danger" disabled>Stop payload</button>
+            </div>
+        </div>
+    </section>
+    <div id="controls">
+        <div class="card">
+            <label for="autostart">
+                <input type="checkbox" id="autostart"> Start the patch engine automatically when this payload runs
+            </label>
+            <p class="detail"></p>
+        </div>
+        <div class="actions">
+            <button type="submit" id="save" class="primary" disabled>Save</button>
+            <button type="button" id="start" disabled>Start engine</button>
+        </div>
+    </div>
+</form>
+<script>
+    'use strict';
+    const $ = id => document.getElementById(id), keys = ['preset', 'units', 'language', 'speed', 'mass', 'power', 'torque', 'temperature'];
+    let token = '', busy = false, dirty = false, loaded = false, engine = false, halted = false;
+    const languages = [['JP', 'Japanese'], ['US', 'English (United States)'], ['GB', 'English (United Kingdom)'], ['FR', 'French'], ['ES', 'Spanish (Spain)'], ['DE', 'German'], ['IT', 'Italian'], ['NL', 'Dutch'], ['PT', 'Portuguese'], ['RU', 'Russian'], ['PL', 'Polish'], ['TR', 'Turkish'], ['EL', 'Greek'], ['KR', 'Korean'], ['TW', 'Chinese (Traditional)'], ['CN', 'Chinese (Simplified)'], ['DK', 'Danish'], ['NO', 'Norwegian'], ['SE', 'Swedish'], ['FI', 'Finnish'], ['CZ', 'Czech'], ['HU', 'Hungarian'], ['BP', 'Portuguese (Brazil)'], ['MS', 'Spanish (Latin America)'], ['AR', 'Arabic'], ['TH', 'Thai'], ['ZH', 'Chinese (ZH)']];
+    $('language').append(new Option('System language', -1)); languages.forEach(([code, name], i) => $('language').append(new Option(`${name} · ${code}`, i)));
+    function status(text, error = false) { $('status').textContent = text; $('status').classList.toggle('error', error) }
+    function units() { for (const e of $('unit-fields').querySelectorAll('select')) e.disabled = $('units').value === '0' }
+    function buttons() { $('save').disabled = !loaded || busy || halted; $('start').disabled = !loaded || busy || dirty || engine || halted; $('reinstall-shortcut').disabled = !loaded || busy || halted; $('stop-engine').disabled = !loaded || busy || !engine || halted; $('stop-payload').disabled = !loaded || busy || halted; }
+    function mark() { dirty = true; buttons(); status('Unsaved choices. Fully close GT7, then save for the next launch.') }
+    function render(s) {
+        token = s.token; engine = s.engineRunning; $('version').textContent = `v${s.version}`; document.title = `GT7Patcher v${s.version}`;
+        if (!loaded) { s.features.forEach((f, i) => { const row = document.createElement('div'); row.className = 'feature'; const input = document.createElement('input'); input.type = 'checkbox'; input.id = `patch-${i}`; input.dataset.bit = i; const box = document.createElement('div'), label = document.createElement('label'), note = document.createElement('p'); label.htmlFor = input.id; label.textContent = f.name; note.className = 'detail'; note.textContent = f.note; box.append(label, note); row.append(input, box); $('features').append(row) }) }
+        if (!dirty) { for (const k of keys) $(k).value = s.config[k]; $('autostart').checked = Boolean(s.config.autostart); for (let i = 0; i < 5; i++)$(`patch-${i}`).checked = Boolean(s.config.mask & (1 << i)); units() }
+        loaded = true; buttons(); if (!dirty) status(s.message + (s.gameRunning === 1 ? '\nGT7 is running. Close it before changing the next-launch snapshot.' : '') + (s.gameRunning < 0 ? '\nCould not check whether GT7 is closed.' : ''));
+    }
+    async function read() { try { const r = await fetch('/api/status', { cache: 'no-store' }); if (!r.ok) throw Error(await r.text()); render(await r.json()) } catch (e) { status(e.message, true) } }
+    async function post(path, body, savesSettings = false) { busy = true; buttons(); try { const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (savesSettings) dirty = false; render(result); if (dirty) status(result.message) } catch (e) { status(e.message, true) } finally { busy = false; buttons() } }
+    $('form').addEventListener('submit', e => { e.preventDefault(); const c = { mask: 0, autostart: Number($('autostart').checked) }; for (let i = 0; i < 5; i++)if ($(`patch-${i}`).checked) c.mask |= 1 << i; for (const k of keys) c[k] = Number($(k).value); post('/api/config', new URLSearchParams(c).toString(), true) });
+    $('start').onclick = () => post('/api/start', '');
+    $('reinstall-shortcut').onclick = () => post('/api/shortcut/reinstall', '');
+    $('stop-engine').onclick = () => post('/api/engine/stop', '');
+    $('stop-payload').onclick = async () => { if (!confirm('Stop GT7Patcher? Port 7210 will close until the payload is run again.')) return; busy = true; buttons(); try { const r = await fetch('/api/payload/stop', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: '' }); if (!r.ok) throw Error(await r.text()); halted = true; engine = false; status('GT7Patcher has stopped. Run the payload again to reconnect.') } catch (e) { status(e.message, true) } finally { busy = false; buttons() } };
+    $('form').addEventListener('change', e => { if (e.target.id === 'patch-2' && e.target.checked) $('patch-0').checked = true; if (e.target.id === 'patch-0' && !e.target.checked) $('patch-2').checked = false; if (e.target.id === 'units') units(); if (['speed', 'mass', 'power', 'torque', 'temperature', 'language'].includes(e.target.id)) $('preset').value = 0; mark() });
+    const presets = { 1: { language: 2, speed: 0, mass: 0, power: 2, torque: 2, temperature: 1 }, 2: { language: 2, speed: 0, mass: 0, power: 1, torque: 2, temperature: 1 }, 3: { language: 1, speed: 1, mass: 1, power: 1, torque: 1, temperature: 2 }, 4: { language: 0, speed: 0, mass: 0, power: 0, torque: 0, temperature: 1 }, 5: { language: 2, speed: 1, mass: 0, power: 1, torque: 2, temperature: 1 } };
+    $('preset').addEventListener('change', () => { const p = presets[$('preset').value]; if (p) { for (const [k, v] of Object.entries(p)) $(k).value = v; $('units').value = 1; units() } });
+    for (const [id, panel] of [['patch-tab', 'patches'], ['game-tab', 'game'], ['help-tab', 'help']]) $(id).onclick = () => { for (const [t, p] of [['patch-tab', 'patches'], ['game-tab', 'game'], ['help-tab', 'help']]) { $(t).setAttribute('aria-selected', String(t === id)); $(p).hidden = p !== panel } $('controls').hidden = panel === 'help' };
+    read(); setInterval(() => { if (!busy && !dirty && !halted) read() }, 5000);
+</script>
+
+</html>
