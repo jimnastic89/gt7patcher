@@ -104,7 +104,6 @@ wheel_offset_options:
     pop rbx
     pop rbp
     ret
-
 /* Append signed EAX as decimal at RDI and return the advanced pointer in RDI. */
 .append_signed:
     test eax, eax
