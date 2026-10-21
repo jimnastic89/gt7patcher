@@ -8,7 +8,7 @@
 
 Config defaults(void){return (Config){1,1,1,2,0,0,2,2,1,0};}
 int valid_config(const Config *c){
-    return c->mask<=31 && (!(c->mask&4)||(c->mask&1)) &&
+    return c->mask<=(1U<<PATCH_COUNT)-1 && (!(c->mask&4)||(c->mask&1)) &&
         c->preset>=0&&c->preset<=5&&c->units>=0&&c->units<=1&&
         c->language>=-1&&c->language<=26&&c->speed>=0&&c->speed<=1&&
         c->mass>=0&&c->mass<=1&&c->power>=0&&c->power<=2&&
@@ -22,7 +22,7 @@ int parse_config(const char *body,Config *c){
         char *eq=strchr(item,'=');if(!eq)return -1;*eq++=0;
         if(!*eq)return -1;
         char *end;long v=strtol(eq,&end,10);
-        if(*end||v < -1||v>31)return -1;
+        if(*end||v < -1||v>63)return -1;
         const char *keys[]={"mask","preset","units","language","speed","mass","power","torque","temperature","autostart"};
         int k;for(k=0;k<10;k++)if(!strcmp(item,keys[k]))break;
         if(k==10||(seen&(1U<<k)))return -1;
@@ -51,7 +51,7 @@ int emit_xml(FILE *f,const Config *c){
     if(!valid_config(c))return -1;
     fputs("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Patch><TitleID><ID>PPSA01317</ID></TitleID>\n"
         "<Metadata Title=\"Gran Turismo 7\" Name=\"GT7 selected patches\" Author=\"AI-generated; based on High-Speed007 and PSVIETHOA; GT7Patcher\" PatchVer=\"1.0\" AppVer=\"01.710.000\" ImageBase=\"0x00400000\" AppElf=\"eboot.bin\"><PatchList>\n",f);
-    for(unsigned i=0;i<5;i++)if(c->mask&(1U<<i))fputs(patch_lines[i],f);
+    for(unsigned i=0;i<PATCH_COUNT;i++)if(c->mask&(1U<<i))fputs(patch_lines[i],f);
     if(c->units){
         unsigned char b[71];uint32_t values[]={c->speed,c->power,c->torque,3,c->temperature,0,c->mass};
         for(unsigned i=0;i<7;i++)store(b+i*10,0xc22060+i*10,0x611aecc+i*4,values[i]);

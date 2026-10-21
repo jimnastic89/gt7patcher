@@ -145,7 +145,7 @@ static void json_status(int fd){
 #endif
     n+=(size_t)snprintf(body+n,sizeof(body)-n,"{\"version\":\"%s\",\"token\":\"%s\",\"engineRunning\":%s,\"gameRunning\":%d,\"message\":\"%s\",\"config\":{\"mask\":%u,\"preset\":%d,\"units\":%d,\"language\":%d,\"speed\":%d,\"mass\":%d,\"power\":%d,\"torque\":%d,\"temperature\":%d,\"autostart\":%d},\"features\":[",VERSION,token,engine_ready()?"true":"false",running_gt7(),status_message,config.mask,config.preset,config.units,config.language,config.speed,config.mass,config.power,config.torque,config.temperature,config.autostart);
     /* Original feature labels and notes contain no JSON quoting characters; verify at generation. */
-    for(unsigned i=0;i<5;i++)n+=(size_t)snprintf(body+n,sizeof(body)-n,"%s{\"name\":\"%s\",\"note\":\"%s\",\"lines\":%u}",i?",":"",feature_name(i),feature_note(i),feature_count(i));
+    for(unsigned i=0;i<PATCH_COUNT;i++)n+=(size_t)snprintf(body+n,sizeof(body)-n,"%s{\"name\":\"%s\",\"note\":\"%s\",\"lines\":%u}",i?",":"",feature_name(i),feature_note(i),feature_count(i));
     snprintf(body+n,sizeof(body)-n,"]}");response(fd,200,"application/json",body);
 }
 static void serve(int fd){
