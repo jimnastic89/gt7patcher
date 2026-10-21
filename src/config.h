@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #pragma once
 #include <stdio.h>
+#define PATCH_COUNT 6
 typedef struct {
     unsigned mask;
     int preset, units, language, speed, mass, power, torque, temperature, autostart;

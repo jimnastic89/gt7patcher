@@ -1,6 +1,8 @@
 """Host integration and generated-code tests. Never connects to a console."""
 import itertools
+import hashlib
 import json
+import os
 from pathlib import Path
 import socket
 import struct
@@ -15,7 +17,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 HERE = Path(__file__).resolve().parents[1]
-ROOT = HERE.parent
+ROOT = Path(os.environ.get('GT7_WORKSPACE', HERE.parent))
 sys.path.insert(0, str(ROOT / 'diagnostics'))
 from verify_live_patch import self_segments, local_bytes
 sys.path.insert(0, str(ROOT / 'diagnostics/python-libs'))
@@ -28,6 +30,7 @@ class SelectorTests(unittest.TestCase):
     def setUpClass(cls):
         cls.clean = self_segments(ROOT / 'GRAN_TURISMO_7_Clean_Backport/eboot.bin')
         cls.original = ET.parse(ROOT / 'gt7-offline-v1.0/PPSA01317.xml').getroot().findall('Metadata')
+        cls.project = ET.parse(HERE / 'data/PPSA01317-original.xml').getroot().findall('Metadata')
         cls.md = Cs(CS_ARCH_X86, CS_MODE_64)
 
     def setUp(self):
@@ -89,6 +92,22 @@ class SelectorTests(unittest.TestCase):
                 expected = [e.attrib for i,m in enumerate(self.original) if mask & (1<<i) for e in m.findall('./PatchList/Line')]
                 self.assertEqual([e.attrib for e in self.lines()], expected)
 
+    def test_wheel_offset_presets_patch_is_independent_and_guarded(self):
+        self.assertEqual(len(self.status['features']),6)
+        self.assertEqual(self.status['features'][-1]['name'],'Wheel offset presets (experimental)')
+        c=dict(self.c,mask=32,units=0,language=-1)
+        self.assertEqual(self.request('/api/config',c)[0],200)
+        rows=self.lines();self.assertEqual(len(rows),1)
+        self.assertEqual(int(rows[0].get('Address'),16),0x3896010)
+        blob=bytes.fromhex(rows[0].get('Value'))
+        self.assertEqual(blob,(HERE/'build/wheel_offset_custom.bin').read_bytes())
+        self.assertIn(b'Standard',blob);self.assertIn(b'Wide',blob);self.assertIn(b'Offset -',blob);self.assertNotIn(b'Custom',blob)
+        instructions=list(self.md.disasm(blob,0x3896010))
+        calls=[int(i.op_str.split(',')[1],16) for i in instructions if i.mnemonic=='mov' and i.op_str.startswith('eax, 0x')]
+        self.assertEqual(calls,[0x3896350,0x304fef0,0x3896350,0x3896350])
+        original=local_bytes(self.clean,0x3896010,len(blob))
+        self.assertEqual(hashlib.sha256(original).hexdigest(),'cd02f5af5174793f21ef986a37960133cd744fa7489623c4d9bc422f2378ee8b')
+
     def test_all_unit_combinations_decode_to_selected_targets(self):
         for speed,mass,power,torque,temp in itertools.product(range(2),range(2),range(3),range(3),(1,2)):
             c = dict(self.c, mask=0, language=-1, speed=speed, mass=mass, power=power, torque=torque, temperature=temp)
@@ -128,7 +147,7 @@ class SelectorTests(unittest.TestCase):
     def test_bad_requests_never_replace_xml(self):
         path=self.state/'xml_prospero/PPSA01317.xml'
         before=path.read_bytes()
-        for key,value in [('mask',32),('language',27),('power',3),('mass',-1),('preset',6),('temperature',0),('autostart',2),('autostart',-1)]:
+        for key,value in [('mask',64),('language',27),('power',3),('mass',-1),('preset',6),('temperature',0),('autostart',2),('autostart',-1)]:
             self.assertEqual(self.request('/api/config',dict(self.c,**{key:value}))[0],400)
             self.assertEqual(path.read_bytes(),before)
         self.assertEqual(self.request('/api/config',self.c,token=False)[0],403)

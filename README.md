@@ -9,7 +9,7 @@ Supported configuration:
 - GT7 content version `01.710.000`
 - Web interface on port `7210`
 
-The payload includes offline mode, Debug Settings, Quick Store Rotation, Power Pack and vehicle DLC unlock patches. It also supports language and unit preferences. Only GT7 receives patch writes.
+The payload includes offline mode, Debug Settings, Quick Store Rotation, Power Pack and vehicle DLC unlock patches. It also supports language and unit preferences. An experimental wheel-offset patch adds ten GT Auto choices from **Offset -5mm** through **Offset -50mm** in 5 mm steps; each choice applies the selected offset to both axles. Only GT7 receives patch writes.
 
 ## Run
 
@@ -41,7 +41,7 @@ python3 tests/test_memory.py
 python3 package.py
 ```
 
-The tests require Python 3, GCC, and Capstone 5.0.7. `tests/test_selector.py` also expects the clean GT7 executable and source patch XML in the adjacent workspace paths used by the project.
+The tests require Python 3, GCC, and Capstone 5.0.7. `tests/test_selector.py` also expects the clean GT7 executable and source patch XML. When the GT7 workspace is not the repository's parent directory, set `GT7_WORKSPACE` to its path.
 
 ## License and acknowledgements
 

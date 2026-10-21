@@ -6,10 +6,11 @@ __pycache__/
 
 # Local design and editor files
 /icon0.psd
+/Lang.png
+/Patches.png
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
 *.log
 *.tmp
-data/PPSA01317-original.xml
