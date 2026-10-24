@@ -16,3 +16,6 @@ Thumbs.db
 .vscode/
 *.log
 *.tmp
+CustomOffset.png
+StandardOffset.png
+WideOffset.png
