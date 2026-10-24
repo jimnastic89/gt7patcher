@@ -1,4 +1,4 @@
-# GT7Patcher 0.1
+# GT7Patcher
 
 GT7Patcher is a PS5 payload that applies the following patches to Gran Turismo 7:
 
@@ -7,11 +7,12 @@ GT7Patcher is a PS5 payload that applies the following patches to Gran Turismo 7
 - Quick Store Rotation
 - Power Pack and vehicle DLC unlock
 - Language and unit preferences
+- More wheel offset options in GT Auto
 
 Configuration is via a web interface on port `7210`.
 
-<img width="914" height="858" alt="Patches" src="https://github.com/user-attachments/assets/85c5921e-5ad9-4248-979a-e1c539dfdd25" />
-<img width="928" height="941" alt="Lang" src="https://github.com/user-attachments/assets/a1a5d6e4-0ef3-4ba9-9027-c53441b04fa0" />
+<img width="924" height="941" alt="Patches" src="https://github.com/user-attachments/assets/b5289945-b627-4bc0-9afc-58fcffb81414" />
+<img width="913" height="931" alt="Lang" src="https://github.com/user-attachments/assets/3a5f5a76-21d5-4b7e-a2b0-86427692ac3c" />
 
 
 Tested on firmware 12.40. Only works on a clean version of `PPSA01317` version `01.710.000`
