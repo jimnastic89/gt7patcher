@@ -15,12 +15,11 @@ Configuration is via a web interface on port `7210`.
 <img width="913" height="931" alt="Lang" src="https://github.com/user-attachments/assets/3a5f5a76-21d5-4b7e-a2b0-86427692ac3c" />
 
 
-Tested on firmware 12.40. Only works on a clean version of `PPSA01317` version `01.710.000`
+Tested on firmware 12.40. Firmware is not checked at runtime. Only works on a clean version of `PPSA01317` version `01.710.000`
 GT7Patcher is a standalone PS5 payload for Gran Turismo 7. It provides a browser interface for choosing patches and display preferences, saves those choices on the console, and applies them when GT7 starts.
 
 Supported configuration:
 
-- PS5 firmware 12.40
 - GT7 title ID `PPSA01317`
 - GT7 content version `01.710.000`
 - Web interface on port `7210`

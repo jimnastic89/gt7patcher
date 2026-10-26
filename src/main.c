@@ -81,11 +81,21 @@ static int port_in_use(unsigned port){
     struct sockaddr_in a={0};a.sin_family=AF_INET;a.sin_addr.s_addr=htonl(INADDR_LOOPBACK);a.sin_port=htons((uint16_t)port);
     int r=connect(s,(void *)&a,sizeof(a));close(s);return r==0;
 }
+#ifdef PS5
+static int wait_for_gt7_launch(void){
+    /* LaunchApp queues an asynchronous request and its return value is not a
+     * boolean error status. Confirm the result by observing GT7 itself. */
+    for(unsigned i=0;i<50;i++){
+        if(running_gt7()>0)return 1;
+        usleep(100000);
+    }
+    return 0;
+}
+#endif
 static int start_engine(void){
     if(engine_ready())return 0;
     if(broken){strcpy(message,"Engine is unavailable. Reboot before retrying.");return -1;}
 #ifdef PS5
-    if((kernel_get_fw_version()>>16)!=0x1240){strcpy(message,"This build requires PS5 firmware 12.40.");return -1;}
     if(port_in_use(23916)||port_in_use(23900)||port_in_use(7211)){
         strcpy(message,"Another patch engine is running. Reboot and load only GT7Patcher.");return -1;
     }
@@ -215,9 +225,10 @@ static void serve(int fd){
 #ifdef PS5
         if(!engine_ready()){response(fd,409,"text/plain","Start the patch engine before launching GT7.");return;}
         int launch_result=gt7_launch_game();
-        /* System Service can return 0xC018 or 0xE018 after accepting the
-         * request. GT7 still starts, so report those results as successful. */
-        if(launch_result&&launch_result!=0xc018&&launch_result!=0xe018){snprintf(message,sizeof(message),"GT7 launch request failed: 0x%08x.",(unsigned)launch_result);response(fd,409,"text/plain",message);return;}
+        if(!wait_for_gt7_launch()){
+            snprintf(message,sizeof(message),"GT7 did not appear after the launch request (result 0x%08x).",(unsigned)launch_result);
+            response(fd,409,"text/plain",message);return;
+        }
         strcpy(message,"GT7 launch requested. The patch engine will apply saved patches as the game starts.");
         json_status(fd);return;
 #else
@@ -261,8 +272,8 @@ int main(int argc,char **argv){
 #ifdef PS5
     FILE *log=fopen("/data/gt7p/startup.log","w");
     if(log){fprintf(log,"GT7Patcher %s main reached; firmware=%08x; web socket listening on 7210\n",VERSION,kernel_get_fw_version());fclose(log);}
-    if((kernel_get_fw_version()>>16)!=0x1240||port_in_use(23916)||port_in_use(23900)||port_in_use(7211)){
-        strcpy(message,"Engine startup requires firmware 12.40 and no other patch system. Reboot and load only GT7Patcher.");
+    if(port_in_use(23916)||port_in_use(23900)||port_in_use(7211)){
+        strcpy(message,"Engine startup requires no other patch system. Reboot and load only GT7Patcher.");
         notify("GT7Patcher: engine unavailable. Open console port 7210 for details.");
     }else{
         atomic_store(&startup_pending,1);

@@ -20,7 +20,7 @@ paths=[p for root in source_roots for p in (HERE/root).rglob('*')
 paths.extend(HERE/name for name in source_files)
 sources={p.relative_to(HERE).as_posix():hashlib.sha256(p.read_bytes()).hexdigest()
          for p in sorted(paths)}
-manifest=dict(version=VERSION,target=dict(title='PPSA01317',app_version='01.710.000',firmware='12.40'),
+manifest=dict(version=VERSION,target=dict(title='PPSA01317',app_version='01.710.000',firmware='not checked at runtime'),
     elf=dict(file=elf.name,size=elf.stat().st_size,sha256=hashlib.sha256(elf.read_bytes()).hexdigest()),
     verification=dict(ps5_build='passed',host_integration_tests=10,bridge_execution_tests=6,memory_sanitizer_scenarios=8,browser_ui='automatic-start checkbox save and reload passed against local host build',
                       console_payload_test='startup, port 7210, home-screen registration and engine hook verified on firmware 12.40',australia_patch='identical to previously console-tested XML'),

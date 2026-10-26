@@ -147,7 +147,6 @@ static int main_module(pid_t pid,Module *out){
 static int bridge_prepare(void){
     engine_log("Bridge: locating ShellCore and main module");
     if(bridge)return damaged?-1:0;
-    if((kernel_get_fw_version()>>16)!=0x1240)return -1;
     shell=find_shell();if(shell<0||main_module(shell,&module))return -1;
     engine_log("Bridge: scanning OnNewProcess and callback pointer");
     /* OnNewProcess 12.xx signature; require exactly one match and pointer. */
