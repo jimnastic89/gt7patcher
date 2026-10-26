@@ -25,7 +25,7 @@ Supported configuration:
 - GT7 content version `01.710.000`
 - Web interface on port `7210`
 
-The payload includes offline mode, Debug Settings, Quick Store Rotation, Power Pack and vehicle DLC unlock patches. It also supports language and unit preferences. An experimental wheel-offset patch displays the car's native Wide values as `Front <front> / Rear <rear>`, then adds ten progressively wider pairs by subtracting 5 through 50 from both values. Only GT7 receives patch writes.
+The payload includes offline mode, Debug Settings, Quick Store Rotation, Power Pack and vehicle DLC unlock patches. It also supports language and unit preferences. An experimental wheel-offset patch displays the car's native Wide values as `Front <front> / Rear <rear>`, then adds ten progressively wider pairs by subtracting 5 through 50 from both values. Only GT7 receives patch writes. The source definition for the experimental Debug environment patch is retained, but it is not included in builds.
 
 ## Run
 

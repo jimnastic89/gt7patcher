@@ -22,7 +22,7 @@ int parse_config(const char *body,Config *c){
         char *eq=strchr(item,'=');if(!eq)return -1;*eq++=0;
         if(!*eq)return -1;
         char *end;long v=strtol(eq,&end,10);
-        if(*end||v < -1||v>63)return -1;
+        if(*end||v < -1||v>127)return -1;
         const char *keys[]={"mask","preset","units","language","speed","mass","power","torque","temperature","autostart"};
         int k;for(k=0;k<10;k++)if(!strcmp(item,keys[k]))break;
         if(k==10||(seen&(1U<<k)))return -1;
@@ -83,13 +83,30 @@ int save_config(const char *root,const Config *c){
 int load_config(const char *root,Config *c){
     char path[512],buf[512];snprintf(path,sizeof(path),"%s/xml_prospero/PPSA01317.xml",root);
     FILE *f=fopen(path,"rb");if(!f)return -1;
-    int r=-1;while(fgets(buf,sizeof(buf),f)){
+    int r=-1,has_race_info=0,has_debug_environment=0;Config loaded={0};unsigned saved_mask=0;
+    while(fgets(buf,sizeof(buf),f)){
+        if(strstr(buf,"Name=\"Race Info fifth blank option (experimental)\""))has_race_info=1;
+        if(strstr(buf,"Address=\"0x060e83b0\"")||strstr(buf,"Address=\"0x05ce83b0\""))has_debug_environment=1;
         unsigned mask;Config x={0};
         int fields=sscanf(buf,"<!-- GT7CONFIG %u %d %d %d %d %d %d %d %d %d",&mask,&x.preset,&x.units,&x.language,&x.speed,&x.mass,&x.power,&x.torque,&x.temperature,&x.autostart);
         if(fields==9||fields==10){
-            x.mask=mask;if(valid_config(&x)){*c=x;r=0;}break;
+            /* HUD builds may save bit 5 for their experimental Race Info
+             * option and bit 6 for Wheel Offset. Preserve the supported
+             * Wheel Offset choice, discard the unsupported experiment. */
+            if(mask<=0x7fU){x.mask=0;if(valid_config(&x)){loaded=x;saved_mask=mask;r=0;}}
         }
-    }fclose(f);return r;
+    }
+    fclose(f);
+    if(r)return r;
+    unsigned normalized=saved_mask&0x1fU;
+    /* Bit 6 is Wheel Offset in HUD snapshots, but was Debug environment in
+     * native snapshots. Debug environment is retained in source only, so
+     * discard its saved selection instead of producing an invalid mask. */
+    if((saved_mask&0x40U)&&!has_debug_environment)normalized|=0x20U;
+    if((saved_mask&0x20U)&&(!has_race_info||has_debug_environment))normalized|=0x20U;
+    loaded.mask=normalized;
+    if(!valid_config(&loaded))return -1;
+    *c=loaded;return 0;
 }
 const char *feature_name(unsigned i){return patch_names[i];}
 const char *feature_note(unsigned i){return patch_notes[i];}

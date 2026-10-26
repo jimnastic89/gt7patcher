@@ -94,7 +94,7 @@ class SelectorTests(unittest.TestCase):
 
     def test_wheel_offset_presets_patch_is_independent_and_guarded(self):
         self.assertEqual(len(self.status['features']),6)
-        self.assertEqual(self.status['features'][-1]['name'],'Wheel offset presets (experimental)')
+        self.assertEqual(self.status['features'][-1]['name'],'Wheel Offset Presets')
         c=dict(self.c,mask=32,units=0,language=-1)
         self.assertEqual(self.request('/api/config',c)[0],200)
         rows=self.lines();self.assertEqual(len(rows),1)
@@ -108,6 +108,15 @@ class SelectorTests(unittest.TestCase):
         self.assertEqual(calls,[0x3896350,0x304fef0,0x430a300,0x3896350])
         original=local_bytes(self.clean,0x3896010,len(blob))
         self.assertEqual(hashlib.sha256(original).hexdigest(),'d2ae3ea87746a76c4a829d3ff86867c7a8f007796c6d23b3f8b3b02aefe911c0')
+
+    def test_debug_environment_source_is_retained_but_not_built(self):
+        self.assertNotIn('Debug environment',[feature['name'] for feature in self.status['features']])
+        debug=next(m for m in self.project if m.get('Name')=='Debug environment')
+        self.assertEqual(local_bytes(self.clean,0x60e83b0,7),b'release')
+        rows=debug.findall('./PatchList/Line');self.assertEqual(len(rows),1)
+        self.assertEqual(int(rows[0].get('Address'),16),0x60e83b0)
+        self.assertEqual(bytes.fromhex(rows[0].get('Value')),b'debug\0\0')
+        self.assertEqual(self.request('/api/config',dict(self.c,mask=64,units=0,language=-1))[0],400)
 
     def test_all_unit_combinations_decode_to_selected_targets(self):
         for speed,mass,power,torque,temp in itertools.product(range(2),range(2),range(3),range(3),(1,2)):
@@ -148,7 +157,7 @@ class SelectorTests(unittest.TestCase):
     def test_bad_requests_never_replace_xml(self):
         path=self.state/'xml_prospero/PPSA01317.xml'
         before=path.read_bytes()
-        for key,value in [('mask',64),('language',27),('power',3),('mass',-1),('preset',6),('temperature',0),('autostart',2),('autostart',-1)]:
+        for key,value in [('mask',128),('language',27),('power',3),('mass',-1),('preset',6),('temperature',0),('autostart',2),('autostart',-1)]:
             self.assertEqual(self.request('/api/config',dict(self.c,**{key:value}))[0],400)
             self.assertEqual(path.read_bytes(),before)
         self.assertEqual(self.request('/api/config',self.c,token=False)[0],403)
@@ -168,6 +177,7 @@ class SelectorTests(unittest.TestCase):
         self.assertFalse((self.state/'xml_prospero/PPSA01317.xml.tmp').exists())
 
     def test_gt7_version_identity_and_minimal_state(self):
+        self.assertEqual(self.status['version'],'2.1')
         m=self.xml().find('Metadata')
         self.assertFalse((self.state/'xml_prospero/!_settings.xml').exists())
         self.assertFalse((self.state/'xml_orbis').exists())

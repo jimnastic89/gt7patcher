@@ -27,7 +27,7 @@
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 #endif
-#define VERSION "0.2"
+#define VERSION "2.1"
 #define PORT 7210
 static const char *root="/data/gt7p/patches";
 static char token[33],message[256]="Save your choices, then start the engine before launching GT7.";
@@ -181,7 +181,7 @@ static void serve(int fd){
     size_t received=used-(size_t)(body-req);
     if(received>length){response(fd,400,"text/plain","Invalid body length");return;}
     while(received<length){ssize_t r=recv(fd,body+received,length-received,0);if(r<=0)return;received+=(size_t)r;}body[length]=0;
-    if(strcmp(path,"/api/config")&&strcmp(path,"/api/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
+    if(strcmp(path,"/api/config")&&strcmp(path,"/api/start")&&strcmp(path,"/api/game/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
 #ifdef PS5
     if(atomic_load(&startup_pending)){response(fd,409,"text/plain","Startup is still running. Please retry shortly; the browser page remains available.");return;}
 #endif
@@ -206,6 +206,22 @@ static void serve(int fd){
         strcpy(message,"Home-screen shortcut reinstalled.");notify("GT7Patcher: Home-screen shortcut reinstalled.");json_status(fd);return;
 #else
         response(fd,409,"text/plain","Shortcut installation is only available on PS5.");return;
+#endif
+    }
+    if(!strcmp(path,"/api/game/start")){
+        if(length){response(fd,400,"text/plain","Unexpected request body");return;}
+        int game=running_gt7();
+        if(game){response(fd,409,"text/plain",game>0?"GT7 is already running.":"Cannot establish that GT7 is closed; launch was not requested.");return;}
+#ifdef PS5
+        if(!engine_ready()){response(fd,409,"text/plain","Start the patch engine before launching GT7.");return;}
+        int launch_result=gt7_launch_game();
+        /* System Service can return 0xC018 or 0xE018 after accepting the
+         * request. GT7 still starts, so report those results as successful. */
+        if(launch_result&&launch_result!=0xc018&&launch_result!=0xe018){snprintf(message,sizeof(message),"GT7 launch request failed: 0x%08x.",(unsigned)launch_result);response(fd,409,"text/plain",message);return;}
+        strcpy(message,"GT7 launch requested. The patch engine will apply saved patches as the game starts.");
+        json_status(fd);return;
+#else
+        response(fd,409,"text/plain","GT7 launch is only available on PS5.");return;
 #endif
     }
     int game=running_gt7();if(game){response(fd,409,"text/plain",game>0?"Fully close GT7 before saving or starting the engine.":"Cannot establish that GT7 is closed; no changes saved.");return;}
