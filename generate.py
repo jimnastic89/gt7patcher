@@ -13,10 +13,14 @@ def cstring(value):
 def main():
     BUILD.mkdir(exist_ok=True)
     source = HERE / 'data/PPSA01317-original.xml'
-    metas = ET.parse(source).getroot().findall('Metadata')
+    source_metas = ET.parse(source).getroot().findall('Metadata')
+    assert len(source_metas) == 7
+    assert any(m.get('Name') == 'Debug environment' for m in source_metas)
+    metas = [m for m in source_metas if m.get('Name') != 'Debug environment']
     assert len(metas) == 6
     assert all(not any(c in m.get(k, '') for c in '\"\\\r\n') for m in metas for k in ['Name', 'Note'])
-    wheel_lines = metas[-1].findall('./PatchList/Line')
+    wheel = next(m for m in metas if m.get('Name') == 'Wheel Offset Presets')
+    wheel_lines = wheel.findall('./PatchList/Line')
     assert len(wheel_lines) == 1
     assert int(wheel_lines[0].get('Address'), 16) == 0x3896010
     assert bytes.fromhex(wheel_lines[0].get('Value')) == (BUILD / 'wheel_offset_custom.bin').read_bytes()

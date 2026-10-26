@@ -21,7 +21,7 @@ build/hook_blob.h: build/hook.bin build_hook.py
 build/notify.o: vendor/notify/notify.c
 	$(CC) -Wall -Werror -O2 -c $< -o $@
 build/gt7patcher.elf: src/main.c src/config.c src/config.h src/engine.c src/engine.h build/assets.h build/hook_blob.h build/notify.o
-	$(CC) $(CFLAGS) -DPS5 src/main.c src/config.c src/engine.c build/notify.o -lSceSystemService -o $@
+	$(CC) $(CFLAGS) -DPS5 src/main.c src/config.c src/engine.c build/notify.o -lSceSystemService -lSceUserService -o $@
 host: build/assets.h
 	gcc $(CFLAGS) -D_DEFAULT_SOURCE src/main.c src/config.c -o build/gt7patcher-host
 .PHONY: all host

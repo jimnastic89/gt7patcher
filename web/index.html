@@ -386,21 +386,22 @@ button:not([role="tab"]) {
         <div class="actions">
             <button type="submit" id="save" class="primary" disabled>Save</button>
             <button type="button" id="start" disabled>Start engine</button>
+            <button type="button" id="launch-game" disabled>Start GT7</button>
         </div>
     </div>
 </form>
 <script>
     'use strict';
     const $ = id => document.getElementById(id), keys = ['preset', 'units', 'language', 'speed', 'mass', 'power', 'torque', 'temperature'];
-    let token = '', busy = false, dirty = false, loaded = false, engine = false, halted = false;
+    let token = '', busy = false, dirty = false, loaded = false, engine = false, halted = false, gameRunning = false, gameClosed = false;
     const languages = [['JP', 'Japanese'], ['US', 'English (United States)'], ['GB', 'English (United Kingdom)'], ['FR', 'French'], ['ES', 'Spanish (Spain)'], ['DE', 'German'], ['IT', 'Italian'], ['NL', 'Dutch'], ['PT', 'Portuguese'], ['RU', 'Russian'], ['PL', 'Polish'], ['TR', 'Turkish'], ['EL', 'Greek'], ['KR', 'Korean'], ['TW', 'Chinese (Traditional)'], ['CN', 'Chinese (Simplified)'], ['DK', 'Danish'], ['NO', 'Norwegian'], ['SE', 'Swedish'], ['FI', 'Finnish'], ['CZ', 'Czech'], ['HU', 'Hungarian'], ['BP', 'Portuguese (Brazil)'], ['MS', 'Spanish (Latin America)'], ['AR', 'Arabic'], ['TH', 'Thai'], ['ZH', 'Chinese (ZH)']];
     $('language').append(new Option('System language', -1)); languages.forEach(([code, name], i) => $('language').append(new Option(`${name} · ${code}`, i)));
     function status(text, error = false) { $('status').textContent = text; $('status').classList.toggle('error', error) }
     function units() { for (const e of $('unit-fields').querySelectorAll('select')) e.disabled = $('units').value === '0' }
-    function buttons() { $('save').disabled = !loaded || busy || halted; $('start').disabled = !loaded || busy || dirty || engine || halted; $('reinstall-shortcut').disabled = !loaded || busy || halted; $('stop-engine').disabled = !loaded || busy || !engine || halted; $('stop-payload').disabled = !loaded || busy || halted; }
+    function buttons() { $('save').disabled = !loaded || busy || halted; $('start').disabled = !loaded || busy || dirty || engine || halted; $('launch-game').disabled = !loaded || busy || halted || !engine || !gameClosed; $('reinstall-shortcut').disabled = !loaded || busy || halted; $('stop-engine').disabled = !loaded || busy || !engine || halted; $('stop-payload').disabled = !loaded || busy || halted; }
     function mark() { dirty = true; buttons(); status('Unsaved choices. Fully close GT7, then save for the next launch.') }
     function render(s) {
-        token = s.token; engine = s.engineRunning; $('version').textContent = `v${s.version}`; document.title = `GT7Patcher v${s.version}`;
+        token = s.token; engine = s.engineRunning; gameRunning = s.gameRunning === 1; gameClosed = s.gameRunning === 0; $('version').textContent = `v${s.version}`; document.title = `GT7Patcher v${s.version}`;
         if (!loaded) { s.features.forEach((f, i) => { const row = document.createElement('div'); row.className = 'feature'; const input = document.createElement('input'); input.type = 'checkbox'; input.id = `patch-${i}`; input.dataset.bit = i; const box = document.createElement('div'), label = document.createElement('label'), note = document.createElement('p'); label.htmlFor = input.id; label.textContent = f.name; note.className = 'detail'; note.textContent = f.note; box.append(label, note); row.append(input, box); $('features').append(row) }) }
         if (!dirty) { for (const k of keys) $(k).value = s.config[k]; $('autostart').checked = Boolean(s.config.autostart); s.features.forEach((_, i) => { $(`patch-${i}`).checked = Boolean(s.config.mask & (1 << i)) }); units() }
         loaded = true; buttons(); if (!dirty) status(s.message + (s.gameRunning === 1 ? '\nGT7 is running. Close it before changing the next-launch snapshot.' : '') + (s.gameRunning < 0 ? '\nCould not check whether GT7 is closed.' : ''));
@@ -409,9 +410,10 @@ button:not([role="tab"]) {
     async function post(path, body, savesSettings = false) { busy = true; buttons(); try { const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (savesSettings) dirty = false; render(result); if (dirty) status(result.message) } catch (e) { status(e.message, true) } finally { busy = false; buttons() } }
     $('form').addEventListener('submit', e => { e.preventDefault(); const c = { mask: 0, autostart: Number($('autostart').checked) }; document.querySelectorAll('#features input[data-bit]').forEach(input => { if (input.checked) c.mask |= 1 << Number(input.dataset.bit) }); for (const k of keys) c[k] = Number($(k).value); post('/api/config', new URLSearchParams(c).toString(), true) });
     $('start').onclick = () => post('/api/start', '');
+    $('launch-game').onclick = () => post('/api/game/start', '');
     $('reinstall-shortcut').onclick = () => post('/api/shortcut/reinstall', '');
-    $('stop-engine').onclick = () => post('/api/engine/stop', '');
-    $('stop-payload').onclick = async () => { if (!confirm('Stop GT7Patcher? Port 7210 will close until the payload is run again.')) return; busy = true; buttons(); try { const r = await fetch('/api/payload/stop', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: '' }); if (!r.ok) throw Error(await r.text()); halted = true; engine = false; status('GT7Patcher has stopped. Run the payload again to reconnect.') } catch (e) { status(e.message, true) } finally { busy = false; buttons() } };
+    $('stop-engine').onclick = async () => { await read(); if (gameRunning && !confirm('GT7 is running. Stopping the engine now leaves the current game unpatched and may prevent automatic restoration. Continue?')) return; post('/api/engine/stop', '') };
+    $('stop-payload').onclick = async () => { const warning = gameRunning ? 'GT7 is running. Stopping GT7Patcher now stops its engine and closes the web interface. Continue?' : 'Stop GT7Patcher? Port 7210 will close until the payload is run again.'; if (!confirm(warning)) return; busy = true; buttons(); try { const r = await fetch('/api/payload/stop', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: '' }); if (!r.ok) throw Error(await r.text()); halted = true; engine = false; status('GT7Patcher has stopped. Run the payload again to reconnect.') } catch (e) { status(e.message, true) } finally { busy = false; buttons() } };
     $('form').addEventListener('change', e => { if (e.target.id === 'patch-2' && e.target.checked) $('patch-0').checked = true; if (e.target.id === 'patch-0' && !e.target.checked) $('patch-2').checked = false; if (e.target.id === 'units') units(); if (['speed', 'mass', 'power', 'torque', 'temperature', 'language'].includes(e.target.id)) $('preset').value = 0; mark() });
     const presets = { 1: { language: 2, speed: 0, mass: 0, power: 2, torque: 2, temperature: 1 }, 2: { language: 2, speed: 0, mass: 0, power: 1, torque: 2, temperature: 1 }, 3: { language: 1, speed: 1, mass: 1, power: 1, torque: 1, temperature: 2 }, 4: { language: 0, speed: 0, mass: 0, power: 0, torque: 0, temperature: 1 }, 5: { language: 2, speed: 1, mass: 0, power: 1, torque: 2, temperature: 1 } };
     $('preset').addEventListener('change', () => { const p = presets[$('preset').value]; if (p) { for (const [k, v] of Object.entries(p)) $(k).value = v; $('units').value = 1; units() } });

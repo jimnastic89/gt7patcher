@@ -33,6 +33,10 @@
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 extern int sceShellCoreUtilGetAppLaunchedParamString(uint32_t,const char *,char *,size_t);
+extern int sceUserServiceInitialize(void *);
+extern int sceUserServiceGetForegroundUser(uint32_t *);
+typedef struct {uint32_t structsize,user_id,app_opt;uint64_t crash_report;uint32_t check_flag;} Gt7LaunchContext;
+extern int sceSystemServiceLaunchApp(const char *,const char **,Gt7LaunchContext *);
 /* SDK-private dynlib layout, same as ps-patch-system/shared/dynlib.h. */
 typedef struct {
     uintptr_t next,path,unknown0[2];unsigned refcount;uintptr_t handle;
@@ -46,6 +50,7 @@ static Module module;
 static uintptr_t bridge,slot,original;
 static unsigned char *saved_frame;
 static int service=-1,active,damaged;
+static int user_service_ready;
 static atomic_int live;
 static pthread_t thread;
 static unsigned char expected_bridge[sizeof(hook_blob)];
@@ -252,6 +257,15 @@ int gt7_engine_stop(void){
     /* Leave the bridge memory in place: another ShellCore thread may still
      * be returning through it. The restored pointer prevents new calls. */
     return 0;
+}
+int gt7_launch_game(void){
+    uint32_t user=0xffffffffU;const char *argv[]={NULL};Gt7LaunchContext context={0};
+    if(!user_service_ready){int result=sceUserServiceInitialize(NULL);if(result)return result;user_service_ready=1;}
+    if(!sceUserServiceGetForegroundUser(&user)&&user!=0xffffffffU&&(int32_t)user!=-1){
+        context.structsize=sizeof(context);context.user_id=user;
+        return sceSystemServiceLaunchApp("PPSA01317",argv,&context);
+    }
+    return sceSystemServiceLaunchApp("PPSA01317",argv,NULL);
 }
 /* ShadowMountPlus may already own the 12.40 AppInstallAll hook. Its bridge
  * deliberately exposes one-shot title/base-directory immediates. Reuse that
