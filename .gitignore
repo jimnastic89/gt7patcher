@@ -3,6 +3,16 @@
 /dist/
 __pycache__/
 *.py[cod]
+*.o
+*.elf
+*.bin
+/*.zip
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+*.swp
+*.swo
 
 # Local design and editor files
 /icon0.psd

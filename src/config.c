@@ -4,7 +4,10 @@
 #include <string.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <pthread.h>
 #include "assets.h"
+
+static pthread_mutex_t config_io_lock=PTHREAD_MUTEX_INITIALIZER;
 
 Config defaults(void){return (Config){1,1,1,2,0,0,2,2,1,0};}
 int valid_config(const Config *c){
@@ -51,8 +54,11 @@ int emit_xml(FILE *f,const Config *c){
     if(!valid_config(c))return -1;
     fputs("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Patch><TitleID><ID>PPSA01317</ID></TitleID>\n"
         "<Metadata Title=\"Gran Turismo 7\" Name=\"GT7 selected patches\" Author=\"AI-generated; based on High-Speed007 and PSVIETHOA; GT7Patcher\" PatchVer=\"1.0\" AppVer=\"01.710.000\" ImageBase=\"0x00400000\" AppElf=\"eboot.bin\"><PatchList>\n",f);
-    for(unsigned i=0;i<PATCH_COUNT;i++)if(c->mask&(1U<<i))fputs(patch_lines[i],f);
+    for(unsigned i=0;i<PATCH_COUNT;i++)if(c->mask&(1U<<i)){
+        fprintf(f,"<!-- GT7FEATURE %u -->\n",i);fputs(patch_lines[i],f);
+    }
     if(c->units){
+        fputs("<!-- GT7FEATURE units -->\n",f);
         unsigned char b[71];uint32_t values[]={c->speed,c->power,c->torque,3,c->temperature,0,c->mass};
         for(unsigned i=0;i<7;i++)store(b+i*10,0xc22060+i*10,0x611aecc+i*4,values[i]);
         b[70]=0xc3;line(f,0xc22060,b,sizeof(b));
@@ -62,6 +68,7 @@ int emit_xml(FILE *f,const Config *c){
         for(unsigned i=0;i<4;i++){store(b,addresses[i],targets[i],v[i]);b[10]=0xc3;line(f,addresses[i],b,11);}
     }
     if(c->language>=0){
+        fputs("<!-- GT7FEATURE language -->\n",f);
         unsigned char b[]={0xbf,0,0,0,0};uint32_t lang=(uint32_t)c->language;memcpy(b+1,&lang,4);
         line(f,0xc21e93,b,5);b[0]=0xeb;b[1]=3;line(f,0xc21e98,b,2);
     }
@@ -70,7 +77,7 @@ int emit_xml(FILE *f,const Config *c){
     fputs("</Patch>\n",f);
     return ferror(f)?-1:0;
 }
-int save_config(const char *root,const Config *c){
+static int save_config_unlocked(const char *root,const Config *c){
     char path[512],temp[520];
     snprintf(path,sizeof(path),"%s/xml_prospero/PPSA01317.xml",root);
     snprintf(temp,sizeof(temp),"%s.tmp",path);
@@ -80,13 +87,16 @@ int save_config(const char *root,const Config *c){
     /* Persist the UI state inside the same atomic XML snapshot. The engine ignores this comment. */
     return 0;
 }
-int load_config(const char *root,Config *c){
+int save_config(const char *root,const Config *c){
+    int r;pthread_mutex_lock(&config_io_lock);r=save_config_unlocked(root,c);pthread_mutex_unlock(&config_io_lock);return r;
+}
+static int load_config_unlocked(const char *root,Config *c){
     char path[512],buf[512];snprintf(path,sizeof(path),"%s/xml_prospero/PPSA01317.xml",root);
     FILE *f=fopen(path,"rb");if(!f)return -1;
     int r=-1,has_race_info=0,has_debug_environment=0;Config loaded={0};unsigned saved_mask=0;
     while(fgets(buf,sizeof(buf),f)){
         if(strstr(buf,"Name=\"Race Info fifth blank option (experimental)\""))has_race_info=1;
-        if(strstr(buf,"Address=\"0x060e83b0\"")||strstr(buf,"Address=\"0x05ce83b0\""))has_debug_environment=1;
+        if(strstr(buf,"Address=\"0x060ec3b0\"")||strstr(buf,"Address=\"0x060e83b0\"")||strstr(buf,"Address=\"0x05ce83b0\""))has_debug_environment=1;
         unsigned mask;Config x={0};
         int fields=sscanf(buf,"<!-- GT7CONFIG %u %d %d %d %d %d %d %d %d %d",&mask,&x.preset,&x.units,&x.language,&x.speed,&x.mass,&x.power,&x.torque,&x.temperature,&x.autostart);
         if(fields==9||fields==10){
@@ -100,13 +110,16 @@ int load_config(const char *root,Config *c){
     if(r)return r;
     unsigned normalized=saved_mask&0x1fU;
     /* Bit 6 is Wheel Offset in HUD snapshots, but was Debug environment in
-     * native snapshots. Debug environment is retained in source only, so
-     * discard its saved selection instead of producing an invalid mask. */
+     * native snapshots. Debug environment remains in source only, so discard
+     * that saved selection while preserving the independent wheel option. */
     if((saved_mask&0x40U)&&!has_debug_environment)normalized|=0x20U;
     if((saved_mask&0x20U)&&(!has_race_info||has_debug_environment))normalized|=0x20U;
     loaded.mask=normalized;
     if(!valid_config(&loaded))return -1;
     *c=loaded;return 0;
+}
+int load_config(const char *root,Config *c){
+    int r;pthread_mutex_lock(&config_io_lock);r=load_config_unlocked(root,c);pthread_mutex_unlock(&config_io_lock);return r;
 }
 const char *feature_name(unsigned i){return patch_names[i];}
 const char *feature_note(unsigned i){return patch_notes[i];}

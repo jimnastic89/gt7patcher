@@ -3,7 +3,7 @@
  * Builds Standard and eleven car-relative pairs based on the native Wide value.
  */
 .intel_syntax noprefix
-.section .text
+.section .patch.0000.03896010,"a",@progbits
 .global wheel_offset_options
 .type wheel_offset_options,@function
 wheel_offset_options:

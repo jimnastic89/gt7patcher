@@ -24,13 +24,13 @@ sys.path.insert(0, str(ROOT / 'diagnostics/python-libs'))
 sys.path.insert(0, str(HERE / 'build/test-libs'))
 from capstone import Cs, CS_ARCH_X86, CS_MODE_64
 sys.path.insert(0, str(HERE))
+from generate import object_patch_lines
 
 class SelectorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.clean = self_segments(ROOT / 'GRAN_TURISMO_7_Clean_Backport/eboot.bin')
         cls.original = ET.parse(ROOT / 'gt7-offline-v1.0/PPSA01317.xml').getroot().findall('Metadata')
-        cls.project = ET.parse(HERE / 'data/PPSA01317-original.xml').getroot().findall('Metadata')
         cls.md = Cs(CS_ARCH_X86, CS_MODE_64)
 
     def setUp(self):
@@ -100,7 +100,7 @@ class SelectorTests(unittest.TestCase):
         rows=self.lines();self.assertEqual(len(rows),1)
         self.assertEqual(int(rows[0].get('Address'),16),0x3896010)
         blob=bytes.fromhex(rows[0].get('Value'))
-        self.assertEqual(blob,(HERE/'build/wheel_offset_custom.bin').read_bytes())
+        self.assertEqual(blob,object_patch_lines(HERE/'build/wheel_offset_custom.o')[0][1])
         self.assertIn(b'Standard',blob);self.assertIn(b'Fron',blob);self.assertIn(b' / Rear ',blob)
         self.assertNotIn(b'Wide',blob);self.assertNotIn(b'Offset -',blob);self.assertNotIn(b'Custom',blob)
         instructions=list(self.md.disasm(blob,0x3896010))
@@ -110,12 +110,11 @@ class SelectorTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(original).hexdigest(),'d2ae3ea87746a76c4a829d3ff86867c7a8f007796c6d23b3f8b3b02aefe911c0')
 
     def test_debug_environment_source_is_retained_but_not_built(self):
-        self.assertNotIn('Debug environment',[feature['name'] for feature in self.status['features']])
-        debug=next(m for m in self.project if m.get('Name')=='Debug environment')
+        self.assertNotIn('Debug environment',[f['name'] for f in self.status['features']])
         self.assertEqual(local_bytes(self.clean,0x60e83b0,7),b'release')
-        rows=debug.findall('./PatchList/Line');self.assertEqual(len(rows),1)
-        self.assertEqual(int(rows[0].get('Address'),16),0x60e83b0)
-        self.assertEqual(bytes.fromhex(rows[0].get('Value')),b'debug\0\0')
+        source=(HERE/'patches/debug_environment.S').read_text()
+        self.assertIn('.patch.0000.060e83b0',source)
+        self.assertIn('0x64, 0x65, 0x62, 0x75, 0x67, 0x00, 0x00',source)
         self.assertEqual(self.request('/api/config',dict(self.c,mask=64,units=0,language=-1))[0],400)
 
     def test_all_unit_combinations_decode_to_selected_targets(self):
@@ -177,7 +176,7 @@ class SelectorTests(unittest.TestCase):
         self.assertFalse((self.state/'xml_prospero/PPSA01317.xml.tmp').exists())
 
     def test_gt7_version_identity_and_minimal_state(self):
-        self.assertEqual(self.status['version'],'2.1')
+        self.assertEqual(self.status['version'],'0.22')
         m=self.xml().find('Metadata')
         self.assertFalse((self.state/'xml_prospero/!_settings.xml').exists())
         self.assertFalse((self.state/'xml_orbis').exists())

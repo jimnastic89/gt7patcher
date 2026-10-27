@@ -31,6 +31,7 @@
 #include <errno.h>
 #include <dlfcn.h>
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
+typedef struct __attribute__((packed)){int pid;unsigned char final_attempt;} PatchRequest;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 extern int sceShellCoreUtilGetAppLaunchedParamString(uint32_t,const char *,char *,size_t);
 extern int sceUserServiceInitialize(void *);
@@ -194,38 +195,71 @@ static int apply_line(pid_t pid,uintptr_t base,unsigned address,const char *hex)
     for(size_t i=0;i<len/2;i++){unsigned v;if(sscanf(hex+i*2,"%2x",&v)!=1)return -1;bytes[i]=(unsigned char)v;}
     return verified_write(pid,base+(address-0x400000),bytes,len/2);
 }
-static void apply_gt7(pid_t pid){
-    AppInfo app={0};char version[32]={0};Module game;
-    if(sceKernelGetAppInfo(pid,&app)||strcmp(app.title_id,"PPSA01317"))return;
-    if(sceShellCoreUtilGetAppLaunchedParamString(app.app_id,"CONTENT_VERSION",version,sizeof(version))||strcmp(version,"01.710.000")){
-        notify("GT7: patches skipped. This payload requires version 01.710.000.");return;
+static int apply_debug_environment(pid_t pid,const Module *game){
+    static const unsigned char pattern[]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,'r','e','l','e','a','s','e',0,0,0,0,0,0,0,0};
+    static const unsigned char replacement[]={'d','e','b','u','g',0,0};
+    const size_t chunk=1024*1024,overlap=sizeof(pattern)-1;
+    if(!game->mapsize||game->mapsize>128*1024*1024)return -1;
+    unsigned char *buf=malloc(chunk+overlap);if(!buf)return -1;
+    size_t offset=0,carry=0,matches=0;uintptr_t target=0;
+    while(offset<game->mapsize){
+        size_t n=game->mapsize-offset;if(n>chunk)n=chunk;
+        if(read_mem(pid,game->mapbase+offset,buf+carry,n)){free(buf);return -1;}
+        size_t total=carry+n;
+        for(size_t i=0;i+sizeof(pattern)<=total;i++)if(!memcmp(buf+i,pattern,sizeof(pattern))){
+            target=game->mapbase+offset-carry+i+16;matches++;
+        }
+        carry=total<overlap?total:overlap;memmove(buf,buf+total-carry,carry);offset+=n;
     }
-    if(main_module(pid,&game)||!game.mapbase){notify("GT7: could not locate the game executable. Close GT7 and retry.");return;}
-    Config config;if(load_config(state_root,&config)){notify("GT7: could not read saved patch choices. Close GT7 and save again.");return;}
+    free(buf);
+    return matches==1?verified_write(pid,target,replacement,sizeof(replacement)):-1;
+}
+static int apply_gt7(pid_t pid,int final_attempt){
+    AppInfo app={0};char version[32]={0};Module game;
+    if(sceKernelGetAppInfo(pid,&app)||strcmp(app.title_id,"PPSA01317"))return 0;
+    if(sceShellCoreUtilGetAppLaunchedParamString(app.app_id,"CONTENT_VERSION",version,sizeof(version))||strcmp(version,"01.710.000")){
+        if(final_attempt)notify("GT7: patches skipped. This payload requires version 01.710.000.");return 0;
+    }
+    if(main_module(pid,&game)||!game.mapbase){if(final_attempt)notify("GT7: could not locate the game executable. Close GT7 and retry.");return 0;}
+    Config config;if(load_config(state_root,&config)){if(final_attempt)notify("GT7: could not read saved patch choices. Close GT7 and save again.");return 0;}
     /* Generate from validated settings and built-in patch data. Never execute
      * arbitrary XML supplied on disk; only the config comment is consumed. */
     FILE *f=fopen("/data/gt7p/launch.tmp","w+");
     if(f)unlink("/data/gt7p/launch.tmp");
-    if(!f||emit_xml(f,&config)){if(f)fclose(f);notify("GT7: could not prepare patches.");return;}
-    rewind(f);char line[16384],hex[8193];unsigned address,count=0;int failed=0;
+    if(!f||emit_xml(f,&config)){if(f)fclose(f);if(final_attempt)notify("GT7: could not prepare patches.");return 0;}
+    rewind(f);char line[16384],hex[8193];unsigned address;int failed=0,patched=0;
+    const char *current_name="Unknown patch";
     while(fgets(line,sizeof(line),f)){
+        unsigned feature;
+        if(sscanf(line,"<!-- GT7FEATURE %u -->",&feature)==1){
+            current_name=feature<PATCH_COUNT?feature_name(feature):"Unknown patch";
+            continue;
+        }
+        if(strstr(line,"<!-- GT7FEATURE units -->")){
+            current_name="Display units";continue;
+        }
+        if(strstr(line,"<!-- GT7FEATURE language -->")){
+            current_name="Game language";continue;
+        }
         if(strncmp(line,"<Line ",6))continue;
-        if(sscanf(line,"<Line Type=\"bytes\" Address=\"0x%x\" Value=\"%8192[0123456789abcdefABCDEF]\"",&address,hex)!=2||apply_line(pid,game.mapbase,address,hex)){failed=1;break;}
-        count++;
+        if(sscanf(line,"<Line Type=\"bytes\" Address=\"0x%x\" Value=\"%8192[0123456789abcdefABCDEF]\"",&address,hex)!=2||
+           (address==0x060e83b0?apply_debug_environment(pid,&game):apply_line(pid,game.mapbase,address,hex))){failed=1;break;}
+        patched=1;
     }
     fclose(f);
-    if(failed)notify("GT7: patching failed. Close the game before retrying.");
-    else if(count)notify("GT7Patcher: Saved patches applied.");
+    if(failed){if(final_attempt)notify("GT7: Patch failed: %s. Close the game before retrying.",current_name);return 0;}
+    else if(patched)notify("GT7Patcher: Saved patches applied.");
     else notify("GT7: all patches are disabled. Launching without changes.");
+    return 1;
 }
 static void *patch_service(void *unused){
     (void)unused;atomic_store(&live,1);
     while(atomic_load(&live)){
         int fd=accept(service,NULL,NULL);if(fd<0){if(errno==EINTR)continue;break;}
         struct timeval timeout={10,0};setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&timeout,sizeof(timeout));
-        pid_t pid=0;size_t n=0;
-        while(n<sizeof(pid)){ssize_t r=recv(fd,(char *)&pid+n,sizeof(pid)-n,0);if(r<=0)break;n+=(size_t)r;}
-        if(n==sizeof(pid)&&pid>0){apply_gt7(pid);unsigned char ack=1;send(fd,&ack,1,0);}
+        PatchRequest request={0};size_t n=0;
+        while(n<sizeof(request)){ssize_t r=recv(fd,(char *)&request+n,sizeof(request)-n,0);if(r<=0)break;n+=(size_t)r;}
+        if(n==sizeof(request)&&request.pid>0){unsigned char ack=apply_gt7(request.pid,request.final_attempt)?1:0;send(fd,&ack,1,0);}
         close(fd);
     }atomic_store(&live,0);return NULL;
 }

@@ -1,8 +1,8 @@
 # GT7Patcher
 
-GT7Patcher is a PS5 payload for applying patches to the PS5 version of Gran Turismo 7 at runtime without modifying the game files. It provides a web interface for selecting patches, and can be configured to apply saved patches autmatically when the payload starts.
+GT7Patcher is a payload for applying patches to the PS5 version of Gran Turismo 7 at runtime without modifying the game files. It provides a web interface for selecting patches, and can be configured to apply saved patches automatically when the payload starts.
 
-Included patches as of version 2.1:
+Included patches as of version 0.22:
 
 - Offline mode
 - Unlock debug Settings

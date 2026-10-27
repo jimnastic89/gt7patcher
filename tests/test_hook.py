@@ -51,14 +51,14 @@ class HookTests(unittest.TestCase):
     def call(self):
         pid=C.c_int(4321)
         self.assertEqual(self.hook(None,None,C.byref(pid)),123)
-        self.assertEqual(self.events[0],'original')
+        self.assertIn('original',self.events)
 
     def test_gt7_launch_sends_pid_to_loopback_and_waits_for_ack(self):
-        self.call();self.assertEqual(self.sent,struct.pack('<i',4321))
+        self.call();self.assertEqual(self.sent,struct.pack('<iB',4321,0))
         sockaddr=next(e[1] for e in self.events if isinstance(e,tuple) and e[0]=='connect')
         self.assertEqual(sockaddr[:8],b'\x10\x02'+struct.pack('>H',7211)+b'\x7f\x00\x00\x01')
         self.assertEqual(len([e for e in self.events if isinstance(e,tuple) and e[0]=='timeout']),2)
-        self.assertIn('ack',self.events);self.assertEqual(self.events[-1],('close',20))
+        self.assertIn('ack',self.events);self.assertIn(('close',20),self.events);self.assertEqual(self.events[-1],'original')
 
     def test_non_gt7_titles_never_connect(self):
         for title in [b'PPSA01316',b'PPSA99999',b'NPXS40001',b'PPSA013170']:
@@ -74,7 +74,7 @@ class HookTests(unittest.TestCase):
         self.assertFalse(self.sent);self.assertNotIn('ack',self.events);self.assertEqual(self.events[-1],('close',20))
 
     def test_short_sends_are_completed(self):
-        self.short_io=True;self.call();self.assertEqual(self.sent,struct.pack('<i',4321));self.assertIn('ack',self.events)
+        self.short_io=True;self.call();self.assertEqual(self.sent,struct.pack('<iB',4321,0));self.assertIn('ack',self.events)
 
     def test_icon_registration_is_fixed_to_gt7patcher_title(self):
         icon=C.CFUNCTYPE(C.c_int)(self.base+self.meta['symbols']['icon_hook'])

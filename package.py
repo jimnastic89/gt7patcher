@@ -8,11 +8,11 @@ import zipfile
 HERE=Path(__file__).resolve().parent
 DIST=HERE/'dist'
 DIST.mkdir(exist_ok=True)
-VERSION='2.1'
+VERSION='0.22'
 name=f'GT7Patcher-v{VERSION}'
 elf=DIST/f'{name}.elf'
 shutil.copyfile(HERE/'build/gt7patcher.elf',elf)
-source_roots=('assets','data','src','tests','vendor','web')
+source_roots=('assets','data','patches','src','tests','vendor','web')
 source_files=('Makefile','generate.py','build_hook.py','package.py','.gitignore',
               'README.md','THIRD_PARTY_NOTICES.md','LICENSE')
 paths=[p for root in source_roots for p in (HERE/root).rglob('*')

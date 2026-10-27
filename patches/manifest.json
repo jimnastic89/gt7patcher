@@ -1,0 +1,44 @@
+[
+  {
+    "name": "Offline mode",
+    "note": "Offline play with saving",
+    "source": "offline_mode",
+    "built": true
+  },
+  {
+    "name": "Debug Settings",
+    "note": "Unlocks debug in options",
+    "source": "debug_settings",
+    "built": true
+  },
+  {
+    "name": "Quick Store Rotation",
+    "note": "Optional one-minute shop rotation override, offers last six minutes.",
+    "source": "quick_store_rotation",
+    "built": true
+  },
+  {
+    "name": "Unlock Power Pack",
+    "note": "Unlocks Power Pack DLC",
+    "source": "unlock_power_pack",
+    "built": true
+  },
+  {
+    "name": "Unlock Vehicle DLCs",
+    "note": "Unlocks all vehicle DLCs",
+    "source": "unlock_vehicle_dlcs",
+    "built": true
+  },
+  {
+    "name": "Wheel Offset Presets",
+    "note": "Shows the native Wide wheel offsets and adds ten 5 mm wider pairs.",
+    "source": "wheel_offset_custom",
+    "built": true
+  },
+  {
+    "name": "Debug environment",
+    "note": "Changes the internal build environment to expose additional demo, LAN, B-Spec, and car settings.",
+    "source": "debug_environment",
+    "built": false
+  }
+]
