@@ -129,6 +129,40 @@ button:not([role="tab"]) {
         cursor: default
     }
 
+    #launch-game:not(:disabled) {
+        background: linear-gradient(to bottom right, #042757 0%, #5c0610 100%);
+        border-color: rgba(255, 255, 255, .55);
+        color: #ffffff;
+        font-weight: 600;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, .55);
+        animation: launch-glow 3.2s linear infinite;
+    }
+
+    #launch-game:not(:disabled):hover {
+        filter: brightness(1.12);
+    }
+
+    @keyframes launch-glow {
+        0%, 100% {
+            box-shadow: -4px -4px 16px rgba(20, 125, 255, .42), 4px 4px 16px rgba(225, 38, 61, .34);
+        }
+        25% {
+            box-shadow: 4px -4px 16px rgba(20, 125, 255, .42), -4px 4px 16px rgba(225, 38, 61, .34);
+        }
+        50% {
+            box-shadow: 4px 4px 16px rgba(20, 125, 255, .42), -4px -4px 16px rgba(225, 38, 61, .34);
+        }
+        75% {
+            box-shadow: -4px 4px 16px rgba(20, 125, 255, .42), 4px -4px 16px rgba(225, 38, 61, .34);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        #launch-game:not(:disabled) {
+            animation: none;
+        }
+    }
+
     .card {
         background: linear-gradient(to bottom, #2e2e2e, #2b2b2b);
         border: 2px solid #191919;

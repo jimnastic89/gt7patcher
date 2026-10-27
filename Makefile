@@ -1,14 +1,12 @@
 PS5_PAYLOAD_SDK ?= /opt/ps5-payload-sdk
 include $(PS5_PAYLOAD_SDK)/toolchain/prospero.mk
 CFLAGS = -std=c11 -Os -Wall -Wextra -Werror -Ibuild -Ivendor/notify
+PATCH_OBJECTS = build/offline_mode.o build/debug_settings.o build/quick_store_rotation.o \
+	build/unlock_power_pack.o build/unlock_vehicle_dlcs.o build/wheel_offset_custom.o
 all: build/gt7patcher.elf
-build/wheel_offset_custom.o: patches/wheel_offset_custom.S
+build/%.o: patches/%.S
 	$(CC) -c -nostdlib $< -o $@
-build/wheel_offset_custom.elf: build/wheel_offset_custom.o
-	$(LD) --static -Ttext=0x3896010 -e wheel_offset_options $< -o $@
-build/wheel_offset_custom.bin: build/wheel_offset_custom.elf
-	$(OBJCOPY) -O binary --only-section=.text $< $@
-build/assets.h: generate.py web/index.html data/PPSA01317-original.xml assets/icon0.png build/wheel_offset_custom.bin
+build/assets.h: generate.py web/index.html patches/manifest.json assets/icon0.png $(PATCH_OBJECTS)
 	python3 generate.py
 build/hook.o: src/hook.c
 	$(CC) -c -Os -fPIC -ffreestanding -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tables -fvisibility=hidden $< -o $@

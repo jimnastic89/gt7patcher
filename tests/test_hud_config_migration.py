@@ -59,14 +59,14 @@ class HudConfigMigrationTests(unittest.TestCase):
     def test_race_info_only_is_not_enabled_in_base_payload(self) -> None:
         self.assertEqual(self.status_for(snapshot(0x20, race_info=True))["config"]["mask"], 0)
 
-    def test_native_debug_environment_bit_is_dropped(self) -> None:
+    def test_native_debug_environment_bit_is_discarded(self) -> None:
         self.assertEqual(self.status_for(snapshot(0x40, debug_environment=True))["config"]["mask"], 0)
 
-    def test_faulty_first_build_address_is_migrated_to_correct_toggle(self) -> None:
+    def test_faulty_first_build_debug_selection_is_discarded(self) -> None:
         old = snapshot(0x40).replace("<Patch>\n", '<Patch>\n<Line Type="bytes" Address="0x05ce83b0" Value="64656275670000" />\n')
         self.assertEqual(self.status_for(old)["config"]["mask"], 0)
 
-    def test_native_wheel_is_preserved_when_debug_environment_is_dropped(self) -> None:
+    def test_native_wheel_is_preserved_while_debug_is_discarded(self) -> None:
         self.assertEqual(self.status_for(snapshot(0x60, debug_environment=True))["config"]["mask"], 0x20)
 
 
