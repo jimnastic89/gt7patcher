@@ -15,8 +15,9 @@ Configuration is via the web interface on port `7210`, which can be access via a
 
 Patches only work on a clean version of `PPSA01317` version `01.710.000`. It has only been tested on firmware 12.40, but should work on other firmwares.
 
-<img width="924" height="941" alt="Patches" src="https://github.com/user-attachments/assets/b5289945-b627-4bc0-9afc-58fcffb81414" />
-<img width="913" height="931" alt="Lang" src="https://github.com/user-attachments/assets/3a5f5a76-21d5-4b7e-a2b0-86427692ac3c" />
+<img width="917" height="917" alt="Patches" src="https://github.com/user-attachments/assets/a0895ee7-8be1-4617-916f-f1333a499d0a" />
+<img width="903" height="906" alt="Lang" src="https://github.com/user-attachments/assets/8aa8daef-2071-4472-be59-d60b4d5f1bbf" />
+
 
 ## Run
 
