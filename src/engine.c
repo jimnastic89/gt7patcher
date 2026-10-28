@@ -65,6 +65,7 @@ static void engine_log_result(const char *stage,long result){
     if(f){fprintf(f,"%s: %ld (0x%lx)\n",stage,result,(unsigned long)result);fclose(f);}
 }
 static int verified_write(pid_t pid,uintptr_t address,const void *data,size_t size);
+static unsigned firmware_version(void){return kernel_get_fw_version()>>16;}
 /* Stop ShellCore while replacing a multi-byte dispatcher instruction. Restore
  * our credentials on every path; no permanent debugger capability changes. */
 static int trace_call(int request,pid_t pid){
@@ -99,7 +100,11 @@ static int write_mem(pid_t pid,uintptr_t address,const void *data,size_t size){
     int r=read_mem(pid,address,probe,size);free(probe);if(r)return -1;
     uintptr_t proc=kernel_get_proc(pid);if(!proc)return -1;
     uintptr_t vm=kernel_getlong(proc+KERNEL_OFFSET_PROC_P_VMSPACE);if(!vm)return -1;
-    uint64_t paging[2];if(kernel_copyout(vm+0x2e8+32,paging,sizeof(paging)))return -1;
+    /* The pmap member moved between the early and later PS5 kernels.  The
+     * old fixed 0x2e8 offset made all writes fail on 5.00-5.50. */
+    unsigned fw=firmware_version();
+    uintptr_t pmap_offset=(fw>=0x0100&&fw<=0x0102)?0x2c0:(fw<=0x0550?0x2e0:0x2e8);
+    uint64_t paging[2];if(kernel_copyout(vm+pmap_offset+32,paging,sizeof(paging)))return -1;
     if(!paging[1]||paging[0]<=paging[1])return -1;
     uint64_t dmap=paging[0]-paging[1];const unsigned char *p=data;
     while(size){
@@ -150,13 +155,26 @@ static int bridge_prepare(void){
     if(bridge)return damaged?-1:0;
     shell=find_shell();if(shell<0||main_module(shell,&module))return -1;
     engine_log("Bridge: scanning OnNewProcess and callback pointer");
-    /* OnNewProcess 12.xx signature; require exactly one match and pointer. */
-    const unsigned char signature[]={0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56,0x41,0x55,0x41,0x54,0x53,0x48,0x83,0xec,0x18,0x49,0x89,0xfd,0xbf,0x18,0,0,0,0x49,0x89,0xd6,0x49,0x89,0xf4};
     if(!module.mapsize||module.mapsize>128*1024*1024||module.eh_frame_size<sizeof(hook_blob))return -1;
     unsigned char *image=malloc(module.mapsize);if(!image)return -1;
     if(read_mem(shell,module.mapbase,image,module.mapsize)){free(image);return -1;}
+    /* ps-patch-system identifies three ShellCore layouts: 4.00-10.00,
+     * 11.xx, and 12.00+.  The old implementation only recognized the last
+     * one, so 5.00 could never start the engine.  A zero mask entry is a
+     * wildcard for firmware-dependent register encodings. */
+    static const unsigned char old_signature[]={0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56,0x41,0x55,0x41,0x54,0x53,0x48,0x83,0xec,0x18,0x49,0x89,0x00,0xbf,0x18,0,0,0,0x49,0x89,0xd6,0x49,0x89,0xf5};
+    static const unsigned char mid_signature[]={0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56,0x41,0x55,0x41,0x54,0x53,0x50,0x49,0x89,0xfd,0xbf,0x18,0,0,0,0x49,0x89,0xd7,0x49,0x89,0xf4,0xe8,0,0,0,0};
+    static const unsigned char new_signature[]={0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56,0x41,0x55,0x41,0x54,0x53,0x48,0x83,0xec,0x18,0x49,0x89,0xfd,0xbf,0x18,0,0,0,0x49,0x89,0xd6,0x49,0x89,0xf4,0xe8,0,0,0,0};
+    const unsigned char *signature=old_signature;size_t signature_size=sizeof(old_signature),wildcard_start=19,wildcard_size=1;
+    unsigned fw=firmware_version();
+    if(fw>=0x0b00&&fw<0x0c00){signature=mid_signature;signature_size=sizeof(mid_signature);wildcard_start=29;wildcard_size=4;engine_log("Bridge: using 11.xx signature");}
+    else if(fw>=0x0c00){signature=new_signature;signature_size=sizeof(new_signature);wildcard_start=32;wildcard_size=4;engine_log("Bridge: using 12.xx signature");}
+    else engine_log("Bridge: using 4.00-10.00 signature");
     unsigned matches=0,pointers=0;
-    for(size_t i=0;i+sizeof(signature)<=module.mapsize;i++)if(!memcmp(image+i,signature,sizeof(signature))){original=module.mapbase+i;matches++;}
+    for(size_t i=0;i+signature_size<=module.mapsize;i++){
+        if((wildcard_start==0||!memcmp(image+i,signature,wildcard_start))&&
+           (wildcard_start+wildcard_size==signature_size||!memcmp(image+i+wildcard_start+wildcard_size,signature+wildcard_start+wildcard_size,signature_size-wildcard_start-wildcard_size))){original=module.mapbase+i;matches++;}
+    }
     /* A stopped prior payload intentionally leaves its inert bridge in
      * eh_frame. Exclude that region so the bridge's saved function address is
      * not mistaken for the live callback slot during restart or reinjection. */
@@ -348,8 +366,9 @@ int gt7_install_icon(void){
     if(!install_library){engine_log("Icon: AppInstUtil load failed");return -1;}
     int (*initialize)(void)=(int (*)(void))dlsym(install_library,"sceAppInstUtilInitialize");
     int (*install_all)(void *)=(int (*)(void *))dlsym(install_library,"sceAppInstUtilAppInstallAll");
+    int (*install_title_dir)(const char *,const char *,void *)=(int (*)(const char *,const char *,void *))dlsym(install_library,"sceAppInstUtilAppInstallTitleDir");
     int (*uninstall)(const char *)=(int (*)(const char *))dlsym(install_library,"sceAppInstUtilAppUnInstall");
-    if(!initialize||!install_all){engine_log("Icon: registration API resolution failed");return -1;}
+    if(!initialize||(!install_all&&firmware_version()>=0x1200)||(!install_title_dir&&firmware_version()<0x1200)){engine_log("Icon: registration API resolution failed");return -1;}
     if(initialize()){engine_log("Icon: AppInstUtil initialization failed");return -1;}
     /* Refresh the existing GTPS00001 registration once when adopting the new
      * GT7Patcher name and icon. The registration call does not replace cached
@@ -364,6 +383,14 @@ int gt7_install_icon(void){
     for(unsigned i=0;i<2;i++){
         FILE *f=fopen(paths[i],"wb");if(!f)return -1;
         int bad=fwrite(assets[i],1,sizes[i],f)!=sizes[i];if(fflush(f)||fsync(fileno(f)))bad=1;if(fclose(f))bad=1;if(bad)return -1;
+    }
+    /* Firmware before 12.00 still exposes the public TitleDir API. */
+    if(firmware_version()<0x1200){
+        if(!install_title_dir){engine_log("Icon: TitleDir registration API unavailable");return -1;}
+        int result=install_title_dir("GTPS00001","/user/app/GTPS00001",NULL);
+        engine_log_result("Icon: TitleDir registration result",result);
+        if(result==0||(uint32_t)result==0x80990002U){mark_icon_installed();return 0;}
+        return -1;
     }
     shell=find_shell();
     if(shell<0||main_module(shell,&module)){engine_log("Icon: ShellCore lookup failed");return -1;}
