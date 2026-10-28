@@ -27,7 +27,7 @@
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 #endif
-#define VERSION "0.22"
+#define VERSION "0.23"
 #define PORT 7210
 static const char *root="/data/gt7p/patches";
 static char token[33],message[256]="Save your choices, then start the engine before launching GT7.";

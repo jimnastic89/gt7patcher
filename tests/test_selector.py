@@ -176,7 +176,7 @@ class SelectorTests(unittest.TestCase):
         self.assertFalse((self.state/'xml_prospero/PPSA01317.xml.tmp').exists())
 
     def test_gt7_version_identity_and_minimal_state(self):
-        self.assertEqual(self.status['version'],'0.22')
+        self.assertEqual(self.status['version'],'0.23')
         m=self.xml().find('Metadata')
         self.assertFalse((self.state/'xml_prospero/!_settings.xml').exists())
         self.assertFalse((self.state/'xml_orbis').exists())
