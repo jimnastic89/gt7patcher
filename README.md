@@ -33,25 +33,11 @@ Patches only work on a clean version of `PPSA01317` version `01.710.000`. It has
 
 The payload and patch engine must be running before GT7 launches. The saved settings and home-screen shortcut persist across reboots, but the payload must be loaded again after each console reboot. Do not run another patch engine at the same time.
 
-To change credits while playing, select **Live Settings** in Patches, save, and
-start GT7 with the patch engine running. Once your save is loaded, the Live
-Settings tab shows the current balance and accepts amounts from 0 to 100,000,000.
-Apply runs the game's native credit setter and currency notification on its UI
-update thread, so the game counter updates without a screen transition. The web
-balance refreshes every five seconds without replacing an amount being edited.
-
-Live Settings is off by default. Unchecking it hides the tab; saving it disabled
-rejects live writes and disables an existing bridge's requests. Start GT7 with
-it unchecked to leave the game hook entirely uninstalled. Its memory is owned
-by the game and is reclaimed when GT7 exits.
-
 ## Clean older game files
 
-In **Help**, choose or drop the listed files from a supported older offline-patched PPSA01317 version 01.710.000 dump. Files can be added in several batches from different directories. Only newly added or replaced files are verified; earlier verification results are retained until cleared. The picker filters extensions; exact filenames are checked after selection. Unrelated files are ignored. The converter verifies their SHA-256 hashes, and enables **Unpatch files** when all seven required files are recognized. Download the generated ZIP and extract its contents over the game folder while GT7 is closed. Keep the original files backed up. Convert all required files together; replacing only eboot.bin failed in console testing.
+In **Help**, choose or drop the listed files from a supported older offline-patched PPSA01317 version 01.710.000 dump. Files can be added in several batches from different directories. Only newly added or replaced files are verified; earlier verification results are retained until cleared. The picker filters extensions; exact filenames are checked after selection. Unrelated files are ignored. The converter verifies their SHA-256 hashes and enables **Unpatch files** when it finds at least one supported older file. It warns before generating an incomplete set. Download the generated ZIP and extract its contents over the game folder while GT7 is closed. Keep the original files backed up.
 
-Conversion runs locally in a browser worker. Game files are never uploaded to the payload and the original files are never overwritten. The ZIP contains only the seven required files and any recognized optional files supplied, using paths relative to the game root. Already-clean files are included unchanged. The three unchanged files (`ampr_emu.index`, `fakelib/libSceAmpr.sprx`, and `fakelib/libScePlayGo.sprx`) are omitted from the converter; leave their existing copies in the installed game. Unknown or modified inputs are rejected. The four additional backport files are optional too; missing optional files are not generated. A desktop browser is recommended for file selection and downloading the roughly 160 MB ZIP.
-
-The release excludes the experimental Live Settings patch and tab. Its development source remains in the repository. Saved experimental selections are discarded when loaded by this release.
+Conversion runs locally in a browser worker. Game files are never uploaded to the payload and the original files are never overwritten. The ZIP contains only verified older files that can be reconstructed, using paths relative to the game root. The three unchanged files (`ampr_emu.index`, `fakelib/libSceAmpr.sprx`, and `fakelib/libScePlayGo.sprx`) are omitted from the converter; leave their existing copies in the installed game. Unknown or modified inputs are rejected. The four additional backport files are optional and are not generated when missing. A desktop browser is recommended for file selection and downloading the roughly 160 MB ZIP.
 
 The compact correction manifest is in `data/cleaner.json`. To regenerate it from private local reference files:
 
@@ -76,10 +62,6 @@ make host
 python3 tests/test_selector.py
 python3 tests/test_hook.py
 python3 tests/test_memory.py
-python3 tests/test_runtime_bridge.py
-python3 tests/test_live_settings.py
-python3 tests/test_hud_config_migration.py
-node tests/test_live_settings.js
 python3 package.py
 ```
 
