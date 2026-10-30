@@ -14,6 +14,7 @@ PATCH_SOURCES = [
     ('Unlock Power Pack', 'unlock_power_pack'),
     ('Unlock Vehicle DLCs', 'unlock_vehicle_dlcs'),
     ('Wheel Offset Presets', 'wheel_offset_custom'),
+    ('Live Settings', 'live_settings'),
 ]
 
 def cstring(value):
@@ -69,9 +70,6 @@ def main():
         header.append(cstring(xml) + ',')
     header += ['};', 'static const unsigned patch_counts[]={' + ','.join(map(str, counts)) + '};']
     html = (HERE / 'web/index.html').read_text(encoding='utf-8')
-    # Experimental source is retained but neither the patch nor its tab ships.
-    html = re.sub(r'    <button id="live-tab"[^>]*>.*?</button>\n', '', html)
-    html = re.sub(r'    <section id="live"[^>]*>.*?</section>\n', '', html, flags=re.S)
     cleaner = json.loads((HERE / 'data/cleaner.json').read_text())
     assert cleaner['version'] == 1 and len(cleaner['files']) == 14
     scripts = '<script id="clean-manifest" type="application/json">' + json.dumps(cleaner, separators=(',', ':')) + '</script>\n'

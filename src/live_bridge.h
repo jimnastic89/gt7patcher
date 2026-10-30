@@ -7,6 +7,7 @@ enum {LIVE_IDLE, LIVE_QUEUED, LIVE_RUNNING, LIVE_DONE, LIVE_STALE, LIVE_INVALID,
 enum {CAR_IDLE, CAR_QUEUED, CAR_RUNNING, CAR_READY, CAR_UNAVAILABLE};
 enum {WHEEL_IDLE, WHEEL_QUEUED, WHEEL_RUNNING, WHEEL_DONE, WHEEL_STALE, WHEEL_INVALID, WHEEL_UNAVAILABLE};
 enum {GEOMETRY_IDLE, GEOMETRY_QUEUED, GEOMETRY_RUNNING, GEOMETRY_DONE, GEOMETRY_STALE, GEOMETRY_INVALID, GEOMETRY_UNAVAILABLE};
+enum {ENGINE_IDLE, ENGINE_QUEUED, ENGINE_RUNNING, ENGINE_DONE, ENGINE_STALE, ENGINE_INVALID, ENGINE_UNAVAILABLE};
 typedef struct {
     uint64_t magic, base, original;
     uint64_t make_event, acquire, destroy_event, set_credits;
@@ -31,6 +32,9 @@ typedef struct {
     int8_t geometry_expected_inch_up, geometry_requested_inch_up;
     int16_t geometry_expected_offset_front, geometry_expected_offset_rear, geometry_expected_hub_front, geometry_expected_hub_rear;
     int16_t geometry_requested_offset_front, geometry_requested_offset_rear, geometry_requested_hub_front, geometry_requested_hub_rear;
+    uint64_t get_engine_swap, add_engine_swap, set_engine_swap, reset_engine_swap;
+    uint32_t engine_state, engine_expected_model_code;
+    uint8_t engine_swap_category, engine_expected_category, engine_requested_category, engine_unlock;
 } LiveMailbox;
 extern volatile LiveMailbox live_mailbox;
 void live_frame(void *context,float delta_time);

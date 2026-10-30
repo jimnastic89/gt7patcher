@@ -27,7 +27,7 @@
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 #endif
-#define VERSION "0.3"
+#define VERSION "0.3.1"
 #ifndef PORT
 #define PORT 7210
 #endif
@@ -189,6 +189,13 @@ static void json_status(int fd){
     else
 #endif
         n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":false,\"inchUp\":null,\"offsetFront\":null,\"offsetRear\":null,\"hubFront\":null,\"hubRear\":null,\"modelCode\":null");
+    n+=(size_t)snprintf(body+n,sizeof(body)-n,"},\"engineSwap\":{");
+#ifdef PS5
+    Gt7EngineSwap swap;
+    if((config.mask&LIVE_SETTINGS_BIT)&&!atomic_load(&startup_pending)&&!gt7_engine_swap_read(&swap))n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":true,\"category\":%u,\"modelCode\":%u",swap.category,swap.model_code);
+    else
+#endif
+        n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":false,\"category\":null,\"modelCode\":null");
     snprintf(body+n,sizeof(body)-n,"}}}");
     response(fd,200,"application/json",body);
 }
@@ -225,7 +232,7 @@ static void serve(int fd){
     size_t received=used-(size_t)(body-req);
     if(received>length){response(fd,400,"text/plain","Invalid body length");return;}
     while(received<length){ssize_t r=recv(fd,body+received,length-received,0);if(r<=0)return;received+=(size_t)r;}body[length]=0;
-    if(strcmp(path,"/api/config")&&strcmp(path,"/api/live/credits")&&strcmp(path,"/api/live/wheel-width")&&strcmp(path,"/api/live/wheel-geometry")&&strcmp(path,"/api/start")&&strcmp(path,"/api/game/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
+    if(strcmp(path,"/api/config")&&strcmp(path,"/api/live/credits")&&strcmp(path,"/api/live/wheel-width")&&strcmp(path,"/api/live/wheel-geometry")&&strcmp(path,"/api/live/engine-swap")&&strcmp(path,"/api/start")&&strcmp(path,"/api/game/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
 #ifdef PS5
     if(atomic_load(&startup_pending)){response(fd,409,"text/plain","Startup is still running. Please retry shortly; the browser page remains available.");return;}
 #endif
@@ -277,6 +284,19 @@ static void serve(int fd){
         strcpy(message,"Wheel geometry applied through GT7 garage data.");json_status(fd);return;
 #else
         response(fd,409,"text/plain","Wheel geometry editing is only available while supported GT7 is running on PS5.");return;
+#endif
+    }
+    if(!strcmp(path,"/api/live/engine-swap")){
+        unsigned category,expected,unlock,model;int consumed=0;char canonical[96];
+        if(length>=sizeof(canonical)||sscanf(body,"category=%u&expected=%u&unlock=%u&modelCode=%u%n",&category,&expected,&unlock,&model,&consumed)!=4||consumed!=(int)length||category>2||expected>2||unlock>1||!model){response(fd,400,"text/plain","Use an engine swap slot from 0 to 2.");return;}
+        snprintf(canonical,sizeof(canonical),"category=%u&expected=%u&unlock=%u&modelCode=%u",category,expected,unlock,model);if(strcmp(body,canonical)){response(fd,400,"text/plain","Invalid engine-swap request.");return;}
+        if(!(config.mask&LIVE_SETTINGS_BIT)){response(fd,409,"text/plain","Select and save the Live Settings patch first.");return;}
+#ifdef PS5
+        Gt7EngineSwap before={0,model,(uint8_t)expected};int result=gt7_engine_swap_set(&before,(uint8_t)category,(int)unlock);
+        if(result){response(fd,409,"text/plain",result==-3?"The game has not acknowledged the engine request yet. Do not resubmit; wait for the value to refresh.":result==-2?"The selected car or engine swap changed since the last refresh. Refresh and retry.":"GT7 rejected that swap slot. The car may not support it.");return;}
+        strcpy(message,"Engine swap applied through GT7 garage data.");json_status(fd);return;
+#else
+        response(fd,409,"text/plain","Engine swapping is only available while supported GT7 is running on PS5.");return;
 #endif
     }
     if(!strcmp(path,"/api/payload/stop")){
