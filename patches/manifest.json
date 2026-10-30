@@ -36,6 +36,13 @@
     "built": true
   },
   {
+    "name": "Live Settings",
+    "note": "Enable the optional live settings bridge for the next game launch.",
+    "source": "live_settings",
+    "built": false,
+    "runtime": true
+  },
+  {
     "name": "Debug environment",
     "note": "Changes the internal build environment to expose additional demo, LAN, B-Spec, and car settings.",
     "source": "debug_environment",

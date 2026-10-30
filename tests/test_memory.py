@@ -22,6 +22,7 @@ static unsigned char ram[0x400000];
 static const uint64_t dmap=0x100000000ULL;
 static int fault_fail,kernel_fail,copy_fail,readback_bad,reads;
 static int large;
+static unsigned kernel_get_fw_version(void){return 0x0600u<<16;}
 static uint64_t fixture_phys(uint64_t address){
     size_t offset=address-0x400000;
     return large?0x200000+offset:(offset<4096?0x100000+offset:0x110000+offset-4096);

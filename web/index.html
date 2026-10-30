@@ -218,6 +218,16 @@ button:not([role="tab"]) {
         color: #cccccc
     }
 
+    #credits {
+        width: 100%;
+        font: inherit;
+        color: inherit;
+        background: #1a1a1a;
+        border: 1px solid #444444;
+        border-radius: 9px;
+        padding: 12px 20px;
+    }
+
     select {
         width: 100%
     }
@@ -243,11 +253,39 @@ button:not([role="tab"]) {
     }
 
     #status {
+        flex-basis: 100%;
         border-left: 3px solid #747474;
         padding: 12px 16px;
         background: #1c1c1c;
         line-height: 1.6;
         white-space: pre-line
+    }
+
+    #toast {
+        position: fixed;
+        z-index: 10;
+        left: 50%;
+        top: 16px;
+        max-width: min(560px, calc(100% - 32px));
+        padding: 11px 16px;
+        border: 1px solid #555555;
+        border-left: 3px solid #747474;
+        border-radius: 4px;
+        background: #1c1c1c;
+        color: #eeeeee;
+        line-height: 1.45;
+        text-align: center;
+        box-shadow: 0 8px 24px #00000066;
+        opacity: 1;
+        transform: translate(-50%, 0);
+        transition: opacity .2s ease, transform .2s ease
+    }
+
+    #toast[hidden] {
+        display: block;
+        opacity: 0;
+        pointer-events: none;
+        transform: translate(-50%, -12px)
     }
 
     .error {
@@ -264,6 +302,16 @@ button:not([role="tab"]) {
         background: #222222
     }
 
+    .clean-table { width:100%; border-collapse:collapse; margin-top:18px; font-size:13px }
+    .clean-table th, .clean-table td { text-align:left; padding:9px 8px; border-bottom:1px solid #444; overflow-wrap:anywhere }
+    .clean-picker { display:flex; align-items:center; flex-wrap:wrap; gap:10px }
+    .clean-drop { border:2px dashed #666; border-radius:8px; padding:16px; margin-top:18px }
+    .clean-drop.clean-dragging { border-color:#8bd4a7; background:#20352a }
+    .clean-mark { font-weight:800; font-size:18px }
+    .clean-missing { color:#ff7373 }
+    .clean-ok { color:#8bd4a7 }
+    .clean-download { display:inline-block; padding:12px 18px; color:#fff; border:1px solid #666; border-radius:6px }
+
     .warning {
         color: #dcb36c
     }
@@ -273,6 +321,16 @@ button:not([role="tab"]) {
     }
 
     @media(max-width:580px) {
+        nav[role="tablist"] {
+            width: 100%;
+        }
+
+        nav[role="tablist"] button[role="tab"] {
+            flex: 1;
+            padding: 10px 8px;
+            font-size: 14px;
+        }
+
         .grid {
             grid-template-columns: 1fr
         }
@@ -312,13 +370,17 @@ button:not([role="tab"]) {
     <h1><span id="version" class="version"></span></h1>
     </div>
 </header>
-<div id="status" role="status" aria-live="polite">Connecting to GT7Patcher…</div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
 <nav role="tablist" aria-label="Settings" style="margin-top:24px">
     <button id="patch-tab" role="tab" aria-controls="patches" aria-selected="true">Patches</button>
-    <button id="game-tab" role="tab" aria-controls="game" aria-selected="false">Game Settings</button>
+    <button id="game-tab" role="tab" aria-controls="game" aria-selected="false">Language &amp; Units</button>
+    <button id="live-tab" role="tab" aria-controls="live" aria-selected="false" hidden>Live Settings</button>
     <button id="help-tab" role="tab" aria-controls="help" aria-selected="false">Help</button>
 </nav>
 <form id="form">
+    <div class="card" id="launch-guidance">
+        <label>Select patches, then start the engine before launching GT7.</label>
+    </div>
     <section id="patches" role="tabpanel" aria-labelledby="patch-tab">
         <div class="card" id="features"></div>
         <p class="detail"></p>
@@ -369,7 +431,52 @@ button:not([role="tab"]) {
             </div>
         </div>
     </section>
+    <section id="live" role="tabpanel" aria-labelledby="live-tab" hidden>
+        <div class="card">
+            <h2>Live Settings</h2>
+            <p id="credit-balance" aria-live="polite">Live credits unavailable. Start GT7 and load your save.</p>
+            <div class="field">
+                <label for="credits">Credit amount</label>
+                <input id="credits" type="text" inputmode="numeric" maxlength="10" aria-describedby="credit-feedback" disabled>
+            </div>
+            <div class="actions"><button type="button" id="apply-credits" class="primary" disabled>Apply</button></div>
+            <p id="credit-feedback" class="detail" role="status">Enter 0 to 100,000,000 credits. The balance refreshes every five seconds. Apply changes the live amount immediately.</p>
+        </div>
+        <div class="card">
+            <h2>Current car wheel width</h2>
+            <p id="wheel-width-status" aria-live="polite">Wheel-width data unavailable. Select a garage car and wait for the next refresh.</p>
+            <div class="grid">
+                <div class="field"><label for="wheel-width-front">Front width-up</label><input id="wheel-width-front" type="text" inputmode="numeric" maxlength="4" aria-describedby="wheel-width-feedback" disabled></div>
+                <div class="field"><label for="wheel-width-rear">Rear width-up</label><input id="wheel-width-rear" type="text" inputmode="numeric" maxlength="4" aria-describedby="wheel-width-feedback" disabled></div>
+            </div>
+            <div class="actions"><button type="button" id="apply-wheel-width" class="primary" disabled>Apply widths</button></div>
+            <p id="wheel-width-feedback" class="detail" role="status">Signed native width-up steps from the selected car's saved Style record. Standard is 0; GT7's Wide choice is 10.</p>
+        </div>
+        <div class="card">
+            <h2>Wheel geometry</h2>
+            <p id="wheel-geometry-status" aria-live="polite">Wheel geometry unavailable. Select a garage car and wait for the next refresh.</p>
+            <div class="grid">
+                <div class="field"><label for="wheel-inch">Rim inch-up</label><input id="wheel-inch" type="text" inputmode="numeric" maxlength="4" disabled></div>
+                <div class="field"><label for="wheel-offset-front">Front wheel offset</label><input id="wheel-offset-front" type="text" inputmode="numeric" maxlength="6" disabled></div>
+                <div class="field"><label for="wheel-offset-rear">Rear wheel offset</label><input id="wheel-offset-rear" type="text" inputmode="numeric" maxlength="6" disabled></div>
+                <div class="field"><label for="hub-offset-front">Front hub offset</label><input id="hub-offset-front" type="text" inputmode="numeric" maxlength="6" disabled></div>
+                <div class="field"><label for="hub-offset-rear">Rear hub offset</label><input id="hub-offset-rear" type="text" inputmode="numeric" maxlength="6" disabled></div>
+            </div>
+            <div class="actions"><button type="button" id="apply-wheel-geometry" class="primary" disabled>Apply geometry</button></div>
+            <p id="wheel-geometry-feedback" class="detail" role="status">Rim inch-up and saved front/rear wheel and hub offsets. Offset changes are limited to 127 steps per apply.</p>
+        </div>
+    </section>
     <section id="help" role="tabpanel" aria-labelledby="help-tab" hidden>
+        <div class="card" id="file-cleaner">
+            <h2>Clean older offline-patched files</h2>
+            <p>Remove the older offline patch from PPSA01317 v01.710.000 files.</p>
+            <div id="clean-drop" class="clean-drop" role="group" aria-label="Drop game files here" aria-describedby="clean-drop-hint">
+            <div id="clean-drop-hint" class="clean-picker"><button type="button" id="clean-choose" aria-controls="clean-input">Choose Files</button><span>or Drop files here</span><input id="clean-input" type="file" accept=".bin,.prx,.sprx,.index,.psp" multiple aria-label="Choose game files" hidden></div>
+            <div style="overflow-x:auto"><table class="clean-table"><thead><tr><th scope="col">Found</th><th scope="col">File</th><th scope="col">Status</th></tr></thead><tbody id="clean-files"></tbody></table></div>
+            </div>
+            <p id="clean-feedback" class="detail" role="status" aria-live="polite" hidden></p>
+            <div class="actions"><button type="button" id="clean-clear" disabled>Clear files</button><button type="button" id="clean-convert" class="primary" disabled>Unpatch files</button><a id="clean-download" class="clean-download" download="GT7-clean-files-PPSA01317-01.710.000.zip" hidden>Download ZIP</a></div>
+        </div>
         <div class="card">
             <h2>Instructions</h2>
             <ol>
@@ -384,7 +491,7 @@ button:not([role="tab"]) {
             <br>
             <h2>Notes & Troubleshooting</h2>
             <ul>
-                <li>Patches will only work on a "clean" backported copy of PPSA01317 version 1.710.000. It won't work on previous releases distributed with offline modified files. Try searching for "GT7 clean backport" if you need these files.</li>
+                <li>Patches will only work on a "clean" backported copy of PPSA01317 version 1.710.000. It won't work on previous releases distributed with offline modified files. Use the converter above if you have the supported older offline-patched dump.</li>
                 <br>
                 <li>Most problems are fixed by rebooting the console and trying again.</li>
                 <br>
@@ -418,6 +525,7 @@ button:not([role="tab"]) {
             <p class="detail"></p>
         </div>
         <div class="actions">
+            <div id="status" role="status" aria-live="polite" hidden></div>
             <button type="submit" id="save" class="primary" disabled>Save</button>
             <button type="button" id="start" disabled>Start engine</button>
             <button type="button" id="launch-game" disabled>Start GT7</button>
@@ -427,32 +535,141 @@ button:not([role="tab"]) {
 <script>
     'use strict';
     const $ = id => document.getElementById(id), keys = ['preset', 'units', 'language', 'speed', 'mass', 'power', 'torque', 'temperature'];
-    let token = '', busy = false, dirty = false, loaded = false, engine = false, halted = false, gameRunning = false, gameClosed = false;
+    let token = '', busy = false, dirty = false, loaded = false, engine = false, engineActive = false, halted = false, gameRunning = false, gameClosed = false;
+    let creditAvailable = false, creditAmount = null, creditSession = null, creditDirty = false, wheelWidth = null, wheelDirty = false, wheelGeometry = null, geometryDirty = false, refreshing = false, revision = 0, activePanel = 'patches', persistentMessage = '', initialStatusShown = false;
+    function validCredits() { return /^\d{1,10}$/.test($('credits').value) && Number($('credits').value) <= 100000000 }
+    function creditButtons() { if (!$('credits')) return; $('credits').disabled = !creditAvailable || busy || halted; $('apply-credits').disabled = !creditAvailable || busy || halted || !validCredits() }
+    function validWheelValue(element) { return /^-?\d{1,3}$/.test(element.value) && Number(element.value) >= -128 && Number(element.value) <= 127 }
+    function wheelButtons() { if (!$('wheel-width-front')) return;
+        const available = wheelWidth !== null;
+        $('wheel-width-front').disabled = !available || busy || halted;
+        $('wheel-width-rear').disabled = !available || busy || halted;
+        $('apply-wheel-width').disabled = !available || busy || halted || !validWheelValue($('wheel-width-front')) || !validWheelValue($('wheel-width-rear'));
+    }
+    const geometryIds = ['wheel-inch', 'wheel-offset-front', 'wheel-offset-rear', 'hub-offset-front', 'hub-offset-rear'];
+    function validGeometryValue(id, limit) { const value = $(id).value; return /^-?\d{1,5}$/.test(value) && Number(value) >= -limit && Number(value) <= limit }
+    function geometryButtons() { if (!$('wheel-inch')) return; const available = wheelGeometry !== null; for (const id of geometryIds) $(id).disabled = !available || busy || halted; $('apply-wheel-geometry').disabled = !available || busy || halted || !validGeometryValue('wheel-inch', 128) || geometryIds.slice(1).some(id => !validGeometryValue(id, 32768)) }
+    function renderCredits(live) { if (!$('credits')) return;
+        const available = live?.available === true && Number.isInteger(live.credits) && live.credits >= 0 && live.credits <= 2147483647 && typeof live.session === 'string';
+        const nextSession = available ? live.session : null;
+        if (nextSession !== creditSession) { creditDirty = false; $('credits').value = '' }
+        creditAvailable = available; creditSession = nextSession; creditAmount = available ? live.credits : null;
+        $('credit-balance').textContent = available ? `Current balance: ${creditAmount.toLocaleString()} credits` : 'Live credits unavailable. Save the Live Settings patch, restart GT7, and load your save.';
+        if (available && !creditDirty && document.activeElement !== $('credits')) $('credits').value = String(creditAmount);
+        creditButtons();
+    }
+    function renderWheelWidth(live) { if (!$('wheel-width-front')) return;
+        const width = live?.wheelWidth, available = width?.available === true &&
+            Number.isInteger(width.front) && width.front >= -128 && width.front <= 127 &&
+            Number.isInteger(width.rear) && width.rear >= -128 && width.rear <= 127 &&
+            Number.isInteger(width.modelCode) && width.modelCode > 0;
+        if (available && (!wheelWidth || wheelWidth.modelCode !== width.modelCode)) wheelDirty = false;
+        wheelWidth = available ? { front: width.front, rear: width.rear, modelCode: width.modelCode, sequence: width.sequence } : null;
+        if (!available || !wheelDirty) $('wheel-width-front').value = available ? String(width.front) : '';
+        if (!available || !wheelDirty) $('wheel-width-rear').value = available ? String(width.rear) : '';
+        $('wheel-width-status').textContent = available ?
+            `Model code ${width.modelCode} · sample ${width.sequence}` :
+            'Wheel-width data unavailable. Select a garage car and wait for the next refresh.';
+        wheelButtons();
+    }
+    function renderWheelGeometry(live) { if (!$('wheel-inch')) return;
+        const geometry = live?.wheelGeometry, available = geometry?.available === true && Number.isInteger(geometry.inchUp) && Number.isInteger(geometry.offsetFront) && Number.isInteger(geometry.offsetRear) && Number.isInteger(geometry.hubFront) && Number.isInteger(geometry.hubRear) && Number.isInteger(geometry.modelCode) && geometry.modelCode > 0;
+        if (available && (!wheelGeometry || wheelGeometry.modelCode !== geometry.modelCode)) geometryDirty = false;
+        wheelGeometry = available ? { inch: geometry.inchUp, of: geometry.offsetFront, or: geometry.offsetRear, hf: geometry.hubFront, hr: geometry.hubRear, model: geometry.modelCode } : null;
+        if (!available || !geometryDirty) { const values = [geometry?.inchUp, geometry?.offsetFront, geometry?.offsetRear, geometry?.hubFront, geometry?.hubRear]; geometryIds.forEach((id, i) => $(id).value = available ? String(values[i]) : ''); }
+        $('wheel-geometry-status').textContent = available ? `Model code ${geometry.modelCode}` : 'Wheel geometry unavailable. Select a garage car and wait for the next refresh.'; geometryButtons();
+    }
+    async function applyWheelGeometry() {
+        if (!wheelGeometry || busy || halted || $('apply-wheel-geometry').disabled) return;
+        const values = geometryIds.map(id => Number($(id).value)), e = wheelGeometry;
+        const body = `inch=${values[0]}&offsetFront=${values[1]}&offsetRear=${values[2]}&hubFront=${values[3]}&hubRear=${values[4]}&expectedInch=${e.inch}&expectedOffsetFront=${e.of}&expectedOffsetRear=${e.or}&expectedHubFront=${e.hf}&expectedHubRear=${e.hr}&modelCode=${e.model}`;
+        busy = true; revision++; buttons(); try { const r = await fetch('/api/live/wheel-geometry', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body }); if (!r.ok) throw Error(await r.text()); geometryDirty = false; render(await r.json()); $('wheel-geometry-feedback').textContent = 'Wheel geometry applied through GT7 garage data.'; } catch (error) { $('wheel-geometry-feedback').textContent = error.message; } finally { busy = false; buttons() }
+    }
+    async function applyWheelWidth() {
+        if (!wheelWidth || busy || halted || !validWheelValue($('wheel-width-front')) || !validWheelValue($('wheel-width-rear'))) return;
+        const front = Number($('wheel-width-front').value), rear = Number($('wheel-width-rear').value);
+        const body = `front=${front}&rear=${rear}&expectedFront=${wheelWidth.front}&expectedRear=${wheelWidth.rear}&modelCode=${wheelWidth.modelCode}&sequence=${wheelWidth.sequence}`;
+        busy = true; revision++; buttons();
+        try {
+            const r = await fetch('/api/live/wheel-width', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body });
+            if (!r.ok) throw Error(await r.text());
+            const result = await r.json(); wheelDirty = false; render(result);
+            $('wheel-width-feedback').textContent = 'Wheel widths applied through GT7 garage data.'; $('wheel-width-feedback').classList.remove('error'); status('Wheel widths applied.');
+        } catch (e) { $('wheel-width-feedback').textContent = e.message; $('wheel-width-feedback').classList.add('error'); status(e.message, true) }
+        finally { busy = false; buttons() }
+    }
+    async function applyCredits() {
+        if (!creditAvailable || busy || halted || !validCredits()) return;
+        const amount = Number($('credits').value), body = `amount=${amount}&expected=${creditAmount}&session=${creditSession}`;
+        busy = true; revision++; buttons();
+        try {
+            const r = await fetch('/api/live/credits', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body });
+            if (!r.ok) throw Error(await r.text());
+            const result = await r.json(); creditDirty = false; $('credits').value = String(amount); render(result);
+            $('credit-feedback').textContent = 'Credit amount applied.'; $('credit-feedback').classList.remove('error'); status('Live credit amount applied.');
+        } catch (e) { $('credit-feedback').textContent = e.message; $('credit-feedback').classList.add('error'); status(e.message, true) }
+        finally { busy = false; buttons() }
+    }
+    if ($('credits')) {
+    $('credits').addEventListener('input', () => { creditDirty = true; creditButtons() });
+    $('credits').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyCredits() } });
+    $('apply-credits').onclick = applyCredits;
+    for (const id of ['wheel-width-front', 'wheel-width-rear']) {
+        $(id).addEventListener('input', () => { wheelDirty = true; wheelButtons() });
+        $(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyWheelWidth() } });
+    }
+    $('apply-wheel-width').onclick = applyWheelWidth;
+    for (const id of geometryIds) $(id).addEventListener('input', () => { geometryDirty = true; geometryButtons() });
+    $('apply-wheel-geometry').onclick = applyWheelGeometry;
+    }
     const languages = [['JP', 'Japanese'], ['US', 'English (United States)'], ['GB', 'English (United Kingdom)'], ['FR', 'French'], ['ES', 'Spanish (Spain)'], ['DE', 'German'], ['IT', 'Italian'], ['NL', 'Dutch'], ['PT', 'Portuguese'], ['RU', 'Russian'], ['PL', 'Polish'], ['TR', 'Turkish'], ['EL', 'Greek'], ['KR', 'Korean'], ['TW', 'Chinese (Traditional)'], ['CN', 'Chinese (Simplified)'], ['DK', 'Danish'], ['NO', 'Norwegian'], ['SE', 'Swedish'], ['FI', 'Finnish'], ['CZ', 'Czech'], ['HU', 'Hungarian'], ['BP', 'Portuguese (Brazil)'], ['MS', 'Spanish (Latin America)'], ['AR', 'Arabic'], ['TH', 'Thai'], ['ZH', 'Chinese (ZH)']];
     $('language').append(new Option('System language', -1)); languages.forEach(([code, name], i) => $('language').append(new Option(`${name} · ${code}`, i)));
-    function status(text, error = false) { $('status').textContent = text; $('status').classList.toggle('error', error) }
+    let toastTimer = 0;
+    function status(text, error = false) {
+        const toast = $('toast');
+        toast.textContent = text; toast.classList.toggle('error', error); toast.hidden = false;
+        clearTimeout(toastTimer); toastTimer = setTimeout(() => { toast.hidden = true }, 5000);
+    }
+    function pageStatus(text) {
+        persistentMessage = text; const visible = Boolean(text) && (activePanel === 'patches' || activePanel === 'game');
+        $('status').textContent = text; $('status').hidden = !visible;
+    }
     function units() { for (const e of $('unit-fields').querySelectorAll('select')) e.disabled = $('units').value === '0' }
-    function buttons() { $('save').disabled = !loaded || busy || halted; $('start').disabled = !loaded || busy || dirty || engine || halted; $('launch-game').disabled = !loaded || busy || halted || !engine || !gameClosed; $('reinstall-shortcut').disabled = !loaded || busy || halted; $('stop-engine').disabled = !loaded || busy || !engine || halted; $('stop-payload').disabled = !loaded || busy || halted; }
-    function mark() { dirty = true; buttons(); status('Unsaved choices. Fully close GT7, then save for the next launch.') }
+    function buttons() { $('save').disabled = !loaded || busy || halted; $('start').disabled = !loaded || busy || engine || halted; $('launch-game').disabled = !loaded || busy || halted || !engine || !gameClosed; $('reinstall-shortcut').disabled = !loaded || busy || halted; $('stop-engine').disabled = !loaded || busy || !engineActive || halted; $('stop-payload').disabled = !loaded || busy || halted; creditButtons(); wheelButtons(); geometryButtons() }
+    function mark() { dirty = true; liveTab(Boolean($('patch-6')?.checked)); buttons(); if (loaded && !busy && !halted) $('save').disabled = false; status('Unsaved choices. Save them to apply them on the next GT7 launch.') }
+    function liveTab(selected) { if (!$('live-tab')) return;
+        $('live-tab').hidden = !selected;
+        if (!selected) {
+            renderCredits(null);
+            renderWheelWidth(null);
+            if (!$('live').hidden) $('patch-tab').onclick();
+        }
+    }
     function render(s) {
-        token = s.token; engine = s.engineRunning; gameRunning = s.gameRunning === 1; gameClosed = s.gameRunning === 0; $('version').textContent = `v${s.version}`; document.title = `GT7Patcher v${s.version}`;
+        token = s.token; engine = s.engineRunning; engineActive = s.engineActive === true; gameRunning = s.gameRunning === 1; gameClosed = s.gameRunning === 0; $('version').textContent = `v${s.version}`; document.title = `GT7Patcher v${s.version}`;
+        renderCredits(s.live);
+        renderWheelWidth(s.live); renderWheelGeometry(s.live);
         if (!loaded) { s.features.forEach((f, i) => { const row = document.createElement('div'); row.className = 'feature'; const input = document.createElement('input'); input.type = 'checkbox'; input.id = `patch-${i}`; input.dataset.bit = i; const box = document.createElement('div'), label = document.createElement('label'), note = document.createElement('p'); label.htmlFor = input.id; label.textContent = f.name; note.className = 'detail'; note.textContent = f.note; box.append(label, note); row.append(input, box); $('features').append(row) }) }
         if (!dirty) { for (const k of keys) $(k).value = s.config[k]; $('autostart').checked = Boolean(s.config.autostart); s.features.forEach((_, i) => { $(`patch-${i}`).checked = Boolean(s.config.mask & (1 << i)) }); units() }
-        loaded = true; buttons(); if (!dirty) status(s.message + (s.gameRunning === 1 ? '\nGT7 is running. Close it before changing the next-launch snapshot.' : '') + (s.gameRunning < 0 ? '\nCould not check whether GT7 is closed.' : ''));
+        liveTab(dirty ? Boolean($('patch-6')?.checked) : Boolean(s.config.mask & 64));
+        loaded = true; buttons(); if (!dirty) pageStatus(s.gameRunning === 1 ? 'GT7 is running. Saved changes will apply the next time it starts.' : '');
     }
-    async function read() { try { const r = await fetch('/api/status', { cache: 'no-store' }); if (!r.ok) throw Error(await r.text()); render(await r.json()) } catch (e) { status(e.message, true) } }
-    async function post(path, body, savesSettings = false) { busy = true; buttons(); try { const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (savesSettings) dirty = false; render(result); if (dirty) status(result.message) } catch (e) { status(e.message, true) } finally { busy = false; buttons() } }
-    $('form').addEventListener('submit', e => { e.preventDefault(); const c = { mask: 0, autostart: Number($('autostart').checked) }; document.querySelectorAll('#features input[data-bit]').forEach(input => { if (input.checked) c.mask |= 1 << Number(input.dataset.bit) }); for (const k of keys) c[k] = Number($(k).value); post('/api/config', new URLSearchParams(c).toString(), true) });
-    $('start').onclick = () => post('/api/start', '');
+    async function read() { if (refreshing) return; refreshing = true; const before = revision; try { const r = await fetch('/api/status', { cache: 'no-store' }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (!busy && !halted && before === revision) { render(result); if (!initialStatusShown) { initialStatusShown = true; if (result.message) status(result.message) } } } catch (e) { if (!busy && !halted && before === revision) { renderCredits(null); renderWheelWidth(null); renderWheelGeometry(null); status(e.message, true) } } finally { refreshing = false } }
+    async function post(path, body, savesSettings = false) { busy = true; revision++; buttons(); try { const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (savesSettings) dirty = false; render(result); status(result.message) } catch (e) { status(e.message, true) } finally { busy = false; buttons() } }
+    function configBody() { const c = { mask: 0, autostart: Number($('autostart').checked) }; document.querySelectorAll('#features input[data-bit]').forEach(input => { if (input.checked) c.mask |= 1 << Number(input.dataset.bit) }); for (const k of keys) c[k] = Number($(k).value); return new URLSearchParams(c).toString() }
+    $('form').addEventListener('submit', e => { e.preventDefault(); post('/api/config', configBody(), true) });
+    $('start').onclick = async () => { if (busy || !loaded || engine || halted) return; busy = true; revision++; buttons(); try { if (dirty) { const saved = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: configBody() }); if (!saved.ok) throw Error(await saved.text()); dirty = false; render(await saved.json()) } const started = await fetch('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: '' }); if (!started.ok) throw Error(await started.text()); const result = await started.json(); render(result); status(result.message) } catch (e) { status(e.message, true) } finally { busy = false; buttons() } };
     $('launch-game').onclick = () => post('/api/game/start', '');
     $('reinstall-shortcut').onclick = () => post('/api/shortcut/reinstall', '');
     $('stop-engine').onclick = async () => { await read(); if (gameRunning && !confirm('GT7 is running. Stopping the engine now leaves the current game unpatched and may prevent automatic restoration. Continue?')) return; post('/api/engine/stop', '') };
     $('stop-payload').onclick = async () => { const warning = gameRunning ? 'GT7 is running. Stopping GT7Patcher now stops its engine and closes the web interface. Continue?' : 'Stop GT7Patcher? Port 7210 will close until the payload is run again.'; if (!confirm(warning)) return; busy = true; buttons(); try { const r = await fetch('/api/payload/stop', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: '' }); if (!r.ok) throw Error(await r.text()); halted = true; engine = false; status('GT7Patcher has stopped. Run the payload again to reconnect.') } catch (e) { status(e.message, true) } finally { busy = false; buttons() } };
-    $('form').addEventListener('change', e => { if (e.target.id === 'patch-2' && e.target.checked) $('patch-0').checked = true; if (e.target.id === 'patch-0' && !e.target.checked) $('patch-2').checked = false; if (e.target.id === 'units') units(); if (['speed', 'mass', 'power', 'torque', 'temperature', 'language'].includes(e.target.id)) $('preset').value = 0; mark() });
+    $('form').addEventListener('change', e => { if (e.target.id === 'credits' || e.target.id.startsWith('clean-')) return; if (e.target.id === 'patch-2' && e.target.checked) $('patch-0').checked = true; if (e.target.id === 'patch-0' && !e.target.checked) $('patch-2').checked = false; if (e.target.id === 'units') units(); if (['speed', 'mass', 'power', 'torque', 'temperature', 'language'].includes(e.target.id)) $('preset').value = 0; mark() });
     const presets = { 1: { language: 2, speed: 0, mass: 0, power: 2, torque: 2, temperature: 1 }, 2: { language: 2, speed: 0, mass: 0, power: 1, torque: 2, temperature: 1 }, 3: { language: 1, speed: 1, mass: 1, power: 1, torque: 1, temperature: 2 }, 4: { language: 0, speed: 0, mass: 0, power: 0, torque: 0, temperature: 1 }, 5: { language: 2, speed: 1, mass: 0, power: 1, torque: 2, temperature: 1 } };
     $('preset').addEventListener('change', () => { const p = presets[$('preset').value]; if (p) { for (const [k, v] of Object.entries(p)) $(k).value = v; $('units').value = 1; units() } });
-    for (const [id, panel] of [['patch-tab', 'patches'], ['game-tab', 'game'], ['help-tab', 'help']]) $(id).onclick = () => { for (const [t, p] of [['patch-tab', 'patches'], ['game-tab', 'game'], ['help-tab', 'help']]) { $(t).setAttribute('aria-selected', String(t === id)); $(p).hidden = p !== panel } $('controls').hidden = panel === 'help' };
-    read(); setInterval(() => { if (!busy && !dirty && !halted) read() }, 5000);
+    const tabs = [['patch-tab', 'patches'], ['game-tab', 'game'], ['live-tab', 'live'], ['help-tab', 'help']].filter(([id]) => $(id));
+    for (const [id, panel] of tabs) $(id).onclick = () => { activePanel = panel; for (const [t, p] of tabs) { $(t).setAttribute('aria-selected', String(t === id)); $(p).hidden = p !== panel } $('launch-guidance').hidden = panel === 'help' || panel === 'live'; $('controls').hidden = panel === 'help' || panel === 'live'; pageStatus(persistentMessage) };
+    read(); setInterval(() => { if (!busy && !halted) read() }, 5000);
 </script>
 
+<!-- CLEANER_SCRIPTS -->
 </html>

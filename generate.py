@@ -47,7 +47,7 @@ def main():
     BUILD.mkdir(exist_ok=True)
     manifest_path = HERE / 'patches/manifest.json'
     manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-    assert len(manifest) == 7
+    assert len(manifest) == 8
     assert any(m['name'] == 'Debug environment' and not m['built'] for m in manifest)
     metas = [m for m in manifest if m['built']]
     assert [(m['name'], m['source']) for m in metas] == PATCH_SOURCES
@@ -58,6 +58,10 @@ def main():
     header += ['static const char *patch_lines[]={']
     counts = []
     for _, stem in PATCH_SOURCES:
+        if stem == 'live_settings':
+            counts.append(0)
+            header.append(cstring('') + ',')
+            continue
         lines = object_patch_lines(BUILD / f'{stem}.o')
         counts.append(len(lines))
         xml = ''.join(f'<Line Type="bytes" Address="0x{address:08x}" Value="{data.hex()}" />\n'
@@ -65,13 +69,24 @@ def main():
         header.append(cstring(xml) + ',')
     header += ['};', 'static const unsigned patch_counts[]={' + ','.join(map(str, counts)) + '};']
     html = (HERE / 'web/index.html').read_text(encoding='utf-8')
+    # Experimental source is retained but neither the patch nor its tab ships.
+    html = re.sub(r'    <button id="live-tab"[^>]*>.*?</button>\n', '', html)
+    html = re.sub(r'    <section id="live"[^>]*>.*?</section>\n', '', html, flags=re.S)
+    cleaner = json.loads((HERE / 'data/cleaner.json').read_text())
+    assert cleaner['version'] == 1 and len(cleaner['files']) == 14
+    scripts = '<script id="clean-manifest" type="application/json">' + json.dumps(cleaner, separators=(',', ':')) + '</script>\n'
+    scripts += '<script id="clean-worker" type="text/plain">' + (HERE / 'web/cleaner-worker.js').read_text(encoding='utf-8') + '</script>\n'
+    scripts += '<script>' + (HERE / 'web/cleaner.js').read_text(encoding='utf-8') + '</script>\n'
+    assert '<!-- CLEANER_SCRIPTS -->' in html
+    html = html.replace('<!-- CLEANER_SCRIPTS -->', scripts)
+    (BUILD / 'index.html').write_text(html, encoding='utf-8')
     header += ['static const char web_page[]=' + cstring(html) + ';']
     (BUILD / 'assets.h').write_text('\n'.join(header) + '\n', encoding='utf-8')
 
     assets = {'patch_manifest_sha256': hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
               'patch_names': [m['name'] for m in metas], 'line_counts': counts,
               'patch_sources': {f'patches/{stem}.S': hashlib.sha256((HERE / 'patches' / f'{stem}.S').read_bytes()).hexdigest()
-                                for _, stem in PATCH_SOURCES},
+                                for _, stem in PATCH_SOURCES if stem != 'live_settings'},
               'engine': 'GT7-only in-process launch engine; no child ELFs'}
     (BUILD / 'assets.json').write_text(json.dumps(assets, indent=2) + '\n')
     generate_icon()
