@@ -100,7 +100,8 @@ int main(void){
                 self.assertEqual(state['live'], dict(available=False, credits=None, session=None,
                     wheelWidth=dict(available=False, front=None, rear=None, modelCode=None, sequence=None),
                     wheelGeometry=dict(available=False, inchUp=None, offsetFront=None, offsetRear=None,
-                                       hubFront=None, hubRear=None, modelCode=None)))
+                                       hubFront=None, hubRear=None, modelCode=None),
+                    engineSwap=dict(available=False, category=None, modelCode=None)))
                 def request(body=None, token=True, endpoint='/api/live/credits'):
                     headers = {'X-GT7-Token': state['token']} if token else {}
                     req = urllib.request.Request(base + endpoint, data=body, headers=headers)
@@ -121,10 +122,9 @@ int main(void){
                     self.assertEqual(request(body), 400, body)
                 selected = dict(state['config'], mask=64)
                 req = urllib.request.Request(base + '/api/config', data=urllib.parse.urlencode(selected).encode(), headers={'X-GT7-Token': state['token']})
-                with self.assertRaises(urllib.error.HTTPError) as rejected:
-                    urllib.request.urlopen(req)
-                self.assertEqual(rejected.exception.code, 400)
-                self.assertNotIn('Live Settings', [f['name'] for f in state['features']])
+                with urllib.request.urlopen(req) as selected_response:
+                    self.assertEqual(selected_response.status, 200)
+                self.assertIn('Live Settings', [f['name'] for f in state['features']])
                 for amount in (0, 50000, 100000000):
                     self.assertEqual(request(f'amount={amount}&expected=43700&session=105:e415c45160'.encode()), 409)
                 wheel = b'front=7&rear=-4&expectedFront=0&expectedRear=10&modelCode=431&sequence=7'

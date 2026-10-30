@@ -2,7 +2,7 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const html=fs.readFileSync(require('node:path').join(__dirname,'../build/index.html'),'utf8');
-assert(!html.includes('id="live-tab"'));assert(!html.includes('id="live" role='));
+assert(html.includes('id="live-tab"'));assert(html.includes('id="live" role='));
 const elements=new Map();
 function element(){return {value:'',checked:false,disabled:false,hidden:false,textContent:'',dataset:{},children:[],listeners:{},attributes:{},classList:{toggle(){},add(){},remove(){}},append(...items){this.children.push(...items)},setAttribute(k,v){this.attributes[k]=v},removeAttribute(k){delete this[k];delete this.attributes[k]},querySelectorAll(){return []},addEventListener(k,fn){this.listeners[k]=fn}}}
 for(const match of html.matchAll(/<[a-z]+\b([^>]*\bid="([^"]+)"[^>]*)>/g)){const e=element();e.hidden=/\bhidden\b/.test(match[1]);e.disabled=/\bdisabled\b/.test(match[1]);elements.set(match[2],e)}
@@ -48,5 +48,5 @@ const get=id=>elements.get(id),settle=()=>new Promise(resolve=>setImmediate(reso
     worker.onmessage({data:{type:'scanned',ready:false,count:3}});
     get('clean-clear').onclick();assert.equal(get('clean-feedback').hidden,true);assert.equal(get('clean-choose').disabled,false);assert.equal(get('clean-clear').disabled,true);assert.equal(get('clean-convert').disabled,true);assert.equal(get('clean-download').hidden,true);
     get('clean-drop').listeners.drop({preventDefault(){},stopPropagation(){},dataTransfer:{files:[{name:'unrelated.txt'}]}});assert.equal(get('clean-convert').disabled,true);
-    console.log('PASS: generated release UI boots without Live Settings; Help navigation, 11-row checklist, scan gate, ticks, conversion, ZIP link, rescan reset, incremental worker reuse, preserved ticks, bold/red indicators, batch addition, drop events, unrelated-file rejection, busy guard, clear and errors');
+    console.log('PASS: generated UI boots with Live Settings; Help navigation, 11-row checklist, scan gate, ticks, conversion, ZIP link, rescan reset, incremental worker reuse, preserved ticks, bold/red indicators, batch addition, drop events, unrelated-file rejection, busy guard, clear and errors');
 })().catch(error=>{console.error(error);process.exitCode=1});

@@ -1,13 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #pragma once
 #include <stdio.h>
-#ifdef GT7_ENABLE_LIVE_SETTINGS
 #define PATCH_COUNT 7
 #define LIVE_SETTINGS_BIT (1U << 6)
-#else
-#define PATCH_COUNT 6
-#define LIVE_SETTINGS_BIT 0U
-#endif
 typedef struct {
     unsigned mask;
     int preset, units, language, speed, mass, power, torque, temperature, autostart;

@@ -22,7 +22,8 @@ const state = {
     token: 'test-token', engineRunning: true, gameRunning: 1, version: '0.23',
     config: { mask: 64, preset: 0, units: 0, language: 2, speed: 0, mass: 0, power: 2, torque: 2, temperature: 1, autostart: 0 },
     features: [], message: 'Ready', live: { available: true, credits: 43700, session: '105:e415c45160',
-        wheelWidth: { available: true, front: 1, rear: 2, modelCode: 431, sequence: 7 } }
+        wheelWidth: { available: true, front: 1, rear: 2, modelCode: 431, sequence: 7 },
+        wheelGeometry: { available: true, inchUp: 0, offsetFront: 3, offsetRear: 4, hubFront: 5, hubRear: 6, modelCode: 431 } }
 };
 const requests = [];
 let poll;
@@ -50,6 +51,15 @@ const context = vm.createContext({
             state.live.wheelWidth.rear = Number(values.get('rear'));
             state.live.wheelWidth.sequence++;
         }
+        if (url === '/api/live/wheel-geometry') {
+            if (failApply) return { ok: false, text: async () => 'The selected car changed; refresh and retry.' };
+            const values = new URLSearchParams(options.body), geometry = state.live.wheelGeometry;
+            geometry.inchUp = Number(values.get('inch'));
+            geometry.offsetFront = Number(values.get('offsetFront'));
+            geometry.offsetRear = Number(values.get('offsetRear'));
+            geometry.hubFront = Number(values.get('hubFront'));
+            geometry.hubRear = Number(values.get('hubRear'));
+        }
         return { ok: true, json: async () => JSON.parse(JSON.stringify(state)) };
     }
 });
@@ -64,7 +74,7 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
     assert.equal(element('apply-credits').disabled, false);
     assert.equal(element('wheel-width-front').value, '1');
     assert.equal(element('wheel-width-rear').value, '2');
-    assert.match(element('wheel-width-status').textContent, /Model code 431/);
+    assert.match(element('wheel-settings-status').textContent, /Model code 431/);
     element('live-tab').onclick();
     assert.equal(element('live').hidden, false);
     assert.equal(element('controls').hidden, true);
@@ -78,10 +88,11 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
     poll(); await settle();
     assert.equal(element('credits').value, '80000');
     state.live.wheelWidth = { available: true, front: -1, rear: 3, modelCode: 912, sequence: 8 };
+    state.live.wheelGeometry = { available: true, inchUp: 0, offsetFront: 3, offsetRear: 4, hubFront: 5, hubRear: 6, modelCode: 912 };
     poll(); await settle();
     assert.equal(element('wheel-width-front').value, '-1');
     assert.equal(element('wheel-width-rear').value, '3');
-    assert.match(element('wheel-width-status').textContent, /Model code 912/);
+    assert.match(element('wheel-settings-status').textContent, /Model code 912/);
     assert.match(element('credit-balance').textContent, /44,000/);
     evaluate('mark()');
     state.live.credits = 45000;
@@ -99,10 +110,13 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 
     element('wheel-width-front').value = '7'; element('wheel-width-front').listeners.input();
     element('wheel-width-rear').value = '-4'; element('wheel-width-rear').listeners.input();
-    assert.equal(element('apply-wheel-width').disabled, false);
-    await element('apply-wheel-width').onclick();
+    element('wheel-offset-front').value = '8'; element('wheel-offset-front').listeners.input();
+    assert.equal(element('apply-wheel-settings').disabled, false);
+    await element('apply-wheel-settings').onclick();
     const wheelApply = requests.find(request => request.url === '/api/live/wheel-width');
     assert.equal(wheelApply.options.body, 'front=7&rear=-4&expectedFront=-1&expectedRear=3&modelCode=912&sequence=8');
+    const geometryApply = requests.find(request => request.url === '/api/live/wheel-geometry');
+    assert.equal(geometryApply.options.body, 'inch=0&offsetFront=8&offsetRear=4&hubFront=5&hubRear=6&expectedInch=0&expectedOffsetFront=3&expectedOffsetRear=4&expectedHubFront=5&expectedHubRear=6&modelCode=912');
     assert.equal(element('wheel-width-front').value, '7');
     assert.equal(element('wheel-width-rear').value, '-4');
 
@@ -115,7 +129,7 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
     }
     for (const invalid of ['', '-129', '128', '1.5', '1e2']) {
         element('wheel-width-front').value = invalid; element('wheel-width-front').listeners.input();
-        assert.equal(element('apply-wheel-width').disabled, true, invalid);
+        assert.equal(element('apply-wheel-settings').disabled, true, invalid);
     }
     element('credits').value = '90000'; element('credits').listeners.input();
     failApply = true;
@@ -124,11 +138,11 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
     assert.equal(element('credits').value, '90000');
 
     // Losing the process invalidates drafts; a new session gets a fresh balance.
-    state.live = { available: false, credits: null, session: null, wheelWidth: { available: false, front: null, rear: null, modelCode: null, sequence: null } };
+    state.live = { available: false, credits: null, session: null, wheelWidth: { available: false, front: null, rear: null, modelCode: null, sequence: null }, wheelGeometry: { available: false, inchUp: null, offsetFront: null, offsetRear: null, hubFront: null, hubRear: null, modelCode: null } };
     poll(); await settle();
     assert.equal(element('credits').disabled, true);
     assert.equal(element('apply-credits').disabled, true);
-    state.live = { available: true, credits: 123, session: '106:e400001000', wheelWidth: { available: true, front: 0, rear: 0, modelCode: 17, sequence: 9 } };
+    state.live = { available: true, credits: 123, session: '106:e400001000', wheelWidth: { available: true, front: 0, rear: 0, modelCode: 17, sequence: 9 }, wheelGeometry: { available: true, inchUp: 0, offsetFront: 0, offsetRear: 0, hubFront: 0, hubRear: 0, modelCode: 17 } };
     poll(); await settle();
     assert.equal(element('credits').value, '123');
     assert.equal(element('credits').disabled, false);

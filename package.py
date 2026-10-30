@@ -8,7 +8,7 @@ import zipfile
 HERE=Path(__file__).resolve().parent
 DIST=HERE/'dist'
 DIST.mkdir(exist_ok=True)
-VERSION='0.3'
+VERSION='0.3.1'
 name=f'GT7Patcher-v{VERSION}'
 elf=DIST/f'{name}.elf'
 shutil.copyfile(HERE/'build/gt7patcher.elf',elf)
@@ -25,7 +25,7 @@ manifest=dict(version=VERSION,target=dict(title='PPSA01317',app_version='01.710.
     verification=dict(ps5_build='passed',
                       cleaner='Browser worker reconstruction and ZIP CRC/hash verification against all reference files passed',
                       console_conversion_test='User confirmed the seven converted files plus three unchanged clean-reference files boot without the four optional files; vanilla and GT7Patcher offline play both tested',
-                      release_live_settings='Not selectable; tab omitted; legacy live selection discarded',
+                      live_settings='Enabled in this build; continue console validation before release',
                       release_payload_console_test='Not deployed or tested on console in this task'),
     region='display presets only; full internal region conversion is not implemented',
     engine=json.loads((HERE/'vendor/provenance.json').read_text()),

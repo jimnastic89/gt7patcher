@@ -179,7 +179,7 @@ static int credits_game(pid_t *pid,uintptr_t *base){
 }
 typedef struct {uint64_t magic,original,map,allocation,heartbeat;uint32_t state,reserved;uint64_t entry;} LiveBoot;
 _Static_assert(sizeof(LiveBoot)==56,"bootstrap ABI");
-_Static_assert(sizeof(LiveMailbox)==280,"mailbox ABI");
+_Static_assert(sizeof(LiveMailbox)==328,"mailbox ABI");
 enum {LIVE_SLOT_RVA=0x051bee08,LIVE_ORIGINAL_RVA=0x0028bb20,LIVE_BOOT_RVA=0x03f0e940};
 static int live_boot_read(pid_t pid,uintptr_t base,LiveBoot *boot){
     return read_mem(pid,base+LIVE_BOOT_RVA+LIVE_BOOT_CONTROL,boot,sizeof(*boot))||boot->magic!=UINT64_C(0x31544f4f424c3747)?-1:0;
@@ -228,6 +228,8 @@ static int live_resolve(pid_t pid,uintptr_t base,uintptr_t *address,LiveMailbox 
         initial.set_wheel_width=base+0x01af0a20;
         initial.set_wheel_inch_up=base+0x01af0980;initial.add_wheel_offset=base+0x007ac980;
         initial.set_hub_offset=base+0x01aef670;
+        initial.get_engine_swap=base+0x02c401b0;initial.add_engine_swap=base+0x02c41800;
+        initial.set_engine_swap=base+0x02c41900;initial.reset_engine_swap=base+0x02c421d0;
         memcpy(blob+LIVE_MAILBOX,&initial,sizeof(initial));
         if(kernel_mprotect(pid,boot.allocation,0x4000,PROT_READ|PROT_WRITE|PROT_EXEC)||
            (kernel_get_vmem_protection(pid,boot.allocation,0x4000)&7)!=7||
@@ -366,6 +368,25 @@ int gt7_wheel_geometry_set(const Gt7WheelGeometry *expected,int8_t inch_up,int16
         if(state.geometry_state==GEOMETRY_DONE)return state.wheel_inch_up==inch_up&&state.wheel_offset_front==offset_front&&state.wheel_offset_rear==offset_rear&&state.hub_offset_front==hub_front&&state.hub_offset_rear==hub_rear?0:-1;
         if(state.geometry_state==GEOMETRY_STALE)return -2;
         if(state.geometry_state==GEOMETRY_INVALID||state.geometry_state==GEOMETRY_UNAVAILABLE)return -1;}
+    return -3;
+}
+int gt7_engine_swap_read(Gt7EngineSwap *out){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(!out||credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.heartbeat||state.car_state!=CAR_READY)return -1;
+    *out=(Gt7EngineSwap){pid,state.car_model_code,state.engine_swap_category};return 0;
+}
+int gt7_engine_swap_set(const Gt7EngineSwap *expected,uint8_t category,int unlock){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(!expected||category>2||credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.heartbeat)return -1;
+    if(state.engine_state==ENGINE_QUEUED||state.engine_state==ENGINE_RUNNING)return -3;
+    if((state.car_state!=CAR_READY&&state.car_state!=CAR_QUEUED)||state.car_model_code!=expected->model_code||state.engine_swap_category!=expected->category)return -2;
+    state.engine_expected_model_code=expected->model_code;state.engine_expected_category=expected->category;state.engine_requested_category=category;state.engine_unlock=unlock?1:0;
+    if(verified_write(pid,address+offsetof(LiveMailbox,engine_expected_model_code),&state.engine_expected_model_code,8))return -1;
+    uint32_t queued=ENGINE_QUEUED;if(verified_write(pid,address+offsetof(LiveMailbox,engine_state),&queued,4))return -1;
+    for(unsigned i=0;i<150;i++){usleep(10000);if(read_mem(pid,address,&state,sizeof(state)))return -3;
+        if(state.engine_state==ENGINE_DONE)return state.engine_swap_category==category?0:-1;
+        if(state.engine_state==ENGINE_STALE)return -2;
+        if(state.engine_state==ENGINE_INVALID||state.engine_state==ENGINE_UNAVAILABLE)return -1;}
     return -3;
 }
 static int bridge_prepare(void){

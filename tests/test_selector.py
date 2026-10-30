@@ -116,9 +116,9 @@ class SelectorTests(unittest.TestCase):
                 self.assertEqual([e.attrib for e in self.lines()], expected)
 
     def test_wheel_offset_presets_patch_is_independent_and_guarded(self):
-        self.assertEqual(len(self.status['features']),6)
+        self.assertEqual(len(self.status['features']),7)
         self.assertEqual(self.status['features'][5]['name'],'Wheel Offset Presets')
-        self.assertNotIn('Live Settings', [f['name'] for f in self.status['features']])
+        self.assertEqual(self.status['features'][6]['name'],'Live Settings')
         c=dict(self.c,mask=32,units=0,language=-1)
         self.assertEqual(self.request('/api/config',c)[0],200)
         rows=self.lines();self.assertEqual(len(rows),1)
@@ -139,8 +139,7 @@ class SelectorTests(unittest.TestCase):
         source=(HERE/'patches/debug_environment.S').read_text()
         self.assertIn('.patch.0000.060e83b0',source)
         self.assertIn('0x64, 0x65, 0x62, 0x75, 0x67, 0x00, 0x00',source)
-        self.assertEqual(self.request('/api/config',dict(self.c,mask=64,units=0,language=-1))[0],400)
-        # The experimental feature cannot be selected in the release.
+        self.assertEqual(self.request('/api/config',dict(self.c,mask=64,units=0,language=-1))[0],200)
 
     def test_all_unit_combinations_decode_to_selected_targets(self):
         for speed,mass,power,torque,temp in itertools.product(range(2),range(2),range(3),range(3),(1,2)):
@@ -234,7 +233,7 @@ class SelectorTests(unittest.TestCase):
         code,body=self.request('/')
         self.assertEqual(code,200)
         self.assertIn(b'Language &amp; Units',body)
-        self.assertNotIn(b'id="live-tab"',body)
+        self.assertIn(b'id="live-tab"',body)
         self.assertIn(b'internal GameRegionCode',body)
         self.assertIn(b'id="version"',body)
         self.assertIn(b'Reinstall home screen shortcut',body)

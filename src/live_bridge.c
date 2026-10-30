@@ -24,6 +24,8 @@ static void sample_car(void){
             m->wheel_inch_up=*(int8_t *)(style+0x24);
             m->wheel_offset_front=*(int16_t *)(style+0x20);m->wheel_offset_rear=*(int16_t *)(style+0x22);
             m->hub_offset_front=*(int16_t *)(style+0x28);m->hub_offset_rear=*(int16_t *)(style+0x2a);
+            uintptr_t expanded=*(uintptr_t *)(implementation+0x10);
+            m->engine_swap_category=expanded?*(uint8_t *)(expanded+0x0c):0;
             m->car_model_code=*(uint32_t *)(style+0x68);
             m->car_sequence++;
             result=CAR_READY;
@@ -53,6 +55,24 @@ static void set_wheel_geometry(void){
     if(!((int (*)(void *,unsigned,void *))(uintptr_t)m->garage_set_car)((void *)garage,index,car))goto finish;
     m->wheel_inch_up=*(int8_t *)(style+0x24);m->wheel_offset_front=*(int16_t *)(style+0x20);m->wheel_offset_rear=*(int16_t *)(style+0x22);m->hub_offset_front=*(int16_t *)(style+0x28);m->hub_offset_rear=*(int16_t *)(style+0x2a);m->car_model_code=*(uint32_t *)(style+0x68);m->car_sequence++;result=GEOMETRY_DONE;
 finish:if(constructed)((void (*)(void *))(uintptr_t)m->car_dtor)(car);if(locked)((void (*)(void *))(uintptr_t)m->garage_unlock)((void *)(root+0x68));__atomic_store_n(&m->geometry_state,result,__ATOMIC_RELEASE);
+}
+static void set_engine_swap(void){
+    volatile LiveMailbox *m=&live_mailbox;uint32_t queued=ENGINE_QUEUED;
+    if(!__atomic_compare_exchange_n(&m->engine_state,&queued,ENGINE_RUNNING,0,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED))return;
+    uint32_t result=ENGINE_UNAVAILABLE;_Alignas(16) unsigned char car[0x30];int constructed=0,locked=0;uintptr_t root=0,garage=0,implementation=0,style=0;uint16_t index=0;
+    if(!m->enabled||!m->garage_root||!m->garage_lock||!m->garage_unlock||!m->garage_riding_id||!m->garage_get_car||!m->garage_set_car||!m->get_engine_swap||!m->add_engine_swap||!m->set_engine_swap||!m->reset_engine_swap)goto finish;
+    root=((uintptr_t (*)(void))(uintptr_t)m->garage_root)();if(!root||((int (*)(void *))(uintptr_t)m->garage_lock)((void *)(root+0x68)))goto finish;locked=1;garage=*(uintptr_t *)(root+0x70);if(!garage)goto finish;
+    ((void (*)(void *,uint16_t *))(uintptr_t)m->garage_riding_id)((void *)garage,&index);((void (*)(void *))(uintptr_t)m->car_ctor)(car);constructed=1;
+    if(!((int (*)(void *,unsigned,void *,void *))(uintptr_t)m->garage_get_car)((void *)garage,index,car,0))goto finish;
+    implementation=*(uintptr_t *)car;style=implementation?*(uintptr_t *)(implementation+0x18):0;if(!style||m->car_model_code!=m->engine_expected_model_code)goto stale;
+    uint8_t current=((uint8_t (*)(void *))(uintptr_t)m->get_engine_swap)(car);
+    if(current!=m->engine_expected_category)goto stale;
+    if(m->engine_requested_category==0){((void (*)(void *))(uintptr_t)m->reset_engine_swap)(car);}
+    else {if(current)((void (*)(void *))(uintptr_t)m->reset_engine_swap)(car);if(m->engine_unlock)((void (*)(void *,unsigned))(uintptr_t)m->add_engine_swap)(car,m->engine_requested_category);if(!((int (*)(void *,unsigned))(uintptr_t)m->set_engine_swap)(car,m->engine_requested_category))goto finish;}
+    if(!((int (*)(void *,unsigned,void *))(uintptr_t)m->garage_set_car)((void *)garage,index,car))goto finish;
+    m->engine_swap_category=((uint8_t (*)(void *))(uintptr_t)m->get_engine_swap)(car);m->car_sequence++;result=ENGINE_DONE;goto finish;
+stale:result=ENGINE_STALE;
+finish:if(constructed)((void (*)(void *))(uintptr_t)m->car_dtor)(car);if(locked)((void (*)(void *))(uintptr_t)m->garage_unlock)((void *)(root+0x68));__atomic_store_n(&m->engine_state,result,__ATOMIC_RELEASE);
 }
 typedef struct {void *car;const uint8_t *axle;const uint8_t *value;} WheelWidthArgs;
 static void set_wheel_width(void){
@@ -123,6 +143,7 @@ __attribute__((visibility("hidden"))) void live_frame(void *context,float delta_
     /* Execute before entering the original callback's own locks. */
     set_wheel_width();
     set_wheel_geometry();
+    set_engine_swap();
     sample_car();
     pump();
     ((void (*)(void *,float))(uintptr_t)live_mailbox.original)(context,delta_time);

@@ -39,7 +39,7 @@
     "name": "Live Settings",
     "note": "Enable the optional live settings bridge for the next game launch.",
     "source": "live_settings",
-    "built": false,
+    "built": true,
     "runtime": true
   },
   {
