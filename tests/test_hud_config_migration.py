@@ -47,6 +47,14 @@ class HudConfigMigrationTests(unittest.TestCase):
                 process.terminate()
                 process.wait(timeout=8)
 
+    def test_release_discards_live_hook_selection(self) -> None:
+        text = snapshot(0x40).replace('<Patch>\n', '<Patch>\n<!-- GT7LIVEHOOK 1 -->\n')
+        self.assertEqual(self.status_for(text)['config']['mask'], 0)
+
+    def test_live_hook_and_wheel_remain_independent(self) -> None:
+        text = snapshot(0x60).replace('<Patch>\n', '<Patch>\n<!-- GT7LIVEHOOK 1 -->\n')
+        self.assertEqual(self.status_for(text)['config']['mask'], 0x20)
+
     def test_new_hud_wheel_bit_is_preserved_and_race_info_is_dropped(self) -> None:
         self.assertEqual(self.status_for(snapshot(0x60, race_info=True))["config"]["mask"], 0x20)
 

@@ -57,6 +57,7 @@ int emit_xml(FILE *f,const Config *c){
     for(unsigned i=0;i<PATCH_COUNT;i++)if(c->mask&(1U<<i)){
         fprintf(f,"<!-- GT7FEATURE %u -->\n",i);fputs(patch_lines[i],f);
     }
+    if(c->mask&LIVE_SETTINGS_BIT)fputs("<!-- GT7LIVEHOOK 1 -->\n",f);
     if(c->units){
         fputs("<!-- GT7FEATURE units -->\n",f);
         unsigned char b[71];uint32_t values[]={c->speed,c->power,c->torque,3,c->temperature,0,c->mass};
@@ -93,8 +94,9 @@ int save_config(const char *root,const Config *c){
 static int load_config_unlocked(const char *root,Config *c){
     char path[512],buf[512];snprintf(path,sizeof(path),"%s/xml_prospero/PPSA01317.xml",root);
     FILE *f=fopen(path,"rb");if(!f)return -1;
-    int r=-1,has_race_info=0,has_debug_environment=0;Config loaded={0};unsigned saved_mask=0;
+    int r=-1,has_race_info=0,has_debug_environment=0,has_live_hook=0;Config loaded={0};unsigned saved_mask=0;
     while(fgets(buf,sizeof(buf),f)){
+        if(strstr(buf,"<!-- GT7LIVEHOOK 1 -->"))has_live_hook=1;
         if(strstr(buf,"Name=\"Race Info fifth blank option (experimental)\""))has_race_info=1;
         if(strstr(buf,"Address=\"0x060ec3b0\"")||strstr(buf,"Address=\"0x060e83b0\"")||strstr(buf,"Address=\"0x05ce83b0\""))has_debug_environment=1;
         unsigned mask;Config x={0};
@@ -112,7 +114,8 @@ static int load_config_unlocked(const char *root,Config *c){
     /* Bit 6 is Wheel Offset in HUD snapshots, but was Debug environment in
      * native snapshots. Debug environment remains in source only, so discard
      * that saved selection while preserving the independent wheel option. */
-    if((saved_mask&0x40U)&&!has_debug_environment)normalized|=0x20U;
+    if((saved_mask&0x40U)&&has_live_hook)normalized|=LIVE_SETTINGS_BIT;
+    else if((saved_mask&0x40U)&&!has_live_hook&&!has_debug_environment)normalized|=0x20U;
     if((saved_mask&0x20U)&&(!has_race_info||has_debug_environment))normalized|=0x20U;
     loaded.mask=normalized;
     if(!valid_config(&loaded))return -1;

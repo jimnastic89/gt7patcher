@@ -27,10 +27,12 @@
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 #endif
-#define VERSION "0.23"
+#define VERSION "0.3"
+#ifndef PORT
 #define PORT 7210
+#endif
 static const char *root="/data/gt7p/patches";
-static char token[33],message[256]="Save your choices, then start the engine before launching GT7.";
+static char token[33],message[256]="";
 static Config config;
 
 static int broken;
@@ -72,6 +74,13 @@ static int engine_ready(void){
 #ifdef PS5
     if(atomic_load(&startup_pending))return 0;
     return gt7_engine_ready();
+#else
+    return 0;
+#endif
+}
+static int engine_active(void){
+#ifdef PS5
+    return gt7_engine_active();
 #else
     return 0;
 #endif
@@ -153,10 +162,35 @@ static void json_status(int fd){
 #ifdef PS5
     if(atomic_load(&startup_pending))status_message="GT7Patcher is available on port 7210. Preparing the home-screen shortcut and saved startup option.";
 #endif
-    n+=(size_t)snprintf(body+n,sizeof(body)-n,"{\"version\":\"%s\",\"token\":\"%s\",\"engineRunning\":%s,\"gameRunning\":%d,\"message\":\"%s\",\"config\":{\"mask\":%u,\"preset\":%d,\"units\":%d,\"language\":%d,\"speed\":%d,\"mass\":%d,\"power\":%d,\"torque\":%d,\"temperature\":%d,\"autostart\":%d},\"features\":[",VERSION,token,engine_ready()?"true":"false",running_gt7(),status_message,config.mask,config.preset,config.units,config.language,config.speed,config.mass,config.power,config.torque,config.temperature,config.autostart);
+    n+=(size_t)snprintf(body+n,sizeof(body)-n,"{\"version\":\"%s\",\"token\":\"%s\",\"engineRunning\":%s,\"engineActive\":%s,\"gameRunning\":%d,\"message\":\"%s\",\"config\":{\"mask\":%u,\"preset\":%d,\"units\":%d,\"language\":%d,\"speed\":%d,\"mass\":%d,\"power\":%d,\"torque\":%d,\"temperature\":%d,\"autostart\":%d},\"features\":[",VERSION,token,engine_ready()?"true":"false",engine_active()?"true":"false",running_gt7(),status_message,config.mask,config.preset,config.units,config.language,config.speed,config.mass,config.power,config.torque,config.temperature,config.autostart);
     /* Original feature labels and notes contain no JSON quoting characters; verify at generation. */
     for(unsigned i=0;i<PATCH_COUNT;i++)n+=(size_t)snprintf(body+n,sizeof(body)-n,"%s{\"name\":\"%s\",\"note\":\"%s\",\"lines\":%u}",i?",":"",feature_name(i),feature_note(i),feature_count(i));
-    snprintf(body+n,sizeof(body)-n,"]}");response(fd,200,"application/json",body);
+    n+=(size_t)snprintf(body+n,sizeof(body)-n,"],\"live\":{");
+#ifdef PS5
+    Gt7Credits credits;
+    if((config.mask&LIVE_SETTINGS_BIT)&&!atomic_load(&startup_pending)&&gt7_live_ready()&&!gt7_credits_read(&credits))
+        n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":true,\"credits\":%u,\"session\":\"%d:%llx\"",credits.amount,credits.pid,(unsigned long long)credits.object);
+    else
+#endif
+        n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":false,\"credits\":null,\"session\":null");
+    n+=(size_t)snprintf(body+n,sizeof(body)-n,",\"wheelWidth\":{");
+#ifdef PS5
+    Gt7WheelWidth width;
+    if((config.mask&LIVE_SETTINGS_BIT)&&!atomic_load(&startup_pending)&&!gt7_wheel_width_read(&width))
+        n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":true,\"front\":%d,\"rear\":%d,\"modelCode\":%u,\"sequence\":%u",width.front,width.rear,width.model_code,width.sequence);
+    else
+#endif
+        n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":false,\"front\":null,\"rear\":null,\"modelCode\":null,\"sequence\":null");
+    n+=(size_t)snprintf(body+n,sizeof(body)-n,"},\"wheelGeometry\":{");
+#ifdef PS5
+    Gt7WheelGeometry geometry;
+    if((config.mask&LIVE_SETTINGS_BIT)&&!atomic_load(&startup_pending)&&!gt7_wheel_geometry_read(&geometry))
+        n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":true,\"inchUp\":%d,\"offsetFront\":%d,\"offsetRear\":%d,\"hubFront\":%d,\"hubRear\":%d,\"modelCode\":%u",geometry.inch_up,geometry.offset_front,geometry.offset_rear,geometry.hub_front,geometry.hub_rear,geometry.model_code);
+    else
+#endif
+        n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":false,\"inchUp\":null,\"offsetFront\":null,\"offsetRear\":null,\"hubFront\":null,\"hubRear\":null,\"modelCode\":null");
+    snprintf(body+n,sizeof(body)-n,"}}}");
+    response(fd,200,"application/json",body);
 }
 static void serve(int fd){
     char req[4096],method[12],path[128],proto[16];size_t used=0;char *body=NULL;
@@ -191,10 +225,60 @@ static void serve(int fd){
     size_t received=used-(size_t)(body-req);
     if(received>length){response(fd,400,"text/plain","Invalid body length");return;}
     while(received<length){ssize_t r=recv(fd,body+received,length-received,0);if(r<=0)return;received+=(size_t)r;}body[length]=0;
-    if(strcmp(path,"/api/config")&&strcmp(path,"/api/start")&&strcmp(path,"/api/game/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
+    if(strcmp(path,"/api/config")&&strcmp(path,"/api/live/credits")&&strcmp(path,"/api/live/wheel-width")&&strcmp(path,"/api/live/wheel-geometry")&&strcmp(path,"/api/start")&&strcmp(path,"/api/game/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
 #ifdef PS5
     if(atomic_load(&startup_pending)){response(fd,409,"text/plain","Startup is still running. Please retry shortly; the browser page remains available.");return;}
 #endif
+    if(!strcmp(path,"/api/live/credits")){
+        /* Fixed field order and canonical decimal values, with bounded input
+         * before scanf, prevent signs, overflow, duplicate or extra fields. */
+        int consumed=0;unsigned long long amount,expected,pid,object;
+        char canonical[128];
+        if(length>=sizeof(canonical)||sscanf(body,"amount=%10llu&expected=%10llu&session=%10llu:%16llx%n",&amount,&expected,&pid,&object,&consumed)!=4||consumed!=(int)length||
+           amount>100000000U||expected>INT32_MAX||!pid||pid>INT32_MAX){response(fd,400,"text/plain","Use a whole credit amount from 0 to 100000000 and a valid game session.");return;}
+        snprintf(canonical,sizeof(canonical),"amount=%llu&expected=%llu&session=%llu:%llx",amount,expected,pid,object);
+        if(strcmp(body,canonical)){response(fd,400,"text/plain","Invalid credit amount or session.");return;}
+        if(!(config.mask&LIVE_SETTINGS_BIT)){response(fd,409,"text/plain","Select and save the Live Settings patch first.");return;}
+#ifdef PS5
+        Gt7Credits before={(int)pid,object,(uint32_t)expected};int result=gt7_credits_set(&before,(uint32_t)amount);
+        if(result){response(fd,409,"text/plain",result==-3?"The game has not acknowledged the credit request yet. Do not resubmit; wait for the live balance to refresh.":result==-2?"Credits changed since the last refresh. Refresh the balance and apply again.":"Live bridge is unavailable or the native credit update could not be verified. Start GT7 with the Live Settings patch selected.");return;}
+        strcpy(message,"Live credit amount applied.");json_status(fd);return;
+#else
+        response(fd,409,"text/plain","Live credits are only available while supported GT7 is running on PS5.");return;
+#endif
+    }
+    if(!strcmp(path,"/api/live/wheel-width")){
+        int consumed=0,front,rear,expected_front,expected_rear;
+        unsigned model_code,sequence;
+        char canonical[160];
+        if(length>=sizeof(canonical)||sscanf(body,"front=%d&rear=%d&expectedFront=%d&expectedRear=%d&modelCode=%u&sequence=%u%n",&front,&rear,&expected_front,&expected_rear,&model_code,&sequence,&consumed)!=6||consumed!=(int)length||
+           front<INT8_MIN||front>INT8_MAX||rear<INT8_MIN||rear>INT8_MAX||expected_front<INT8_MIN||expected_front>INT8_MAX||expected_rear<INT8_MIN||expected_rear>INT8_MAX||!model_code||!sequence){response(fd,400,"text/plain","Use signed wheel-width values from -128 to 127 and the current car sample.");return;}
+        snprintf(canonical,sizeof(canonical),"front=%d&rear=%d&expectedFront=%d&expectedRear=%d&modelCode=%u&sequence=%u",front,rear,expected_front,expected_rear,model_code,sequence);
+        if(strcmp(body,canonical)){response(fd,400,"text/plain","Invalid wheel-width request.");return;}
+        if(!(config.mask&LIVE_SETTINGS_BIT)){response(fd,409,"text/plain","Select and save the Live Settings patch first.");return;}
+#ifdef PS5
+        Gt7WheelWidth before={0,model_code,sequence,(int8_t)expected_front,(int8_t)expected_rear};
+        int result=gt7_wheel_width_set(&before,(int8_t)front,(int8_t)rear);
+        if(result){response(fd,409,"text/plain",result==-3?"The game has not acknowledged the wheel-width request yet. Do not resubmit; wait for the values to refresh.":result==-2?"The selected car or its widths changed since the last refresh. Refresh and retry.":"Live bridge is unavailable or the native garage update could not be verified. Start GT7 with the Live Settings patch selected.");return;}
+        strcpy(message,"Wheel widths applied through GT7 garage data.");json_status(fd);return;
+#else
+        response(fd,409,"text/plain","Wheel-width editing is only available while supported GT7 is running on PS5.");return;
+#endif
+    }
+    if(!strcmp(path,"/api/live/wheel-geometry")){
+        int inch,of,orr,hf,hr,einch,eof,eor,ehf,ehr,consumed=0;unsigned model;char canonical[256];
+        if(length>=sizeof(canonical)||sscanf(body,"inch=%d&offsetFront=%d&offsetRear=%d&hubFront=%d&hubRear=%d&expectedInch=%d&expectedOffsetFront=%d&expectedOffsetRear=%d&expectedHubFront=%d&expectedHubRear=%d&modelCode=%u%n",&inch,&of,&orr,&hf,&hr,&einch,&eof,&eor,&ehf,&ehr,&model,&consumed)!=11||consumed!=(int)length||inch<INT8_MIN||inch>INT8_MAX||einch<INT8_MIN||einch>INT8_MAX||of<INT16_MIN||of>INT16_MAX||orr<INT16_MIN||orr>INT16_MAX||hf<INT16_MIN||hf>INT16_MAX||hr<INT16_MIN||hr>INT16_MAX||eof<INT16_MIN||eof>INT16_MAX||eor<INT16_MIN||eor>INT16_MAX||ehf<INT16_MIN||ehf>INT16_MAX||ehr<INT16_MIN||ehr>INT16_MAX||!model){response(fd,400,"text/plain","Use signed wheel geometry values within the displayed ranges.");return;}
+        snprintf(canonical,sizeof(canonical),"inch=%d&offsetFront=%d&offsetRear=%d&hubFront=%d&hubRear=%d&expectedInch=%d&expectedOffsetFront=%d&expectedOffsetRear=%d&expectedHubFront=%d&expectedHubRear=%d&modelCode=%u",inch,of,orr,hf,hr,einch,eof,eor,ehf,ehr,model);
+        if(strcmp(body,canonical)){response(fd,400,"text/plain","Invalid wheel-geometry request.");return;}
+        if(!(config.mask&LIVE_SETTINGS_BIT)){response(fd,409,"text/plain","Select and save the Live Settings patch first.");return;}
+#ifdef PS5
+        Gt7WheelGeometry before={0,model,(int8_t)einch,(int16_t)eof,(int16_t)eor,(int16_t)ehf,(int16_t)ehr};int result=gt7_wheel_geometry_set(&before,(int8_t)inch,(int16_t)of,(int16_t)orr,(int16_t)hf,(int16_t)hr);
+        if(result){response(fd,409,"text/plain",result==-3?"The game has not acknowledged the wheel-geometry request yet. Do not resubmit; wait for the values to refresh.":result==-2?"The selected car or its wheel geometry changed since the last refresh. Refresh and retry.":"The native garage update could not be verified. Wheel-offset changes are limited to 127 steps per apply.");return;}
+        strcpy(message,"Wheel geometry applied through GT7 garage data.");json_status(fd);return;
+#else
+        response(fd,409,"text/plain","Wheel geometry editing is only available while supported GT7 is running on PS5.");return;
+#endif
+    }
     if(!strcmp(path,"/api/payload/stop")){
         if(length){response(fd,400,"text/plain","Unexpected request body");return;}
         strcpy(message,"GT7Patcher has stopped. Run the payload again to reconnect.");
@@ -235,14 +319,17 @@ static void serve(int fd){
         response(fd,409,"text/plain","GT7 launch is only available on PS5.");return;
 #endif
     }
-    int game=running_gt7();if(game){response(fd,409,"text/plain",game>0?"Fully close GT7 before saving or starting the engine.":"Cannot establish that GT7 is closed; no changes saved.");return;}
     if(!strcmp(path,"/api/start")){
         if(length){response(fd,400,"text/plain","Unexpected request body");return;}
+        int game=running_gt7();if(game){response(fd,409,"text/plain",game>0?"Fully close GT7 before starting the engine.":"Cannot establish that GT7 is closed; engine was not started.");return;}
         if(start_engine()){response(fd,409,"text/plain",message);return;}
     }else{
         Config next;if(parse_config(body,&next)){response(fd,400,"text/plain","Invalid settings. Quick Store Rotation requires Offline mode.");return;}
         if(save_config(root,&next)){response(fd,500,"text/plain","Could not save the patch snapshot; previous settings retained.");return;}
-        config=next;strcpy(message,engine_ready()?"Choices saved. Launch GT7 to apply them.":"Choices saved. Start the engine, then launch GT7.");
+        config=next;
+        int game=running_gt7();
+        if(game>0)strcpy(message,"Choices saved. They will apply the next time GT7 starts.");
+        else strcpy(message,engine_ready()?"Choices saved. Launch GT7 to apply them.":"Choices saved. Start the engine, then launch GT7.");
     }
     json_status(fd);
 }
@@ -270,6 +357,13 @@ int main(int argc,char **argv){
     if(bind(s,(void *)&a,sizeof(a))||listen(s,8)){perror("GT7Patcher socket");close(s);return 1;}
     if(initialize()){perror("GT7Patcher initialization");close(s);return 1;}
 #ifdef PS5
+#ifdef GT7_LIVE_TEST
+    /* Diagnostic build only: use a separate port and leave the running
+     * payload's ShellCore launch hook and persisted choices untouched. */
+    config.mask|=LIVE_SETTINGS_BIT;
+    extern int gt7_live_test_attach(void);
+    strcpy(message,gt7_live_test_attach()?"Live bridge test installation failed.":"Live bridge test installed. Waiting for the game UI callback.");
+#else
     FILE *log=fopen("/data/gt7p/startup.log","w");
     if(log){fprintf(log,"GT7Patcher %s main reached; firmware=%08x; web socket listening on 7210\n",VERSION,kernel_get_fw_version());fclose(log);}
     if(port_in_use(23916)||port_in_use(23900)||port_in_use(7211)){
@@ -281,6 +375,7 @@ int main(int argc,char **argv){
             atomic_store(&startup_pending,0);strcpy(message,"Automatic setup could not start. GT7Patcher is available on port 7210.");
         }else startup_thread_created=1;
     }
+#endif
 #endif
     printf("GT7Patcher %s on port %u\n",VERSION,port);fflush(stdout);
     while(!stopping){fd_set set;FD_ZERO(&set);FD_SET(s,&set);struct timeval timeout={1,0};
