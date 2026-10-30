@@ -10,6 +10,7 @@ Included patches as of version 0.3:
 - Power Pack and vehicle DLC unlock
 - Language and unit preferences
 - Additional wheel offset options in GT Auto
+- File cleaner to remove old offline patches from game files
 
 Configuration is via the web interface on port `7210`, which can be access via a shortcut installed to the PS5's Media tab, or from any device on the same LAN.
 
