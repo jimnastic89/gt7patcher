@@ -12,7 +12,7 @@ PATCH_SOURCES = [
     ('Debug Settings', 'debug_settings'),
     ('Quick Store Rotation', 'quick_store_rotation'),
     ('Unlock Power Pack', 'unlock_power_pack'),
-    ('Unlock Vehicle DLCs', 'unlock_vehicle_dlcs'),
+    ('Unlock Vehicle DLC', 'unlock_vehicle_dlcs'),
     ('Wheel Offset Presets', 'wheel_offset_custom'),
     ('Live Settings', 'live_settings'),
     ('Allow skipping new game intro movie', 'opening_movie_skip'),

@@ -242,6 +242,22 @@ static void serve(int fd){
             response(fd,409,"text/plain","Live numeric input is only available while supported GT7 is running on PS5.");return;
 #endif
         }
+        else if(!strncmp(path,"/api/live/dump",14)){
+            /* Temporary read-only diagnostic: hex dump of a region (<=1 MiB). Remove before release. */
+            if(!authorized){response(fd,403,"text/plain","Reload this page before reading live memory.");return;}
+#ifdef PS5
+            char *query=strchr(path,'?');unsigned long long address=0;unsigned length=0;
+            if(!query||sscanf(query,"?addr=%llx&len=%u",&address,&length)!=2){response(fd,400,"text/plain","Use /api/live/dump?addr=0xSTART&len=N");return;}
+            if(!length||length>1048576U){response(fd,400,"text/plain","Length must be from 1 to 1048576.");return;}
+            unsigned char *raw=malloc(length);char *hex=malloc((size_t)length*2+1);static const char digits[]="0123456789abcdef";
+            if(!raw||!hex){free(raw);free(hex);response(fd,500,"text/plain","Out of memory");return;}
+            if(gt7_live_peek((uintptr_t)address,raw,length)){free(raw);free(hex);response(fd,409,"text/plain","Live memory is unavailable while supported GT7 is not running.");return;}
+            for(unsigned i=0;i<length;i++){hex[i*2]=digits[raw[i]>>4];hex[i*2+1]=digits[raw[i]&15];}
+            hex[length*2]=0;response(fd,200,"text/plain",hex);free(raw);free(hex);return;
+#else
+            response(fd,409,"text/plain","Live memory is only available while supported GT7 is running on PS5.");return;
+#endif
+        }
         else if(!strcmp(path,"/api/live/maps")){
             /* Temporary read-only diagnostic: GT7 memory map. Remove before release. */
             if(!authorized){response(fd,403,"text/plain","Reload this page before reading live memory.");return;}
@@ -264,8 +280,12 @@ static void serve(int fd){
             char *query=strchr(path,'?');unsigned long long address=0;unsigned length=0,maxhits=16;char text[128]="";
             if(!query||sscanf(query,"?addr=%llx&len=%u&text=%127[^&]&max=%u",&address,&length,text,&maxhits)!=4){response(fd,400,"text/plain","Use /api/live/find?addr=0xSTART&len=N&text=STR&max=M");return;}
             if(!length||length>67108864U||!text[0]||maxhits>64){response(fd,400,"text/plain","len must be 1..67108864, text must be non-empty, max 1..64.");return;}
+            unsigned char pattern[64];uint32_t plen=0;
+            if(!strncmp(text,"hex:",4)){const char *hp=text+4;for(uint32_t i=0;hp[i]&&hp[i+1]&&plen<sizeof(pattern);i+=2){unsigned v;if(sscanf(hp+i,"%2x",&v)!=1)break;pattern[plen++]=(unsigned char)v;}}
+            else {plen=(uint32_t)strlen(text);memcpy(pattern,text,plen);}
+            if(!plen){response(fd,400,"text/plain","Pattern must be non-empty.");return;}
             uintptr_t hits[64];uint32_t count=0;
-            if(gt7_live_find((uintptr_t)address,length,text,(uint32_t)strlen(text),hits,maxhits,&count)){response(fd,409,"text/plain","Live memory is unavailable while supported GT7 is not running.");return;}
+            if(gt7_live_find((uintptr_t)address,length,(const char *)pattern,plen,hits,maxhits,&count)){response(fd,409,"text/plain","Live memory is unavailable while supported GT7 is not running.");return;}
             char reply[1200];int off=snprintf(reply,sizeof(reply),"{\"count\":%u,\"hits\":[",count);
             for(uint32_t i=0;i<count&&off<(int)sizeof(reply)-32;i++)off+=snprintf(reply+off,sizeof(reply)-off,"%s\"0x%llx\"",i?",":"",(unsigned long long)hits[i]);
             snprintf(reply+off,sizeof(reply)-off,"]}");
