@@ -24,8 +24,8 @@
     "built": true
   },
   {
-    "name": "Unlock Vehicle DLCs",
-    "note": "Unlocks all vehicle DLCs",
+    "name": "Unlock Vehicle DLC",
+    "note": "Unlocks all vehicle DLC",
     "source": "unlock_vehicle_dlcs",
     "built": true
   },
