@@ -2,7 +2,8 @@ PS5_PAYLOAD_SDK ?= /opt/ps5-payload-sdk
 include $(PS5_PAYLOAD_SDK)/toolchain/prospero.mk
 CFLAGS = -std=c11 -Os -Wall -Wextra -Werror -Ibuild -Ivendor/notify
 PATCH_OBJECTS = build/offline_mode.o build/debug_settings.o build/quick_store_rotation.o \
-	build/unlock_power_pack.o build/unlock_vehicle_dlcs.o build/wheel_offset_custom.o
+	build/unlock_power_pack.o build/unlock_vehicle_dlcs.o build/wheel_offset_custom.o \
+	build/opening_movie_skip.o
 all: build/gt7patcher.elf
 build/%.o: patches/%.S
 	$(CC) -c -nostdlib $< -o $@

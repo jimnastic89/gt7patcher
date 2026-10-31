@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const html = fs.readFileSync(path.join(__dirname, '../web/index.html'), 'utf8');
-assert.match(html, /id="game-tab"[^>]*>Language &amp; Units<\/button>/);
+assert.match(html, /id="game-tab"[^>]*>Language, Units &amp; Country<\/button>/);
 const elements = new Map();
 for (const match of html.matchAll(/<[a-z]+\b([^>]*\bid="([^"]+)"[^>]*)>/g)) {
     elements.set(match[2], {
@@ -20,7 +20,7 @@ for (const match of html.matchAll(/<[a-z]+\b([^>]*\bid="([^"]+)"[^>]*)>/g)) {
 elements.set('patch-6', { checked: true });
 const state = {
     token: 'test-token', engineRunning: true, gameRunning: 1, version: '0.23',
-    config: { mask: 64, preset: 0, units: 0, language: 2, speed: 0, mass: 0, power: 2, torque: 2, temperature: 1, autostart: 0 },
+    config: { mask: 64, preset: 0, units: 0, language: 2, country: -1, speed: 0, mass: 0, power: 2, torque: 2, temperature: 1, autostart: 0 },
     features: [], message: 'Ready', live: { available: true, credits: 43700, session: '105:e415c45160',
         wheelWidth: { available: true, front: 1, rear: 2, modelCode: 431, sequence: 7 },
         wheelGeometry: { available: true, inchUp: 0, offsetFront: 3, offsetRear: 4, hubFront: 5, hubRear: 6, modelCode: 431 } }

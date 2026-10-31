@@ -1,12 +1,19 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #pragma once
 #include <stdio.h>
-#define PATCH_COUNT 7
+#define PATCH_COUNT 8
 #define LIVE_SETTINGS_BIT (1U << 6)
+#define OPENING_MOVIE_SKIP_BIT (1U << 7)
+/* Number of selectable player countries exposed by the payload UI. The order
+ * of the ISO alpha-2 table in config.c MUST match the <select> options in
+ * web/index.html. Index -1 means "leave the game's own value alone". */
+#define COUNTRY_COUNT 46
 typedef struct {
     unsigned mask;
-    int preset, units, language, speed, mass, power, torque, temperature, autostart;
+    int preset, units, language, country, speed, mass, power, torque, temperature, autostart;
 } Config;
+/* ISO alpha-2 code for a country index, or "" when i is out of range. */
+const char *country_code(int i);
 Config defaults(void);
 int valid_config(const Config *c);
 int parse_config(const char *body, Config *c);

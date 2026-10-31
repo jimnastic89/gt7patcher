@@ -16,7 +16,7 @@ live_boot_entry:
     lock cmpxchg dword ptr [rip + live_boot_control + 40], ecx
     jne .forward
     xor edi, edi
-    mov esi, 0x4000
+    mov esi, 0x20000
     mov edx, 7
     mov ecx, 0x1002
     mov r8, -1

@@ -3,6 +3,23 @@
 #include <stdint.h>
 #define LIVE_MAGIC UINT64_C(0x3145474449523747)
 #define LIVE_MAX_CREDITS 100000000U
+/* Executable padding shared with patched code caves. The live-settings
+ * bridge writes its bootstrap into [LIVE_BOOT_RVA, LIVE_BOOT_RVA +
+ * LIVE_BOOT_RESERVED); patched code caves must lie outside that range. */
+#define LIVE_IMAGE_BASE 0x00400000u
+#define LIVE_BOOT_RVA 0x03f0e940u
+#define LIVE_BOOT_RESERVED 0x000000c8u
+/* The live-settings allocation is mapped read/write/execute by the bootstrap
+ * (see src/live_boot.S, size 0x20000). The bridge code occupies its start; the
+ * credit number-input scratch lives at the offsets below. Keep LIVE_ALLOCATION
+ * in step with the mmap size in live_boot.S. */
+#define LIVE_ALLOCATION 0x00020000u
+#define LIVE_PROMPT_PARAM 0x00010000u
+#define LIVE_PROMPT_TEXT  0x00010200u
+#define LIVE_PROMPT_WORK  0x00011000u
+#define LIVE_PROMPT_WORK_SIZE 0x5000u
+#define LIVE_PROMPT_TEXT_CHARS 32u
+enum {PROMPT_IDLE,PROMPT_QUEUED,PROMPT_RUNNING,PROMPT_OPEN,PROMPT_ENTERED,PROMPT_APPLIED,PROMPT_CANCELLED,PROMPT_FAILED};
 enum {LIVE_IDLE, LIVE_QUEUED, LIVE_RUNNING, LIVE_DONE, LIVE_STALE, LIVE_INVALID, LIVE_CANCELLED};
 enum {CAR_IDLE, CAR_QUEUED, CAR_RUNNING, CAR_READY, CAR_UNAVAILABLE};
 enum {WHEEL_IDLE, WHEEL_QUEUED, WHEEL_RUNNING, WHEEL_DONE, WHEEL_STALE, WHEEL_INVALID, WHEEL_UNAVAILABLE};
@@ -35,6 +52,18 @@ typedef struct {
     uint64_t get_engine_swap, add_engine_swap, set_engine_swap, reset_engine_swap;
     uint32_t engine_state, engine_expected_model_code;
     uint8_t engine_swap_category, engine_expected_category, engine_requested_category, engine_unlock;
+    /* The IME hook is installed through GT7's imported sceImeOpen pointer.
+     * A non-zero pending flag changes only the next opening to number mode. */
+    uint64_t ime_original, ime_close, ime_update;
+    uint32_t credit_input_pending, ime_hook_enabled, ime_user_id;
+    /* Credit number-input prompt. The payload queues PROMPT_QUEUED; the game
+     * UI thread opens GT7's own sceImeOpen in Number mode, the platform
+     * returns the digits through the bridge handler, and the value is applied
+     * through the same native credit path as the live settings. */
+    uint32_t prompt_state, prompt_result, prompt_open, prompt_chars, prompt_amount, prompt_reserved;
+    /* Runtime address of this allocation, written by the payload. The bridge
+     * needs it to pass absolute pointers to sceImeOpen. */
+    uint64_t allocation;
 } LiveMailbox;
 extern volatile LiveMailbox live_mailbox;
 void live_frame(void *context,float delta_time);

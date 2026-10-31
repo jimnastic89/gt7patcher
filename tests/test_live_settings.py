@@ -98,6 +98,7 @@ int main(void){
                 else:
                     self.fail('Host did not start')
                 self.assertEqual(state['live'], dict(available=False, credits=None, session=None,
+                    creditPrompt=dict(available=False, state=None, result=None, amount=None, chars=None),
                     wheelWidth=dict(available=False, front=None, rear=None, modelCode=None, sequence=None),
                     wheelGeometry=dict(available=False, inchUp=None, offsetFront=None, offsetRear=None,
                                        hubFront=None, hubRear=None, modelCode=None),
