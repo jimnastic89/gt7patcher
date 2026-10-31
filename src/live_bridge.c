@@ -6,6 +6,19 @@
 #include <stddef.h>
 __attribute__((visibility("hidden"))) volatile LiveMailbox live_mailbox={.magic=LIVE_MAGIC};
 typedef struct {char text[16];uint64_t size,capacity;} GameString;
+/* GT7 passes its OrbisImeParam in rdi and the extended-parameter pointer in
+ * rsi at its sceImeOpen call site (the game rebuilds the struct on every
+ * open).  OrbisImeParam::type lives at +0x04; OrbisImeType::Number is 4. */
+__attribute__((visibility("hidden"))) int ime_open_hook(void *param, void *work){
+    volatile LiveMailbox *m=&live_mailbox;
+    uint32_t *type=(uint32_t *)((unsigned char *)param+0x04);
+    uint32_t saved=*type;
+    int armed=m->ime_hook_enabled&&__atomic_exchange_n(&m->credit_input_pending,0,__ATOMIC_ACQ_REL);
+    if(armed)*type=4;
+    int result=((int (*)(void *,void *))(uintptr_t)m->ime_original)(param,work);
+    if(armed)*type=saved;
+    return result;
+}
 static void sample_car(void){
     volatile LiveMailbox *m=&live_mailbox;
     uint32_t queued=CAR_QUEUED;
@@ -137,6 +150,98 @@ static void pump(void){
 finish:
     __atomic_store_n(&m->state,result,__ATOMIC_RELEASE);
 }
+/* ------------------------------------------------------------------------
+ * Credit number-input prompt.
+ * The platform delivers OrbisIme events to OrbisImeParam::handler. The bridge
+ * opens GT7's own sceImeOpen in Number mode on request, captures the resulting
+ * digits here, and applies them through the same native credit path used by
+ * the live settings. All scratch memory lives at fixed offsets inside this
+ * allocation, so the packed bridge bytes stay identical and are re-verified
+ * by the payload on every attach. */
+enum {ORBIS_IME_EVENT_UPDATE_TEXT=1,ORBIS_IME_EVENT_PRESS_CLOSE=4,ORBIS_IME_EVENT_PRESS_ENTER=5,ORBIS_IME_EVENT_ABORT=6};
+__attribute__((visibility("hidden"))) void credit_ime_handler(void *arg,const void *event){
+    volatile LiveMailbox *m=&live_mailbox;(void)arg;
+    uint32_t id=*(const uint32_t *)event;
+    if(id==ORBIS_IME_EVENT_UPDATE_TEXT){
+        /* OrbisImeEvent is {id, padding, union param}; OrbisImeEditText::str is
+         * the first member of the union, eight bytes into the event. */
+        const uint16_t *src=*(const uint16_t *const *)((const unsigned char *)event+8);
+        if(!src)return;
+        uint16_t *dst=(uint16_t *)(uintptr_t)(m->allocation+LIVE_PROMPT_TEXT);
+        uint32_t n=0;
+        while(n<LIVE_PROMPT_TEXT_CHARS-1&&src[n]){dst[n]=src[n];n++;}
+        dst[n]=0;m->prompt_chars=n;
+    }else if(id==ORBIS_IME_EVENT_PRESS_ENTER){
+        if(m->prompt_state==PROMPT_OPEN)m->prompt_state=PROMPT_ENTERED;
+    }else if(id==ORBIS_IME_EVENT_PRESS_CLOSE||id==ORBIS_IME_EVENT_ABORT){
+        if(m->prompt_state==PROMPT_OPEN)m->prompt_state=PROMPT_CANCELLED;
+    }
+}
+static void prompt(void){
+    volatile LiveMailbox *m=&live_mailbox;
+    uint32_t state=m->prompt_state;
+    if(state==PROMPT_QUEUED){
+        uint32_t queued=PROMPT_QUEUED;
+        if(!__atomic_compare_exchange_n(&m->prompt_state,&queued,PROMPT_RUNNING,0,__ATOMIC_ACQ_REL,__ATOMIC_RELAXED))return;
+        if(!m->enabled||!m->ime_original||!m->allocation){m->prompt_result=1;m->prompt_state=PROMPT_FAILED;return;}
+        /* GT7 rebuilds its own OrbisImeParam on every open, so ours is
+         * independent. type is OrbisImeType::Number (4) at offset 0x04;
+         * maxTextLength is nine digits because 100000000 is the native cap. */
+        unsigned char *param=(unsigned char *)(uintptr_t)(m->allocation+LIVE_PROMPT_PARAM);
+        for(unsigned i=0;i<0x60;i++)param[i]=0;
+        *(uint32_t *)(param+0x00)=m->ime_user_id;
+        *(uint32_t *)(param+0x04)=4;
+        *(uint32_t *)(param+0x24)=9;
+        *(uintptr_t *)(param+0x28)=m->allocation+LIVE_PROMPT_TEXT;
+        *(float *)(param+0x30)=960.0f;
+        *(float *)(param+0x34)=540.0f;
+        *(uintptr_t *)(param+0x40)=m->allocation+LIVE_PROMPT_WORK;
+        *(uintptr_t *)(param+0x48)=(uintptr_t)&live_mailbox;
+        *(uintptr_t *)(param+0x50)=m->allocation+(uintptr_t)&credit_ime_handler;
+        /* The platform zeroes this scratch buffer on open; do the same so a
+         * stale buffer from an earlier prompt can never leak into the pad. */
+        {unsigned char *w=(unsigned char *)(uintptr_t)(m->allocation+LIVE_PROMPT_WORK);
+         for(unsigned i=0;i<LIVE_PROMPT_WORK_SIZE;i++)w[i]=0;}
+        *(uint16_t *)(uintptr_t)(m->allocation+LIVE_PROMPT_TEXT)=0;
+        m->prompt_chars=0;m->prompt_amount=0;
+        /* rdi is the OrbisImeParam, rsi the optional extended parameter. */
+        int result=((int (*)(void *,void *))(uintptr_t)m->ime_original)(param,0);
+        if(result){m->prompt_result=(uint32_t)result;m->prompt_state=PROMPT_FAILED;return;}
+        m->prompt_open=1;m->prompt_result=0;m->prompt_state=PROMPT_OPEN;
+        return;
+    }
+    if(state==PROMPT_OPEN){
+        /* Pump queued events when the platform expects it; a no-op otherwise. */
+        if(m->ime_update)((void (*)(void *))(uintptr_t)m->ime_update)((void *)(uintptr_t)(m->allocation+(uintptr_t)&credit_ime_handler));
+        return;
+    }
+    if(state==PROMPT_ENTERED||state==PROMPT_CANCELLED){
+        if(m->prompt_open&&m->ime_close)((int (*)(void))(uintptr_t)m->ime_close)();
+        m->prompt_open=0;
+        if(state==PROMPT_CANCELLED)return;
+        const uint16_t *text=(const uint16_t *)(uintptr_t)(m->allocation+LIVE_PROMPT_TEXT);
+        uint32_t amount=0;int valid=0;
+        for(unsigned i=0;i<LIVE_PROMPT_TEXT_CHARS&&text[i];i++){
+            uint16_t c=text[i];
+            if(c<'0'||c>'9'){valid=0;break;}
+            if(amount>(LIVE_MAX_CREDITS-(uint32_t)(c-'0'))/10){valid=0;break;}
+            amount=amount*10+(uint32_t)(c-'0');valid=1;
+        }
+        if(!valid){m->prompt_result=2;m->prompt_state=PROMPT_FAILED;return;}
+        m->prompt_amount=amount;
+        /* Queue the value through the same native credit path as the live
+         * settings; pump() applies it later in this same frame. */
+        uintptr_t object=*(volatile uintptr_t *)(m->base+0x066e9648);
+        if(!object||*(volatile uintptr_t *)object!=m->base+0x053edca8||m->state==LIVE_QUEUED||m->state==LIVE_RUNNING){
+            m->prompt_result=3;m->prompt_state=PROMPT_FAILED;return;
+        }
+        m->expected_object=object;
+        m->expected_amount=*(volatile uint32_t *)(object+0x14c);
+        m->amount=amount;m->observed=0;m->sequence++;
+        m->prompt_result=0;m->prompt_state=PROMPT_APPLIED;m->state=LIVE_QUEUED;
+        return;
+    }
+}
 __attribute__((visibility("hidden"))) void live_frame(void *context,float delta_time){
     __atomic_add_fetch(&live_mailbox.heartbeat,1,__ATOMIC_RELAXED);
     live_mailbox.context=(uintptr_t)context;
@@ -145,6 +250,7 @@ __attribute__((visibility("hidden"))) void live_frame(void *context,float delta_
     set_wheel_geometry();
     set_engine_swap();
     sample_car();
+    prompt();
     pump();
     ((void (*)(void *,float))(uintptr_t)live_mailbox.original)(context,delta_time);
 }

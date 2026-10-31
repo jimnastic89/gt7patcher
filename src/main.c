@@ -162,7 +162,7 @@ static void json_status(int fd){
 #ifdef PS5
     if(atomic_load(&startup_pending))status_message="GT7Patcher is available on port 7210. Preparing the home-screen shortcut and saved startup option.";
 #endif
-    n+=(size_t)snprintf(body+n,sizeof(body)-n,"{\"version\":\"%s\",\"token\":\"%s\",\"engineRunning\":%s,\"engineActive\":%s,\"gameRunning\":%d,\"message\":\"%s\",\"config\":{\"mask\":%u,\"preset\":%d,\"units\":%d,\"language\":%d,\"speed\":%d,\"mass\":%d,\"power\":%d,\"torque\":%d,\"temperature\":%d,\"autostart\":%d},\"features\":[",VERSION,token,engine_ready()?"true":"false",engine_active()?"true":"false",running_gt7(),status_message,config.mask,config.preset,config.units,config.language,config.speed,config.mass,config.power,config.torque,config.temperature,config.autostart);
+    n+=(size_t)snprintf(body+n,sizeof(body)-n,"{\"version\":\"%s\",\"token\":\"%s\",\"engineRunning\":%s,\"engineActive\":%s,\"gameRunning\":%d,\"message\":\"%s\",\"config\":{\"mask\":%u,\"preset\":%d,\"units\":%d,\"language\":%d,\"country\":%d,\"speed\":%d,\"mass\":%d,\"power\":%d,\"torque\":%d,\"temperature\":%d,\"autostart\":%d},\"features\":[",VERSION,token,engine_ready()?"true":"false",engine_active()?"true":"false",running_gt7(),status_message,config.mask,config.preset,config.units,config.language,config.country,config.speed,config.mass,config.power,config.torque,config.temperature,config.autostart);
     /* Original feature labels and notes contain no JSON quoting characters; verify at generation. */
     for(unsigned i=0;i<PATCH_COUNT;i++)n+=(size_t)snprintf(body+n,sizeof(body)-n,"%s{\"name\":\"%s\",\"note\":\"%s\",\"lines\":%u}",i?",":"",feature_name(i),feature_note(i),feature_count(i));
     n+=(size_t)snprintf(body+n,sizeof(body)-n,"],\"live\":{");
@@ -173,6 +173,15 @@ static void json_status(int fd){
     else
 #endif
         n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":false,\"credits\":null,\"session\":null");
+    n+=(size_t)snprintf(body+n,sizeof(body)-n,",\"creditPrompt\":{");
+#ifdef PS5
+    Gt7CreditPrompt credit_prompt;
+    if((config.mask&LIVE_SETTINGS_BIT)&&!atomic_load(&startup_pending)&&!gt7_live_credit_prompt_read(&credit_prompt))
+        n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":true,\"state\":%u,\"result\":%u,\"amount\":%u,\"chars\":%u",credit_prompt.state,credit_prompt.result,credit_prompt.amount,credit_prompt.chars);
+    else
+#endif
+        n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":false,\"state\":null,\"result\":null,\"amount\":null,\"chars\":null");
+    n+=(size_t)snprintf(body+n,sizeof(body)-n,"}");
     n+=(size_t)snprintf(body+n,sizeof(body)-n,",\"wheelWidth\":{");
 #ifdef PS5
     Gt7WheelWidth width;
@@ -222,6 +231,67 @@ static void serve(int fd){
     if(!strcmp(method,"GET")){
         if(!strcmp(path,"/"))response(fd,200,"text/html; charset=utf-8",page_html());
         else if(!strcmp(path,"/api/status"))json_status(fd);
+        else if(!strcmp(path,"/api/live/credit-input")){
+#ifdef PS5
+            Gt7CreditPrompt prompt;
+            if(gt7_live_credit_prompt_read(&prompt)){response(fd,409,"text/plain","Live numeric input is unavailable while supported GT7 is not running.");return;}
+            char body[160];
+            snprintf(body,sizeof(body),"{\"state\":%u,\"result\":%u,\"amount\":%u,\"chars\":%u}",prompt.state,prompt.result,prompt.amount,prompt.chars);
+            response(fd,200,"application/json",body);return;
+#else
+            response(fd,409,"text/plain","Live numeric input is only available while supported GT7 is running on PS5.");return;
+#endif
+        }
+        else if(!strcmp(path,"/api/live/maps")){
+            /* Temporary read-only diagnostic: GT7 memory map. Remove before release. */
+            if(!authorized){response(fd,403,"text/plain","Reload this page before reading live memory.");return;}
+#ifdef PS5
+            char *buffer=malloc(262144);
+            if(!buffer){response(fd,500,"text/plain","Out of memory");return;}
+            int n=gt7_live_mapinfo(buffer,262144);
+            if(n<0){free(buffer);response(fd,409,"text/plain","Live memory is unavailable while supported GT7 is not running.");return;}
+            response(fd,200,"text/plain",buffer);free(buffer);return;
+#else
+            response(fd,409,"text/plain","Live memory is only available while supported GT7 is running on PS5.");return;
+#endif
+        }
+        else if(!strncmp(path,"/api/live/find",14)){
+            /* Temporary read-only diagnostic: search GT7 memory for text.
+             * Use /api/live/find?addr=0xSTART&len=N&text=STR&max=M
+             * Remove before release. */
+            if(!authorized){response(fd,403,"text/plain","Reload this page before reading live memory.");return;}
+#ifdef PS5
+            char *query=strchr(path,'?');unsigned long long address=0;unsigned length=0,maxhits=16;char text[128]="";
+            if(!query||sscanf(query,"?addr=%llx&len=%u&text=%127[^&]&max=%u",&address,&length,text,&maxhits)!=4){response(fd,400,"text/plain","Use /api/live/find?addr=0xSTART&len=N&text=STR&max=M");return;}
+            if(!length||length>67108864U||!text[0]||maxhits>64){response(fd,400,"text/plain","len must be 1..67108864, text must be non-empty, max 1..64.");return;}
+            uintptr_t hits[64];uint32_t count=0;
+            if(gt7_live_find((uintptr_t)address,length,text,(uint32_t)strlen(text),hits,maxhits,&count)){response(fd,409,"text/plain","Live memory is unavailable while supported GT7 is not running.");return;}
+            char reply[1200];int off=snprintf(reply,sizeof(reply),"{\"count\":%u,\"hits\":[",count);
+            for(uint32_t i=0;i<count&&off<(int)sizeof(reply)-32;i++)off+=snprintf(reply+off,sizeof(reply)-off,"%s\"0x%llx\"",i?",":"",(unsigned long long)hits[i]);
+            snprintf(reply+off,sizeof(reply)-off,"]}");
+            response(fd,200,"application/json",reply);return;
+#else
+            response(fd,409,"text/plain","Live memory is only available while supported GT7 is running on PS5.");return;
+#endif
+        }
+        else if(!strncmp(path,"/api/live/peek",14)){
+            /* Temporary read-only diagnostic for mapping GT7 state from inside
+             * the running game. Token-gated; remove before release. */
+            if(!authorized){response(fd,403,"text/plain","Reload this page before reading live memory.");return;}
+#ifdef PS5
+            char *query=strchr(path,'?');unsigned long long address=0;unsigned len=8;
+            if(!query||sscanf(query,"?addr=%llx&len=%u",&address,&len)!=2){response(fd,400,"text/plain","Use /api/live/peek?addr=0xADDR&len=N");return;}
+            if(!len||len>256){response(fd,400,"text/plain","Length must be from 1 to 256.");return;}
+            unsigned char buffer[256];static const char digits[]="0123456789abcdef";char hex[513];char reply[600];
+            if(gt7_live_peek((uintptr_t)address,buffer,len)){response(fd,409,"text/plain","Live memory is unavailable while supported GT7 is not running.");return;}
+            for(unsigned i=0;i<len;i++){hex[i*2]=digits[buffer[i]>>4];hex[i*2+1]=digits[buffer[i]&15];}
+            hex[len*2]=0;
+            snprintf(reply,sizeof(reply),"{\"address\":\"0x%llx\",\"length\":%u,\"hex\":\"%s\"}",address,len,hex);
+            response(fd,200,"application/json",reply);return;
+#else
+            response(fd,409,"text/plain","Live memory reads are only available while supported GT7 is running on PS5.");return;
+#endif
+        }
         else response(fd,404,"text/plain","Not found");
         return;
     }
@@ -232,7 +302,7 @@ static void serve(int fd){
     size_t received=used-(size_t)(body-req);
     if(received>length){response(fd,400,"text/plain","Invalid body length");return;}
     while(received<length){ssize_t r=recv(fd,body+received,length-received,0);if(r<=0)return;received+=(size_t)r;}body[length]=0;
-    if(strcmp(path,"/api/config")&&strcmp(path,"/api/live/credits")&&strcmp(path,"/api/live/wheel-width")&&strcmp(path,"/api/live/wheel-geometry")&&strcmp(path,"/api/live/engine-swap")&&strcmp(path,"/api/start")&&strcmp(path,"/api/game/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
+    if(strcmp(path,"/api/config")&&strcmp(path,"/api/live/credits")&&strcmp(path,"/api/live/credit-input")&&strcmp(path,"/api/live/wheel-width")&&strcmp(path,"/api/live/wheel-geometry")&&strcmp(path,"/api/live/engine-swap")&&strcmp(path,"/api/start")&&strcmp(path,"/api/game/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
 #ifdef PS5
     if(atomic_load(&startup_pending)){response(fd,409,"text/plain","Startup is still running. Please retry shortly; the browser page remains available.");return;}
 #endif
@@ -252,6 +322,17 @@ static void serve(int fd){
         strcpy(message,"Live credit amount applied.");json_status(fd);return;
 #else
         response(fd,409,"text/plain","Live credits are only available while supported GT7 is running on PS5.");return;
+#endif
+    }
+    if(!strcmp(path,"/api/live/credit-input")){
+        if(length){response(fd,400,"text/plain","Unexpected request body");return;}
+        if(!(config.mask&LIVE_SETTINGS_BIT)){response(fd,409,"text/plain","Select and save the Live Settings patch first.");return;}
+#ifdef PS5
+        int result=gt7_live_credit_prompt_begin();
+        if(result){response(fd,409,"text/plain","Live numeric input is unavailable while supported GT7 is not running.");return;}
+        response(fd,200,"application/json","{\"opening\":true}");return;
+#else
+        response(fd,409,"text/plain","Live numeric input is only available while supported GT7 is running on PS5.");return;
 #endif
     }
     if(!strcmp(path,"/api/live/wheel-width")){

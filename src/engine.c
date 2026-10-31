@@ -29,6 +29,9 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <string.h>
 #include <signal.h>
 #include <unistd.h>
 #include <errno.h>
@@ -51,7 +54,7 @@ typedef struct {
 } Module;
 static pid_t shell=-1;
 static Module module;
-static uintptr_t bridge,slot,original;
+static uintptr_t bridge,slot,original,ime_slot,ime_original,ime_hook;
 static unsigned char *saved_frame;
 static int service=-1,active,damaged;
 static int user_service_ready;
@@ -179,45 +182,72 @@ static int credits_game(pid_t *pid,uintptr_t *base){
 }
 typedef struct {uint64_t magic,original,map,allocation,heartbeat;uint32_t state,reserved;uint64_t entry;} LiveBoot;
 _Static_assert(sizeof(LiveBoot)==56,"bootstrap ABI");
-_Static_assert(sizeof(LiveMailbox)==328,"mailbox ABI");
-enum {LIVE_SLOT_RVA=0x051bee08,LIVE_ORIGINAL_RVA=0x0028bb20,LIVE_BOOT_RVA=0x03f0e940};
+_Static_assert(sizeof(LiveMailbox)==400,"mailbox ABI");
+_Static_assert(sizeof(live_boot_blob)<=LIVE_BOOT_RESERVED,"live bootstrap exceeds reserved region");
+/* Import jump-table slots (see the module's GOT). The IME slots sit next to
+ * one another: sceImeOpen, sceImeUpdate and sceImeClose. */
+enum {LIVE_SLOT_RVA=0x051bee08,LIVE_ORIGINAL_RVA=0x0028bb20,
+      IME_GOT_RVA=0x055df2a8,IME_UPDATE_GOT_RVA=0x055df288,IME_CLOSE_GOT_RVA=0x055df2b8};
+_Static_assert(LIVE_ALLOCATION>=LIVE_PROMPT_WORK+LIVE_PROMPT_WORK_SIZE,"prompt scratch exceeds the live allocation");
+static uint32_t foreground_user(void){
+    uint32_t user=0xffffffffU;
+    if(!user_service_ready){if(sceUserServiceInitialize(NULL))return 0xffffffffU;user_service_ready=1;}
+    if(sceUserServiceGetForegroundUser(&user))return 0xffffffffU;
+    return user;
+}
 static int live_boot_read(pid_t pid,uintptr_t base,LiveBoot *boot){
     return read_mem(pid,base+LIVE_BOOT_RVA+LIVE_BOOT_CONTROL,boot,sizeof(*boot))||boot->magic!=UINT64_C(0x31544f4f424c3747)?-1:0;
 }
 static int live_install(pid_t pid,uintptr_t base){
     uintptr_t current=0;LiveBoot existing;
-    if(read_mem(pid,base+LIVE_SLOT_RVA,&current,8))return -1;
+    if(read_mem(pid,base+LIVE_SLOT_RVA,&current,8)){engine_log("Live: slot read failed");return -1;}
+    engine_log_result("Live: slot current",(long)current);
+    engine_log_result("Live: slot expected",(long)(base+LIVE_ORIGINAL_RVA));
     if(current!=base+LIVE_ORIGINAL_RVA){
-        if(live_boot_read(pid,base,&existing))return -1;
-        return current==base+LIVE_BOOT_RVA+LIVE_BOOT_ENTRY||
-            (existing.allocation&&current==existing.allocation+LIVE_FRAME)?0:-1;
+        if(live_boot_read(pid,base,&existing)){engine_log("Live: reattach boot read failed");return -1;}
+        if(current==base+LIVE_BOOT_RVA+LIVE_BOOT_ENTRY){engine_log("Live: reattach ok (boot entry)");return 0;}
+        if(existing.allocation&&current==existing.allocation+LIVE_FRAME){engine_log("Live: reattach ok (frame)");return 0;}
+        engine_log("Live: reattach slot mismatch");return -1;
     }
-    unsigned char blank[0xf0],code[16];
+    unsigned char blank[LIVE_BOOT_RESERVED],code[16];
     static const unsigned char expected[]={0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56,0x41,0x54,0x53,0x48,0x83,0xec,0x10};
-    if(read_mem(pid,base+LIVE_ORIGINAL_RVA,code,sizeof(expected))||memcmp(code,expected,sizeof(expected))||
-       read_mem(pid,base+LIVE_BOOT_RVA,blank,sizeof(blank)))return -1;
-    for(unsigned i=0;i<sizeof(blank);i++)if(blank[i])return -1;
-    uintptr_t map=kernel_dynlib_dlsym(pid,0x2001,"mmap");if(!map)return -1;
+    if(read_mem(pid,base+LIVE_ORIGINAL_RVA,code,sizeof(expected))){engine_log("Live: prologue read failed");return -1;}
+    if(memcmp(code,expected,sizeof(expected))){
+        uint64_t head=0;memcpy(&head,code,8);engine_log_result("Live: prologue mismatch head",(long)head);return -1;
+    }
+    if(read_mem(pid,base+LIVE_BOOT_RVA,blank,sizeof(blank))){engine_log("Live: padding read failed");return -1;}
+    for(unsigned i=0;i<sizeof(blank);i++)if(blank[i]){engine_log_result("Live: padding not blank at",(long)i);return -1;}
+    uintptr_t map=kernel_dynlib_dlsym(pid,0x2001,"mmap");if(!map){engine_log("Live: mmap dlsym failed");return -1;}
     LiveBoot boot={UINT64_C(0x31544f4f424c3747),base+LIVE_ORIGINAL_RVA,map,0,0,0,0,0};
     unsigned char blob[sizeof(live_boot_blob)];memcpy(blob,live_boot_blob,sizeof(blob));
     memcpy(blob+LIVE_BOOT_CONTROL,&boot,sizeof(boot));
-    /* The bootstrap state is in executable padding; its page must also be
-     * writable by the game. Never replace instructions in a running thread. */
-    if(kernel_mprotect(pid,(base+LIVE_BOOT_RVA)&~(uintptr_t)0x3fff,0x4000,PROT_READ|PROT_WRITE|PROT_EXEC)||
-       verified_write(pid,base+LIVE_BOOT_RVA,blob,sizeof(blob)))return -1;
+    if(kernel_mprotect(pid,(base+LIVE_BOOT_RVA)&~(uintptr_t)0x3fff,0x4000,PROT_READ|PROT_WRITE|PROT_EXEC)){engine_log("Live: boot mprotect failed");return -1;}
+    if(verified_write(pid,base+LIVE_BOOT_RVA,blob,sizeof(blob))){engine_log("Live: boot write failed");return -1;}
     uintptr_t hook=base+LIVE_BOOT_RVA+LIVE_BOOT_ENTRY;
-    return verified_write(pid,base+LIVE_SLOT_RVA,&hook,sizeof(hook));
+    if(verified_write(pid,base+LIVE_SLOT_RVA,&hook,sizeof(hook))){engine_log("Live: slot write failed");return -1;}
+    engine_log("Live: install complete");
+    return 0;
 }
 static int live_resolve(pid_t pid,uintptr_t base,uintptr_t *address,LiveMailbox *state){
     LiveBoot boot;uintptr_t slot=0;
-    if(live_boot_read(pid,base,&boot)||boot.original!=base+LIVE_ORIGINAL_RVA||boot.state<2||boot.state>4||
-       boot.allocation<0x10000||boot.allocation>0x00007fffffff8000ULL||(boot.allocation&0x3fff)||
-       read_mem(pid,base+LIVE_SLOT_RVA,&slot,8))return -1;
+    if(live_boot_read(pid,base,&boot)){engine_log("Resolve: boot read failed");return -1;}
+    if(boot.original!=base+LIVE_ORIGINAL_RVA||boot.state<2||boot.state>4||
+       boot.allocation<0x10000||boot.allocation>0x00007fffffff8000ULL||(boot.allocation&0x3fff)){engine_log("Resolve: boot fields invalid");return -1;}
+    if(read_mem(pid,base+LIVE_SLOT_RVA,&slot,8)){engine_log("Resolve: slot read failed");return -1;}
     uintptr_t mailbox=boot.allocation+LIVE_MAILBOX;
-    if(slot!=base+LIVE_BOOT_RVA+LIVE_BOOT_ENTRY)return -1;
+    if(slot!=base+LIVE_BOOT_RVA+LIVE_BOOT_ENTRY){engine_log("Resolve: slot != boot entry");return -1;}
     if(boot.state==2){
         unsigned char blob[sizeof(live_bridge_blob)];memcpy(blob,live_bridge_blob,sizeof(blob));
         LiveMailbox initial={0};initial.magic=LIVE_MAGIC;initial.base=base;initial.original=boot.original;
+        uintptr_t ime_target=0;
+        if(read_mem(pid,base+IME_GOT_RVA,&ime_target,8)||!ime_target){engine_log("Resolve: ime got read failed");return -1;}
+        initial.ime_original=ime_target;initial.ime_hook_enabled=1;
+        initial.allocation=boot.allocation;
+        uint32_t user=foreground_user();
+        if(user!=0xffffffffU)initial.ime_user_id=user;
+        uintptr_t ime_close=0,ime_update=0;
+        if(!read_mem(pid,base+IME_CLOSE_GOT_RVA,&ime_close,8)&&ime_close)initial.ime_close=ime_close;
+        if(!read_mem(pid,base+IME_UPDATE_GOT_RVA,&ime_update,8)&&ime_update)initial.ime_update=ime_update;
         initial.make_event=base+0x035db2e0;initial.acquire=base+0x035dbcc0;
         initial.destroy_event=base+0x0097b3c0;initial.set_credits=base+0x0250e420;
         initial.car_ctor=base+0x003f4dc0;initial.get_riding_car=base+0x00447870;
@@ -231,21 +261,97 @@ static int live_resolve(pid_t pid,uintptr_t base,uintptr_t *address,LiveMailbox 
         initial.get_engine_swap=base+0x02c401b0;initial.add_engine_swap=base+0x02c41800;
         initial.set_engine_swap=base+0x02c41900;initial.reset_engine_swap=base+0x02c421d0;
         memcpy(blob+LIVE_MAILBOX,&initial,sizeof(initial));
-        if(kernel_mprotect(pid,boot.allocation,0x4000,PROT_READ|PROT_WRITE|PROT_EXEC)||
-           (kernel_get_vmem_protection(pid,boot.allocation,0x4000)&7)!=7||
-           verified_write(pid,boot.allocation,blob,sizeof(blob)))return -1;
+        if(kernel_mprotect(pid,boot.allocation,LIVE_ALLOCATION,PROT_READ|PROT_WRITE|PROT_EXEC)){engine_log("Resolve: mailbox mprotect failed");return -1;}
+        if((kernel_get_vmem_protection(pid,boot.allocation,LIVE_ALLOCATION)&7)!=7){engine_log("Resolve: mailbox protection check failed");return -1;}
+        if(verified_write(pid,boot.allocation,blob,sizeof(blob))){engine_log("Resolve: bridge write failed");return -1;}
         uintptr_t entry=boot.allocation+LIVE_FRAME;
         uintptr_t control=base+LIVE_BOOT_RVA+LIVE_BOOT_CONTROL;
         if(verified_write(pid,control+offsetof(LiveBoot,entry),&entry,8))return -1;
         uint32_t published=3;
         if(verified_write(pid,control+offsetof(LiveBoot,state),&published,4))return -1;
+        ime_hook=boot.allocation+IME_OPEN_HOOK;
+        if(verified_write(pid,base+IME_GOT_RVA,&ime_hook,8))return -1;
+        ime_slot=base+IME_GOT_RVA;ime_original=ime_target;
     }else if(boot.entry!=boot.allocation+LIVE_FRAME)return -1;
-    if(read_mem(pid,mailbox,state,sizeof(*state))||state->magic!=LIVE_MAGIC||state->base!=base||state->original!=boot.original)return -1;
+    if(read_mem(pid,mailbox,state,sizeof(*state))||state->magic!=LIVE_MAGIC||state->base!=base||state->original!=boot.original){engine_log("Resolve: mailbox verify failed");return -1;}
+    if(state->ime_hook_enabled&&state->ime_original){
+        uintptr_t current=0;
+        if(read_mem(pid,base+IME_GOT_RVA,&current,8)||current!=boot.allocation+IME_OPEN_HOOK){engine_log("Resolve: ime hook verify failed");return -1;}
+        ime_slot=base+IME_GOT_RVA;ime_original=state->ime_original;ime_hook=current;
+    }
     /* Verify executable bytes too, excluding the mutable mailbox. */
     unsigned char code[LIVE_MAILBOX];
-    if(read_mem(pid,boot.allocation,code,sizeof(code))||memcmp(code,live_bridge_blob,sizeof(code)))return -1;
+    if(read_mem(pid,boot.allocation,code,sizeof(code))||memcmp(code,live_bridge_blob,sizeof(code))){engine_log("Resolve: bridge code verify failed");return -1;}
     *address=mailbox;return 0;
 }
+int gt7_live_arm_credit_input(void){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.ime_hook_enabled)return -1;
+    uint32_t armed=1;
+    return verified_write(pid,address+offsetof(LiveMailbox,credit_input_pending),&armed,sizeof(armed));
+}
+int gt7_live_credit_prompt_begin(void){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.ime_hook_enabled||!state.allocation)return -1;
+    /* A prompt that is already opening or open is not restarted. */
+    if(state.prompt_state==PROMPT_QUEUED||state.prompt_state==PROMPT_RUNNING||state.prompt_state==PROMPT_OPEN)return 0;
+    uint32_t user=foreground_user();
+    if(user!=0xffffffffU&&verified_write(pid,address+offsetof(LiveMailbox,ime_user_id),&user,sizeof(user)))return -1;
+    uint32_t queued=PROMPT_QUEUED;
+    if(verified_write(pid,address+offsetof(LiveMailbox,prompt_state),&queued,sizeof(queued)))return -1;
+    return 0;
+}
+int gt7_live_credit_prompt_read(Gt7CreditPrompt *out){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(!out||credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled)return -1;
+    *out=(Gt7CreditPrompt){pid,state.prompt_state,state.prompt_result,state.prompt_amount,state.prompt_chars};
+    return 0;
+}
+/* Temporary read-only diagnostics. Remove before release. */
+int gt7_live_mapinfo(char *out,uint32_t size){
+    pid_t pid;uintptr_t base;
+    if(!out||!size||credits_game(&pid,&base))return -1;
+    int mib[]={CTL_KERN,KERN_PROC,KERN_PROC_VMMAP,(int)pid};
+    size_t need=0;
+    if(sysctl(mib,4,NULL,&need,NULL,0)||!need)return -2;
+    unsigned char *data=malloc(need);if(!data)return -2;
+    if(sysctl(mib,4,data,&need,NULL,0)){free(data);return -2;}
+    uint32_t used=0;
+    for(size_t at=0;at+offsetof(struct kinfo_vmentry,kve_path)<=need;){
+        struct kinfo_vmentry *v=(void *)(data+at);
+        int record=v->kve_structsize;
+        if(record<(int)offsetof(struct kinfo_vmentry,kve_path)||record<=0||at+(size_t)record>need)break;
+        const char *path=(record>(int)offsetof(struct kinfo_vmentry,kve_path))?(const char *)v->kve_path:"";
+        int n=snprintf(out+used,size-used,"%llx-%llx %c%c%c%s%s\n",
+            (unsigned long long)v->kve_start,(unsigned long long)v->kve_end,
+            (v->kve_protection&1)?'r':'-',(v->kve_protection&2)?'w':'-',(v->kve_protection&4)?'x':'-',
+            path[0]?" ":"",path);
+        if(n<0||(uint32_t)n>=size-used)break;
+        used+=(uint32_t)n;
+        at+=(size_t)record;
+    }
+    out[used]=0;
+    return used?(int)used:-1;
+}
+int gt7_live_find(uintptr_t address,uint32_t length,const char *needle,uint32_t needle_length,uintptr_t *hits,uint32_t max_hits,uint32_t *out_count){
+    pid_t pid;uintptr_t base;
+    if(!needle||!needle_length||!hits||!out_count||!length||credits_game(&pid,&base))return -1;
+    uint32_t remaining=length,count=0;uintptr_t a=address;unsigned char chunk[4096];
+    while(remaining&&count<max_hits){
+        uint32_t want=remaining<sizeof(chunk)?remaining:(uint32_t)sizeof(chunk);
+        if(read_mem(pid,a,chunk,want)){uintptr_t step=0x1000-(a&0xfff);if(step>remaining)break;a+=step;remaining-=(uint32_t)step;continue;}
+        for(uint32_t i=0;i+needle_length<=want&&count<max_hits;i++)
+            if(!memcmp(chunk+i,needle,needle_length))hits[count++]=a+i;
+        a+=want;remaining-=want;
+    }
+    *out_count=count;return 0;
+}
+int gt7_live_peek(uintptr_t address,void *buffer,uint32_t length){
+    pid_t pid;uintptr_t base;
+    if(!buffer||!length||credits_game(&pid,&base))return -1;
+    return read_mem(pid,address,buffer,length)?-1:0;
+}
+
 int gt7_live_ready(void){
     pid_t pid;uintptr_t base,address;LiveMailbox state;
     return !credits_game(&pid,&base)&&!live_resolve(pid,base,&address,&state)&&state.enabled&&state.heartbeat>0&&state.state!=LIVE_QUEUED&&state.state!=LIVE_RUNNING;
@@ -498,6 +604,9 @@ static int apply_gt7(pid_t pid,int final_attempt){
         if(strstr(line,"<!-- GT7FEATURE language -->")){
             current_name="Game language";continue;
         }
+        if(strstr(line,"<!-- GT7FEATURE country -->")){
+            current_name="Player country";continue;
+        }
         if(strncmp(line,"<Line ",6))continue;
         if(sscanf(line,"<Line Type=\"bytes\" Address=\"0x%x\" Value=\"%8192[0123456789abcdefABCDEF]\"",&address,hex)!=2||
            (address==0x060e83b0?apply_debug_environment(pid,&game):apply_line(pid,game.mapbase,address,hex))){failed=1;break;}
@@ -549,6 +658,13 @@ int gt7_engine_stop(void){
     if(active){
         if(!gt7_engine_ready()||verified_write(shell,slot,&original,8)){damaged=1;return -1;}
         active=0;shutdown(service,SHUT_RDWR);pthread_join(thread,NULL);close(service);service=-1;
+    }
+    if(ime_slot&&ime_original){
+        uintptr_t current=0;
+        if(!read_mem(shell,ime_slot,&current,8) && current==ime_hook && verified_write(shell,ime_slot,&ime_original,8)){
+            damaged=1;return -1;
+        }
+        ime_slot=ime_original=ime_hook=0;
     }
     /* Leave the bridge memory in place: another ShellCore thread may still
      * be returning through it. The restored pointer prevents new calls. */

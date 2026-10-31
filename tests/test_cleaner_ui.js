@@ -10,7 +10,7 @@ for(const id of ['clean-manifest','clean-worker'])elements.get(id).textContent=h
 assert(!html.includes('webkitdirectory'));assert.match(html,/id="clean-input"[^>]*accept="\.bin,\.prx,\.sprx,\.index,\.psp"/);
 let worker,revoked=[],created=0,requests=[];
 class Worker {constructor(){worker=this;this.messages=[]}postMessage(m){this.messages.push(m)}terminate(){this.terminated=true}}
-const state={token:'test',version:'0.3',config:{mask:0,preset:0,units:0,language:-1,speed:0,mass:0,power:0,torque:0,temperature:1,autostart:0},features:[],gameRunning:0,engineRunning:false,message:'Ready'};
+const state={token:'test',version:'0.3',config:{mask:0,preset:0,units:0,language:-1,country:-1,speed:0,mass:0,power:0,torque:0,temperature:1,autostart:0},features:[],gameRunning:0,engineRunning:false,message:'Ready'};
 const context=vm.createContext({document:{activeElement:null,getElementById:id=>elements.get(id)||null,createElement:element},window:{Worker,Blob,addEventListener(){}},Worker,Blob,URL:{createObjectURL(){return 'blob:test-'+(++created)},revokeObjectURL(x){revoked.push(x)}},Option:function(){},URLSearchParams,confirm:()=>true,clearTimeout(){},setTimeout(){},setInterval(){},fetch:async(path,options={})=>{requests.push({path,options});return {ok:true,json:async()=>state}}});
 const scripts=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];assert.equal(scripts.length,2);
 vm.runInContext(scripts[0][1],context);vm.runInContext(scripts[1][1],context);

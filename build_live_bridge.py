@@ -8,7 +8,7 @@ import sys
 out=[]
 metadata={}
 for name,required,limit in [('live_boot',['live_boot_entry','live_boot_control'],0xf0),
-                            ('live_bridge',['live_frame','live_mailbox'],0x4000)]:
+                            ('live_bridge',['live_frame','live_mailbox','ime_open_hook','credit_ime_handler'],0x10000)]:
     elf=Path(f'build/{name}.elf').read_bytes()
     offset=struct.unpack_from('<Q',elf,40)[0]
     stride,count=struct.unpack_from('<HH',elf,58)

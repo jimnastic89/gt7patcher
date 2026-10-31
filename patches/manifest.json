@@ -43,6 +43,12 @@
     "runtime": true
   },
   {
+    "name": "Allow skipping new game intro movie",
+    "note": "Enables pressing ○ to skip the intro movie that plays when starting a new game",
+    "source": "opening_movie_skip",
+    "built": true
+  },
+  {
     "name": "Debug environment",
     "note": "Changes the internal build environment to expose additional demo, LAN, B-Spec, and car settings.",
     "source": "debug_environment",

@@ -116,9 +116,10 @@ class SelectorTests(unittest.TestCase):
                 self.assertEqual([e.attrib for e in self.lines()], expected)
 
     def test_wheel_offset_presets_patch_is_independent_and_guarded(self):
-        self.assertEqual(len(self.status['features']),7)
+        self.assertEqual(len(self.status['features']),8)
         self.assertEqual(self.status['features'][5]['name'],'Wheel Offset Presets')
         self.assertEqual(self.status['features'][6]['name'],'Live Settings')
+        self.assertEqual(self.status['features'][7]['name'],'Allow skipping new game intro movie')
         c=dict(self.c,mask=32,units=0,language=-1)
         self.assertEqual(self.request('/api/config',c)[0],200)
         rows=self.lines();self.assertEqual(len(rows),1)
@@ -132,6 +133,14 @@ class SelectorTests(unittest.TestCase):
         self.assertEqual(calls,[0x3896350,0x304fef0,0x430a300,0x3896350])
         original=local_bytes(self.clean,0x3896010,len(blob))
         self.assertEqual(hashlib.sha256(original).hexdigest(),'d2ae3ea87746a76c4a829d3ff86867c7a8f007796c6d23b3f8b3b02aefe911c0')
+
+    def test_opening_movie_skip_patch_is_selectable(self):
+        c=dict(self.c,mask=128,units=0,language=-1)
+        self.assertEqual(self.request('/api/config',c)[0],200)
+        rows=self.lines()
+        self.assertEqual(len(rows),1)
+        self.assertEqual(int(rows[0].get('Address'),16),0x29126f0)
+        self.assertEqual(bytes.fromhex(rows[0].get('Value')),b'\x31\xc0\xc3')
 
     def test_debug_environment_source_is_retained_but_not_built(self):
         self.assertNotIn('Debug environment',[f['name'] for f in self.status['features']])
@@ -183,7 +192,7 @@ class SelectorTests(unittest.TestCase):
     def test_bad_requests_never_replace_xml(self):
         path=self.state/'xml_prospero/PPSA01317.xml'
         before=path.read_bytes()
-        for key,value in [('mask',128),('language',27),('power',3),('mass',-1),('preset',6),('temperature',0),('autostart',2),('autostart',-1)]:
+        for key,value in [('mask',256),('language',27),('power',3),('mass',-1),('preset',6),('temperature',0),('autostart',2),('autostart',-1)]:
             self.assertEqual(self.request('/api/config',dict(self.c,**{key:value}))[0],400)
             self.assertEqual(path.read_bytes(),before)
         self.assertEqual(self.request('/api/config',self.c,token=False)[0],403)

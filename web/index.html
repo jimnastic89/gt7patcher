@@ -407,7 +407,7 @@ button:not([role="tab"]) {
 <div id="toast" role="status" aria-live="polite" hidden></div>
 <nav role="tablist" aria-label="Settings" style="margin-top:24px">
     <button id="patch-tab" role="tab" aria-controls="patches" aria-selected="true">Patches</button>
-    <button id="game-tab" role="tab" aria-controls="game" aria-selected="false">Language &amp; Units</button>
+    <button id="game-tab" role="tab" aria-controls="game" aria-selected="false">Language, Units &amp; Country</button>
     <button id="live-tab" role="tab" aria-controls="live" aria-selected="false" hidden>Live Settings</button>
     <button id="help-tab" role="tab" aria-controls="help" aria-selected="false">Help</button>
 </nav>
@@ -464,6 +464,11 @@ button:not([role="tab"]) {
                     </select></div>
             </div>
         </div>
+        <div class="card">
+            <div class="field"><label for="country">Player country (in-race flag)</label><select
+                    id="country"></select></div>
+            <p class="detail">Overrides the flag shown for your car in races. Leave on "Game default" to keep the game's own value. Independent of language and units.</p>
+        </div>
     </section>
     <section id="live" role="tabpanel" aria-labelledby="live-tab" hidden>
         <div class="card">
@@ -473,8 +478,9 @@ button:not([role="tab"]) {
                 <label for="credits">Credit amount</label>
                 <input id="credits" class="text-input" type="text" inputmode="numeric" maxlength="10" aria-describedby="credit-feedback" disabled>
             </div>
-            <div class="actions"><button type="button" id="apply-credits" class="primary" disabled>Apply</button></div>
+            <div class="actions"><button type="button" id="apply-credits" class="primary" disabled>Apply</button><button type="button" id="edit-credits" disabled>Edit in game</button></div>
             <p id="credit-feedback" class="detail" role="status">Enter 0 to 100,000,000 credits. The balance refreshes every five seconds. Apply changes the live amount immediately.</p>
+            <p id="credit-input-feedback" class="detail" role="status">Edit in game opens GT7's own number pad so you can set the balance with the console keyboard.</p>
         </div>
         <div class="card">
             <h2>Wheel settings</h2>
@@ -572,11 +578,11 @@ button:not([role="tab"]) {
 </form>
 <script>
     'use strict';
-    const $ = id => document.getElementById(id), keys = ['preset', 'units', 'language', 'speed', 'mass', 'power', 'torque', 'temperature'];
+    const $ = id => document.getElementById(id), keys = ['preset', 'units', 'language', 'country', 'speed', 'mass', 'power', 'torque', 'temperature'];
     let token = '', busy = false, dirty = false, loaded = false, engine = false, engineActive = false, halted = false, gameRunning = false, gameClosed = false;
     let creditAvailable = false, creditAmount = null, creditSession = null, creditDirty = false, wheelWidth = null, wheelDirty = false, wheelGeometry = null, geometryDirty = false, engineSwap = null, refreshing = false, revision = 0, activePanel = 'patches', persistentMessage = '', initialStatusShown = false;
     function validCredits() { return /^\d{1,10}$/.test($('credits').value) && Number($('credits').value) <= 100000000 }
-    function creditButtons() { if (!$('credits')) return; $('credits').disabled = !creditAvailable || busy || halted; $('apply-credits').disabled = !creditAvailable || busy || halted || !validCredits() }
+    function creditButtons() { if (!$('credits')) return; $('credits').disabled = !creditAvailable || busy || halted; $('apply-credits').disabled = !creditAvailable || busy || halted || !validCredits(); $('edit-credits').disabled = !creditAvailable || busy || halted }
     function validWheelValue(element) { return /^-?\d{1,3}$/.test(element.value) && Number(element.value) >= -128 && Number(element.value) <= 127 }
     const geometryIds = ['wheel-inch', 'wheel-offset-front', 'wheel-offset-rear', 'hub-offset-front', 'hub-offset-rear'];
     function validGeometryValue(id, limit) { const value = $(id).value; return /^-?\d{1,5}$/.test(value) && Number(value) >= -limit && Number(value) <= limit }
@@ -600,6 +606,18 @@ button:not([role="tab"]) {
         $('credit-balance').textContent = available ? `Current balance: ${creditAmount.toLocaleString()} credits` : 'Live credits unavailable. Save the Live Settings patch, restart GT7, and load your save.';
         if (available && !creditDirty && document.activeElement !== $('credits')) $('credits').value = String(creditAmount);
         creditButtons();
+    }
+    const creditPromptMessages = { 1: 'Opening the number pad in GT7...', 2: 'Opening the number pad in GT7...', 3: "Type the amount on GT7's number pad, then confirm with the console keyboard.", 4: 'Applying the amount you entered...', 5: 'Credit amount set from the in-game number pad.', 6: 'In-game entry cancelled.' };
+    function renderCreditInput(live) { if (!$('credit-input-feedback')) return;
+        const prompt = live?.creditPrompt, available = prompt?.available === true;
+        if (!available || prompt.state === 0) return;
+        if (prompt.state === 7) {
+            const code = (prompt.result >>> 0).toString(16);
+            $('credit-input-feedback').textContent = prompt.result === 1 ? "The number pad could not be opened. Start GT7 with the Live Settings patch selected." : prompt.result === 2 ? 'Enter a whole amount from 0 to 100,000,000.' : prompt.result === 3 ? 'The balance changed before the value could be applied. Try again.' : `GT7 rejected the number pad request (0x${code}).`;
+            $('credit-input-feedback').classList.add('error'); return;
+        }
+        const message = creditPromptMessages[prompt.state];
+        if (message) { $('credit-input-feedback').textContent = message; $('credit-input-feedback').classList.remove('error') }
     }
     function renderWheelWidth(live) { if (!$('wheel-width-front')) return;
         const width = live?.wheelWidth, available = width?.available === true &&
@@ -658,6 +676,13 @@ button:not([role="tab"]) {
     $('credits').addEventListener('input', () => { creditDirty = true; creditButtons() });
     $('credits').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyCredits() } });
     $('apply-credits').onclick = applyCredits;
+    $('edit-credits').onclick = async () => { if (!creditAvailable || busy || halted) return; busy = true; revision++; buttons();
+        try {
+            const r = await fetch('/api/live/credit-input', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: '' });
+            if (!r.ok) throw Error(await r.text());
+            $('credit-input-feedback').textContent = 'Opening the number pad in GT7...'; $('credit-input-feedback').classList.remove('error'); status("Requested GT7's number pad.");
+        } catch (e) { $('credit-input-feedback').textContent = e.message; $('credit-input-feedback').classList.add('error'); status(e.message, true) }
+        finally { busy = false; buttons() } };
     for (const id of ['wheel-width-front', 'wheel-width-rear']) {
         $(id).addEventListener('input', () => { wheelDirty = true; wheelSettingsButtons() });
         $(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyWheelSettings() } });
@@ -668,6 +693,19 @@ button:not([role="tab"]) {
     }
     const languages = [['JP', 'Japanese'], ['US', 'English (United States)'], ['GB', 'English (United Kingdom)'], ['FR', 'French'], ['ES', 'Spanish (Spain)'], ['DE', 'German'], ['IT', 'Italian'], ['NL', 'Dutch'], ['PT', 'Portuguese'], ['RU', 'Russian'], ['PL', 'Polish'], ['TR', 'Turkish'], ['EL', 'Greek'], ['KR', 'Korean'], ['TW', 'Chinese (Traditional)'], ['CN', 'Chinese (Simplified)'], ['DK', 'Danish'], ['NO', 'Norwegian'], ['SE', 'Swedish'], ['FI', 'Finnish'], ['CZ', 'Czech'], ['HU', 'Hungarian'], ['BP', 'Portuguese (Brazil)'], ['MS', 'Spanish (Latin America)'], ['AR', 'Arabic'], ['TH', 'Thai'], ['ZH', 'Chinese (ZH)']];
     $('language').append(new Option('System language', -1)); languages.forEach(([code, name], i) => $('language').append(new Option(`${name} · ${code}`, i)));
+    const countries = [
+        ['AU','Australia'],['AT','Austria'],['BE','Belgium'],['BR','Brazil'],['CA','Canada'],
+        ['CH','Switzerland'],['CL','Chile'],['CN','China'],['CZ','Czechia'],['DE','Germany'],
+        ['DK','Denmark'],['ES','Spain'],['FI','Finland'],['FR','France'],['GB','United Kingdom'],
+        ['GR','Greece'],['HK','Hong Kong'],['HR','Croatia'],['HU','Hungary'],['ID','Indonesia'],
+        ['IE','Ireland'],['IL','Israel'],['IN','India'],['IT','Italy'],['JP','Japan'],
+        ['KR','Korea'],['MX','Mexico'],['MY','Malaysia'],['NL','Netherlands'],['NO','Norway'],
+        ['NZ','New Zealand'],['PH','Philippines'],['PL','Poland'],['PT','Portugal'],['RO','Romania'],
+        ['RU','Russia'],['SE','Sweden'],['SG','Singapore'],['SK','Slovakia'],['TH','Thailand'],
+        ['TR','Turkey'],['TW','Taiwan'],['UA','Ukraine'],['US','United States'],['ZA','South Africa'],
+        ['AR','Argentina'],
+    ];
+    $('country').append(new Option('Game default', -1)); countries.forEach(([code, name], i) => $('country').append(new Option(name + ' (' + code + ')', i)));
     let toastTimer = 0;
     function status(text, error = false) {
         const toast = $('toast');
@@ -692,7 +730,7 @@ button:not([role="tab"]) {
     }
     function render(s) {
         token = s.token; engine = s.engineRunning; engineActive = s.engineActive === true; gameRunning = s.gameRunning === 1; gameClosed = s.gameRunning === 0; $('version').textContent = `v${s.version}`; document.title = `GT7Patcher v${s.version}`;
-        renderCredits(s.live);
+        renderCredits(s.live); renderCreditInput(s.live);
         renderWheelWidth(s.live); renderWheelGeometry(s.live); renderEngineSwap(s.live);
         if (!loaded) { s.features.forEach((f, i) => { const row = document.createElement('div'); row.className = 'feature'; const input = document.createElement('input'); input.type = 'checkbox'; input.id = `patch-${i}`; input.dataset.bit = i; const box = document.createElement('div'), label = document.createElement('label'), note = document.createElement('p'); label.htmlFor = input.id; label.textContent = f.name; note.className = 'detail'; note.textContent = f.note; box.append(label, note); row.append(input, box); $('features').append(row) }) }
         if (!dirty) { for (const k of keys) $(k).value = s.config[k]; $('autostart').checked = Boolean(s.config.autostart); s.features.forEach((_, i) => { $(`patch-${i}`).checked = Boolean(s.config.mask & (1 << i)) }); units() }

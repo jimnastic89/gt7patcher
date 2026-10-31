@@ -31,7 +31,7 @@ class RuntimeBridgeTests(unittest.TestCase):
                 C.cast(mapper,C.c_void_p).value,0,0,0,0,0)
             entry=C.CFUNCTYPE(None,C.c_void_p,C.c_float)(base+meta['symbols']['live_boot_entry'])
             entry(0x1234,0.125);entry(0x5678,0.25)
-            self.assertEqual(events,[('map',None,16384,7,0x1002,-1,0),('frame',0x1234,0.125),('frame',0x5678,0.25)])
+            self.assertEqual(events,[('map',None,0x20000,7,0x1002,-1,0),('frame',0x1234,0.125),('frame',0x5678,0.25)])
             state=struct.unpack('<5Q2I',memory[control:control+48])
             self.assertEqual(state[3:6],(0x100000000,2,2))
             bridge=C.CFUNCTYPE(None,C.c_void_p,C.c_float)(lambda ctx,dt: events.append(('bridge',ctx,dt)))
