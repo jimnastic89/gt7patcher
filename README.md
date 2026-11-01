@@ -1,5 +1,7 @@
 # GT7Patcher
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/C7F829U518)
+
 GT7Patcher is a payload for applying patches to the PS5 version of Gran Turismo 7 at runtime without modifying the game files. It provides a web interface for selecting patches, and can be configured to apply saved patches automatically when the payload starts.
 
 Included patches as of version 0.3.1:
