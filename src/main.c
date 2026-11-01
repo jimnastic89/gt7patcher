@@ -27,7 +27,7 @@
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 #endif
-#define VERSION "0.3.1"
+#define VERSION "0.3.2.26-11-01_1900"
 #ifndef PORT
 #define PORT 7210
 #endif
@@ -258,6 +258,21 @@ static void serve(int fd){
             response(fd,409,"text/plain","Live memory is only available while supported GT7 is running on PS5.");return;
 #endif
         }
+        else if(!strncmp(path,"/api/live/probe",15)){
+            /* Temporary read-only diagnostic: last logged hook registers. Remove before release. */
+            if(!authorized){response(fd,403,"text/plain","Reload this page before reading live memory.");return;}
+#ifdef PS5
+            uintptr_t words[128];char body[2048];int at;
+            if(gt7_live_probe_read(words,128)){response(fd,409,"text/plain","Live memory is unavailable while supported GT7 is not running.");return;}
+            at=snprintf(body,sizeof(body),"{\"rdi\":\"0x%llx\",\"rsi\":\"0x%llx\",\"rdx\":\"0x%llx\",\"rcx\":\"0x%llx\",\"r8\":\"0x%llx\",\"r9\":\"0x%llx\",\"rsp\":\"0x%llx\",\"count\":%llu,\"ret\":\"0x%llx\",\"rbp\":\"0x%llx\",\"stack\":[",
+                (unsigned long long)words[0],(unsigned long long)words[1],(unsigned long long)words[2],(unsigned long long)words[3],(unsigned long long)words[4],(unsigned long long)words[5],(unsigned long long)words[6],(unsigned long long)words[7],(unsigned long long)words[8],(unsigned long long)words[9]);
+            for(int i=0;i<48&&at>0&&at<(int)sizeof(body)-40;i++)at+=snprintf(body+at,sizeof(body)-at,"%s\"0x%llx\"",i?",":"",(unsigned long long)words[64+i]);
+            snprintf(body+at,sizeof(body)-at,"]}");
+            response(fd,200,"application/json",body);return;
+#else
+            response(fd,409,"text/plain","Live memory is only available while supported GT7 is running on PS5.");return;
+#endif
+        }
         else if(!strcmp(path,"/api/live/maps")){
             /* Temporary read-only diagnostic: GT7 memory map. Remove before release. */
             if(!authorized){response(fd,403,"text/plain","Reload this page before reading live memory.");return;}
@@ -322,10 +337,27 @@ static void serve(int fd){
     size_t received=used-(size_t)(body-req);
     if(received>length){response(fd,400,"text/plain","Invalid body length");return;}
     while(received<length){ssize_t r=recv(fd,body+received,length-received,0);if(r<=0)return;received+=(size_t)r;}body[length]=0;
-    if(strcmp(path,"/api/config")&&strcmp(path,"/api/live/credits")&&strcmp(path,"/api/live/credit-input")&&strcmp(path,"/api/live/wheel-width")&&strcmp(path,"/api/live/wheel-geometry")&&strcmp(path,"/api/live/engine-swap")&&strcmp(path,"/api/start")&&strcmp(path,"/api/game/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
+    if(strncmp(path,"/api/live/probe",15)&&strcmp(path,"/api/config")&&strcmp(path,"/api/live/credits")&&strcmp(path,"/api/live/credit-input")&&strcmp(path,"/api/live/wheel-width")&&strcmp(path,"/api/live/wheel-geometry")&&strcmp(path,"/api/live/engine-swap")&&strcmp(path,"/api/start")&&strcmp(path,"/api/game/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
 #ifdef PS5
     if(atomic_load(&startup_pending)){response(fd,409,"text/plain","Startup is still running. Please retry shortly; the browser page remains available.");return;}
 #endif
+    if(!strncmp(path,"/api/live/probe",15)){
+        /* Temporary diagnostic: install/remove a logging hook. Remove before release. */
+#ifdef PS5
+        if(!strcmp(path,"/api/live/probe/remove")){
+            if(length){response(fd,400,"text/plain","Unexpected request body");return;}
+            if(gt7_live_probe_remove()){response(fd,409,"text/plain","Could not remove the probe; the bridge may be unavailable.");return;}
+            response(fd,200,"application/json","{\"removed\":true}");return;
+        }
+        char *query=strchr(path,'?');unsigned long long address=0;unsigned displaced=0;
+        if(!query||sscanf(query,"?addr=%llx&len=%u",&address,&displaced)!=2){response(fd,400,"text/plain","Use /api/live/probe?addr=0xADDR&len=N");return;}
+        if(length){response(fd,400,"text/plain","Unexpected request body");return;}
+        if(gt7_live_probe_install((uintptr_t)address,displaced)){response(fd,409,"text/plain","Could not install the probe at that address.");return;}
+        response(fd,200,"application/json","{\"installed\":true}");return;
+#else
+        response(fd,409,"text/plain","Probes are only available while supported GT7 is running on PS5.");return;
+#endif
+    }
     if(!strcmp(path,"/api/live/credits")){
         /* Fixed field order and canonical decimal values, with bounded input
          * before scanf, prevent signs, overflow, duplicate or extra fields. */
@@ -499,8 +531,8 @@ int main(int argc,char **argv){
 #endif
 #endif
     printf("GT7Patcher %s on port %u\n",VERSION,port);fflush(stdout);
-    while(!stopping){fd_set set;FD_ZERO(&set);FD_SET(s,&set);struct timeval timeout={1,0};
-        int r=select(s+1,&set,NULL,NULL,&timeout);if(r<0){if(errno==EINTR)continue;break;}if(!r)continue;
+    while(!stopping){gt7_live_pad_configure((config.mask&LIVE_SETTINGS_BIT)!=0);fd_set set;FD_ZERO(&set);FD_SET(s,&set);struct timeval timeout={0,30000};
+        int r=select(s+1,&set,NULL,NULL,&timeout);if(r<0){if(errno==EINTR)continue;break;}if(!r){gt7_live_pad_poll();continue;}
         int c=accept(s,NULL,NULL);if(c<0)continue;serve(c);close(c);
     }
     close(s);

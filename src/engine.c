@@ -62,6 +62,27 @@ static atomic_int live;
 static pthread_t thread;
 static unsigned char expected_bridge[sizeof(hook_blob)];
 static const char *state_root="/data/gt7p/patches";
+static unsigned firmware_version(void);
+/* The public TitleDir registration entry point is available before firmware
+ * 12.  On 12+ AppInstallAll must be bridged to ShellCore's internal TitleDir
+ * handler.  These verified RVAs are from ShadowMountPlus's generated
+ * per-firmware table.  Keep the firmware exact: similar ShellCore revisions
+ * can move the cave or dispatcher by a few hundred bytes. */
+typedef struct {unsigned firmware;uintptr_t title_dir,install_all,smp_cave;} IconProfile;
+static const IconProfile icon_profiles[]={
+    {0x1200,0x2e0050,0x2dd100,0x1886360}, /* 12.00 */
+    {0x1202,0x2e0050,0x2dd100,0x1886360}, /* 12.02 */
+    {0x1220,0x2e0050,0x2dd100,0x1887200}, /* 12.20 */
+    {0x1240,0x2e0050,0x2dd100,0x1887200}, /* 12.40 */
+    {0x1260,0x2e0320,0x2dd3d0,0x188dfa0}, /* 12.60 */
+    {0x1270,0x2e0320,0x2dd3d0,0x188dfa0}, /* 12.70 */
+};
+static const IconProfile *icon_profile(void){
+    unsigned firmware=firmware_version();
+    for(unsigned i=0;i<sizeof(icon_profiles)/sizeof(icon_profiles[0]);i++)
+        if(icon_profiles[i].firmware==firmware)return &icon_profiles[i];
+    return NULL;
+}
 static void engine_log(const char *stage){
     FILE *f=fopen("/data/gt7p/startup.log","a");
     if(f){fprintf(f,"%s\n",stage);fclose(f);}
@@ -301,6 +322,94 @@ int gt7_live_credit_prompt_begin(void){
     if(verified_write(pid,address+offsetof(LiveMailbox,prompt_state),&queued,sizeof(queued)))return -1;
     return 0;
 }
+/* Square-button shortcut. The pad is read in this (payload) process; on a
+ * Square press the game is asked to open its own number pad through the same
+ * mailbox request the live settings use. The stock status-bar flow is never
+ * touched. Square is 0x8000 in OrbisPadButtonDataOffset. */
+static int pad_shortcut_enabled;
+/* GT7 keeps two UI depth counters (version-locked to 01.710.000) that read
+ * 1/1 on the plain world map and rise to 2/3 once a status overlay (GT Menu,
+ * credits dialog) opens. The Square shortcut is scoped to the world map by
+ * requiring both to be 1. Failing safe: an unreadable counter is not treated
+ * as the world map, so the numpad never opens from another screen. */
+#define LIVE_WORLD_MAP_DEPTH_A 0x0000000e400de3c78ULL
+#define LIVE_WORLD_MAP_DEPTH_B 0x0000000e400dd58d8ULL
+static int live_world_map_active(pid_t pid){
+    uint32_t a=0,b=0;
+    if(read_mem(pid,(uintptr_t)LIVE_WORLD_MAP_DEPTH_A,&a,4))return 0;
+    if(read_mem(pid,(uintptr_t)LIVE_WORLD_MAP_DEPTH_B,&b,4))return 0;
+    return a==1&&b==1;
+}
+void gt7_live_pad_configure(int enabled){pad_shortcut_enabled=enabled;}
+/* Square-button shortcut, run on a dedicated thread so a blocking pad call can
+ * never stall the web UI. The pad handle table is per-process: only the
+ * process that called scePadOpen owns a usable handle, so we open our own. */
+static volatile int pad_thread_started;
+static void *live_pad_thread(void *arg){
+#ifdef PS5
+    (void)arg;
+    int (*read_state)(int,void*)=NULL;
+    int (*get_handle)(uint32_t,int,int)=NULL;
+    int (*open_pad)(uint32_t,int,int,const void*)=NULL;
+    int (*init_pad)(void)=NULL;
+    void *library=dlopen("/system/common/lib/libScePad.sprx",RTLD_LAZY);
+    if(library){
+        read_state=(int (*)(int,void*))dlsym(library,"scePadReadState");
+        get_handle=(int (*)(uint32_t,int,int))dlsym(library,"scePadGetHandle");
+        open_pad=(int (*)(uint32_t,int,int,const void*))dlsym(library,"scePadOpen");
+        init_pad=(int (*)(void))dlsym(library,"scePadInit");
+    }
+    uint32_t user=foreground_user();
+    char msg[192];
+    snprintf(msg,sizeof(msg),"Pad: thread read=%d get=%d open=%d init=%d user=0x%x",read_state?1:0,get_handle?1:0,open_pad?1:0,init_pad?1:0,user);
+    engine_log(msg);
+    int handle=-1;
+    if(open_pad&&user!=0xffffffffU){
+        handle=open_pad(user,0,0,NULL);
+        snprintf(msg,sizeof(msg),"Pad: open handle=%d (0x%x)",handle,handle);
+        engine_log(msg);
+    }
+    if(handle<0&&get_handle&&user!=0xffffffffU){
+        handle=get_handle(user,0,0);
+        snprintf(msg,sizeof(msg),"Pad: gethandle handle=%d (0x%x)",handle,handle);
+        engine_log(msg);
+    }
+    if(!read_state||handle<0)return NULL;
+    int previous=0;
+    for(;;){
+        _Alignas(16) unsigned char data[0x100];
+        memset(data,0,sizeof(data));
+        int rc=read_state(handle,data);
+        if(rc){static int logged=0;if(!logged){logged=1;snprintf(msg,sizeof(msg),"Pad: read rc=0x%x",(unsigned)rc);engine_log(msg);}usleep(200000);continue;}
+        static int first=1;
+        if(first){first=0;snprintf(msg,sizeof(msg),"Pad: buttons=0x%x",*(uint32_t*)data);engine_log(msg);}
+        int square=(*(uint32_t*)data&0x8000U)!=0;
+        if(square&&!previous){
+            pid_t pid=0;uintptr_t base=0;uint32_t a=0,b=0;int cg,ra,rb,gate,begin;
+            cg=credits_game(&pid,&base);
+            ra=cg?1:read_mem(pid,(uintptr_t)LIVE_WORLD_MAP_DEPTH_A,&a,4);
+            rb=cg?1:read_mem(pid,(uintptr_t)LIVE_WORLD_MAP_DEPTH_B,&b,4);
+            gate=(!cg&&live_world_map_active(pid));
+            begin=gate?gt7_live_credit_prompt_begin():(-99);
+            snprintf(msg,sizeof(msg),"Pad: square cg=%d a=0x%x b=0x%x ra=%d rb=%d gate=%d begin=%d",cg,a,b,ra,rb,gate,begin);
+            engine_log(msg);
+        }
+        previous=square;
+        usleep(20000);
+    }
+#else
+    (void)arg;return NULL;
+#endif
+}
+void gt7_live_pad_poll(void){
+#ifdef PS5
+    if(!pad_shortcut_enabled||pad_thread_started)return;
+    pad_thread_started=1;
+    pthread_t t;
+    if(pthread_create(&t,NULL,live_pad_thread,NULL))pad_thread_started=0;
+    else pthread_detach(t);
+#endif
+}
 int gt7_live_credit_prompt_read(Gt7CreditPrompt *out){
     pid_t pid;uintptr_t base,address;LiveMailbox state;
     if(!out||credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled)return -1;
@@ -308,6 +417,87 @@ int gt7_live_credit_prompt_read(Gt7CreditPrompt *out){
     return 0;
 }
 /* Temporary read-only diagnostics. Remove before release. */
+/* Temporary logging hook used to map GT7's UI event path from inside the
+ * game. It installs a jump at a target function entry to a stub inside the
+ * live allocation. The stub records the integer argument registers, the stack
+ * pointer and the caller's return address, replays the displaced prologue
+ * bytes, then resumes the function. Behaviour is otherwise unchanged. The
+ * target and displaced length are supplied at runtime so candidates can be
+ * tried without rebuilding. Remove before release. */
+#define LIVE_PROBE_LOG   0x00008000u
+#define LIVE_PROBE_ADDR  0x00008f00u
+#define LIVE_PROBE_STUB  0x00009000u
+int gt7_live_probe_install(uintptr_t target,uint32_t displaced){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.allocation)return -1;
+    if(displaced<14||displaced>0x40)return -1;
+    uintptr_t alloc=state.allocation,stub=alloc+LIVE_PROBE_STUB,record=alloc+LIVE_PROBE_ADDR,log=alloc+LIVE_PROBE_LOG;
+    unsigned char orig[0x40];
+    if(read_mem(pid,target,orig,displaced))return -1;
+    if(displaced>=14&&orig[0]==0xFF&&orig[1]==0x25&&*(uintptr_t *)(orig+6)==stub)return -1;/* target already hooked; restore it before re-hooking */
+    unsigned char code[0x400];size_t n=0;
+    code[n++]=0x49;code[n++]=0xBB;memcpy(code+n,&log,8);n+=8;
+    static const unsigned char stores[7][3]={{0x49,0x89,0x7B},{0x49,0x89,0x73},{0x49,0x89,0x53},{0x49,0x89,0x4B},{0x4D,0x89,0x43},{0x4D,0x89,0x4B},{0x49,0x89,0x63}};
+    for(unsigned i=0;i<7;i++){code[n++]=stores[i][0];code[n++]=stores[i][1];code[n++]=stores[i][2];code[n++]=(unsigned char)(i*8);}
+    code[n++]=0x4C;code[n++]=0x8B;code[n++]=0x14;code[n++]=0x24;              /* mov r10,[rsp] */
+    code[n++]=0x4D;code[n++]=0x89;code[n++]=0x53;code[n++]=0x40;              /* mov [r11+0x40],r10 */
+    code[n++]=0x49;code[n++]=0xFF;code[n++]=0x43;code[n++]=0x38;              /* inc qword [r11+0x38] */
+    code[n++]=0x49;code[n++]=0x89;code[n++]=0x6B;code[n++]=0x48;              /* mov [r11+0x48],rbp */
+    /* No memory dereferences in this stub: at the VM invoke chokepoint the
+     * argument registers (notably rsi) may hold non-pointer values and a
+     * stray dereference faults. Object identity is captured from the rdi
+     * value alone (trace table below); contents are read later via peek. */
+    /* VM invoke trace: hash rdi into a 1024-bucket object table at log+0x4000. */
+    {
+        uint32_t table=0x4000u;
+        code[n++]=0x50;                                                            /* push rax */
+        code[n++]=0x49;code[n++]=0x8B;code[n++]=0x03;                             /* mov rax,[r11]     (rdi) */
+        code[n++]=0x48;code[n++]=0xC1;code[n++]=0xE8;code[n++]=0x04;              /* shr rax,4 */
+        code[n++]=0x48;code[n++]=0x25;code[n++]=0xFF;code[n++]=0x03;code[n++]=0x00;code[n++]=0x00; /* and rax,0x3ff */
+        code[n++]=0x48;code[n++]=0xC1;code[n++]=0xE0;code[n++]=0x04;              /* shl rax,4 */
+        code[n++]=0x4D;code[n++]=0x8D;code[n++]=0x93;memcpy(code+n,&table,4);n+=4;/* lea r10,[r11+0x4000] */
+        code[n++]=0x49;code[n++]=0x01;code[n++]=0xC2;                             /* add r10,rax */
+        code[n++]=0x49;code[n++]=0x8B;code[n++]=0x03;                             /* mov rax,[r11] */
+        code[n++]=0x49;code[n++]=0x89;code[n++]=0x02;                             /* mov [r10],rax */
+        code[n++]=0x48;code[n++]=0xFF;code[n++]=0x42;code[n++]=0x08;              /* inc qword [r10+8] */
+        code[n++]=0x58;                                                            /* pop rax */
+    }
+    memcpy(code+n,orig,displaced);n+=displaced;
+    code[n++]=0x49;code[n++]=0xBB;uintptr_t resume=target+displaced;memcpy(code+n,&resume,8);n+=8;
+    code[n++]=0x41;code[n++]=0xFF;code[n++]=0xE3;                             /* jmp r11 */
+    if(n>0x3f0)return -1;
+    unsigned char snapshot[0x50];memset(snapshot,0,sizeof(snapshot));
+    memcpy(snapshot,&target,8);memcpy(snapshot+8,&displaced,4);memcpy(snapshot+0x0c,orig,displaced);
+    if(verified_write(pid,record,snapshot,sizeof(snapshot)))return -1;
+    if(verified_write(pid,stub,code,n))return -1;
+    {unsigned char zero[0x100];memset(zero,0,sizeof(zero));if(verified_write(pid,log,zero,sizeof(zero)))return -1;}
+    {static unsigned char zobj[0x4000];if(verified_write(pid,log+0x4000,zobj,sizeof(zobj)))return -1;}
+    unsigned char patch[0x40];
+    patch[0]=0xFF;patch[1]=0x25;patch[2]=0;patch[3]=0;patch[4]=0;patch[5]=0;memcpy(patch+6,&stub,8);
+    for(uint32_t i=14;i<displaced;i++)patch[i]=0x90;
+    if(kernel_mprotect(pid,target&~(uintptr_t)0x3fff,0x4000,PROT_READ|PROT_WRITE|PROT_EXEC))return -1;
+    if(verified_write(pid,target,patch,displaced))return -1;
+    return 0;
+}
+int gt7_live_probe_remove(void){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.allocation)return -1;
+    uintptr_t record=state.allocation+LIVE_PROBE_ADDR;
+    unsigned char snapshot[0x50];
+    if(read_mem(pid,record,snapshot,sizeof(snapshot)))return -1;
+    uintptr_t target=0;uint32_t displaced=0;memcpy(&target,snapshot,8);memcpy(&displaced,snapshot+8,4);
+    if(!target||displaced<14||displaced>0x40)return -1;
+    if(kernel_mprotect(pid,target&~(uintptr_t)0x3fff,0x4000,PROT_READ|PROT_WRITE|PROT_EXEC))return -1;
+    if(verified_write(pid,target,snapshot+0x0c,displaced))return -1;
+    uintptr_t zero=0;
+    if(verified_write(pid,record,&zero,8))return -1;
+    return 0;
+}
+int gt7_live_probe_read(uintptr_t *words,uint32_t count){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(!words||count<9||credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.allocation)return -1;
+    return read_mem(pid,state.allocation+LIVE_PROBE_LOG,words,count*8)?-1:0;
+}
 int gt7_live_mapinfo(char *out,uint32_t size){
     pid_t pid;uintptr_t base;
     if(!out||!size||credits_game(&pid,&base))return -1;
@@ -534,7 +724,10 @@ static int bridge_prepare(void){
     const char *names[]={"sceKernelGetAppInfo","socket","connect","setsockopt","send","recv","close"};
     uintptr_t imports[9]={original};
     for(unsigned i=0;i<7;i++){imports[i+1]=kernel_dynlib_dlsym(shell,0x2001,names[i]);if(!imports[i+1])return -1;}
-    imports[8]=module.mapbase+0x2e0050; /* AppInstallTitleDirMain, 12.40 */
+    /* The launch hook never calls this import, but the icon hook in the same
+     * bridge does.  Select it by exact firmware when the profile is known. */
+    const IconProfile *profile=icon_profile();
+    imports[8]=module.mapbase+(profile?profile->title_dir:0x2e0050);
     memcpy(blob+HOOK_IMPORTS,imports,sizeof(imports));
     memcpy(expected_bridge,blob,sizeof(blob));
     saved_frame=malloc(sizeof(blob));if(!saved_frame)return -1;
@@ -679,14 +872,15 @@ int gt7_launch_game(void){
     }
     return sceSystemServiceLaunchApp("PPSA01317",argv,NULL);
 }
-/* ShadowMountPlus may already own the 12.40 AppInstallAll hook. Its bridge
- * deliberately exposes one-shot title/base-directory immediates. Reuse that
- * verified bridge instead of replacing its live hook. */
-static int install_with_shadowmount_bridge(int (*install_all)(void *),int *handled){
+/* ShadowMountPlus may already own AppInstallAll. Its bridge deliberately
+ * exposes one-shot title/base-directory immediates. Reuse it only after
+ * verifying the exact firmware cave and bridge ABI; otherwise leave another
+ * payload's hook untouched. */
+static int install_with_shadowmount_bridge(const IconProfile *profile,int (*install_all)(void *),int *handled){
     *handled=0;
-    const uintptr_t cave=module.mapbase+0x1887200;
+    const uintptr_t cave=module.mapbase+profile->smp_cave;
     const uintptr_t hook=cave+0x260;
-    const uintptr_t target=module.mapbase+0x2dd100;
+    const uintptr_t target=module.mapbase+profile->install_all;
     unsigned char target_bytes[12],marker[2],hook_head[4];
     if(read_mem(shell,target,target_bytes,sizeof(target_bytes))||read_mem(shell,cave,marker,sizeof(marker))||read_mem(shell,hook,hook_head,sizeof(hook_head)))return -1;
     uintptr_t destination=0;memcpy(&destination,target_bytes+2,sizeof(destination));
@@ -753,20 +947,22 @@ int gt7_install_icon(void){
         if(result==0||(uint32_t)result==0x80990002U){mark_icon_installed();return 0;}
         return -1;
     }
+    const IconProfile *profile=icon_profile();
+    if(!profile){engine_log("Icon: unsupported firmware profile");return -1;}
     shell=find_shell();
     if(shell<0||main_module(shell,&module)){engine_log("Icon: ShellCore lookup failed");return -1;}
-    int handled=0,shared=install_with_shadowmount_bridge(install_all,&handled);
+    int handled=0,shared=install_with_shadowmount_bridge(profile,install_all,&handled);
     if(handled){if(shared>0){mark_icon_installed();return 0;}return -1;}
     if(bridge_prepare()){engine_log("Icon: bridge preparation failed");return -1;}
     /* Firmware 12 removed the public TitleDir RPC. Temporarily redirect the
      * internal AppInstallAll dispatcher to our fixed-title registration call.
      * Restore and verify its bytes regardless of registration result. */
-    uintptr_t target=module.mapbase+0x2dd100,destination=bridge+HOOK_ICON;
+    uintptr_t target=module.mapbase+profile->install_all,destination=bridge+HOOK_ICON;
     unsigned char original_bytes[12],jump[12]={0x48,0xb8};
     const unsigned char prologue[]={0x55,0x48,0x89,0xe5};
     if(read_mem(shell,target,original_bytes,sizeof(original_bytes))||memcmp(original_bytes,prologue,4)){engine_log("Icon: AppInstallAll target prologue mismatch");return -1;}
     unsigned char install_prologue[4];
-    if(read_mem(shell,module.mapbase+0x2e0050,install_prologue,4)||memcmp(install_prologue,prologue,4)){engine_log("Icon: TitleDir target prologue mismatch");return -1;}
+    if(read_mem(shell,module.mapbase+profile->title_dir,install_prologue,4)||memcmp(install_prologue,prologue,4)){engine_log("Icon: TitleDir target prologue mismatch");return -1;}
     memcpy(jump+2,&destination,8);jump[10]=0xff;jump[11]=0xe0;
     engine_log("Icon: redirecting fixed-title registration call");
     if(stopped_swap(target,original_bytes,jump,sizeof(jump))){engine_log("Icon: redirect swap failed");return -1;}

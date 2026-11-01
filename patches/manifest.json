@@ -43,8 +43,8 @@
     "runtime": true
   },
   {
-    "name": "Allow skipping new game intro movie",
-    "note": "Enables pressing ○ to skip the intro movie that plays when starting a new game",
+    "name": "Skippable new game intro movie",
+    "note": "Press ○ to skip the 6+ minute long movie that plays when you start a new game. Not required if you already have a save file.",
     "source": "opening_movie_skip",
     "built": true
   },

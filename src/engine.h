@@ -18,11 +18,18 @@ int gt7_live_ready(void);
 int gt7_live_arm_credit_input(void);
 int gt7_live_credit_prompt_begin(void);
 int gt7_live_credit_prompt_read(Gt7CreditPrompt *out);
+/* Square-button shortcut: opens the credit number pad while the live bridge
+ * is enabled. No-op unless the platform pad can be read. */
+void gt7_live_pad_poll(void);
+void gt7_live_pad_configure(int enabled);
 /* Temporary read-only diagnostic used to map GT7 state from inside the game
  * process (no debugger attach). Remove before release. */
 int gt7_live_peek(uintptr_t address,void *buffer,uint32_t length);
 int gt7_live_mapinfo(char *out,uint32_t size);
 int gt7_live_find(uintptr_t address,uint32_t length,const char *needle,uint32_t needle_length,uintptr_t *hits,uint32_t max_hits,uint32_t *out_count);
+int gt7_live_probe_install(uintptr_t target,uint32_t displaced);
+int gt7_live_probe_remove(void);
+int gt7_live_probe_read(uintptr_t *words,uint32_t count);
 void gt7_live_configure(int enabled);
 int gt7_engine_start(void);
 int gt7_engine_active(void);
