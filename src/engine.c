@@ -427,15 +427,16 @@ int gt7_live_credit_prompt_read(Gt7CreditPrompt *out){
 #define LIVE_PROBE_LOG   0x00008000u
 #define LIVE_PROBE_ADDR  0x00008f00u
 #define LIVE_PROBE_STUB  0x00009000u
-int gt7_live_probe_install(uintptr_t target,uint32_t displaced){
+int gt7_live_probe_install(uintptr_t target,uint32_t displaced,int mode,uintptr_t watch){
     pid_t pid;uintptr_t base,address;LiveMailbox state;
     if(credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.allocation)return -1;
-    if(displaced<14||displaced>0x40)return -1;
+    if(displaced<14||displaced>0x40||mode>4)return -1;
     uintptr_t alloc=state.allocation,stub=alloc+LIVE_PROBE_STUB,record=alloc+LIVE_PROBE_ADDR,log=alloc+LIVE_PROBE_LOG;
     unsigned char orig[0x40];
     if(read_mem(pid,target,orig,displaced))return -1;
     if(displaced>=14&&orig[0]==0xFF&&orig[1]==0x25&&*(uintptr_t *)(orig+6)==stub)return -1;/* target already hooked; restore it before re-hooking */
-    unsigned char code[0x400];size_t n=0;
+    unsigned char code[0x800];size_t n=0;
+    if(mode!=1){
     code[n++]=0x49;code[n++]=0xBB;memcpy(code+n,&log,8);n+=8;
     static const unsigned char stores[7][3]={{0x49,0x89,0x7B},{0x49,0x89,0x73},{0x49,0x89,0x53},{0x49,0x89,0x4B},{0x4D,0x89,0x43},{0x4D,0x89,0x4B},{0x49,0x89,0x63}};
     for(unsigned i=0;i<7;i++){code[n++]=stores[i][0];code[n++]=stores[i][1];code[n++]=stores[i][2];code[n++]=(unsigned char)(i*8);}
@@ -447,6 +448,7 @@ int gt7_live_probe_install(uintptr_t target,uint32_t displaced){
      * argument registers (notably rsi) may hold non-pointer values and a
      * stray dereference faults. Object identity is captured from the rdi
      * value alone (trace table below); contents are read later via peek. */
+    if(mode==0){
     /* VM invoke trace: hash rdi into a 1024-bucket object table at log+0x4000. */
     {
         uint32_t table=0x4000u;
@@ -459,18 +461,77 @@ int gt7_live_probe_install(uintptr_t target,uint32_t displaced){
         code[n++]=0x49;code[n++]=0x01;code[n++]=0xC2;                             /* add r10,rax */
         code[n++]=0x49;code[n++]=0x8B;code[n++]=0x03;                             /* mov rax,[r11] */
         code[n++]=0x49;code[n++]=0x89;code[n++]=0x02;                             /* mov [r10],rax */
-        code[n++]=0x48;code[n++]=0xFF;code[n++]=0x42;code[n++]=0x08;              /* inc qword [r10+8] */
+        code[n++]=0x49;code[n++]=0xFF;code[n++]=0x42;code[n++]=0x08;              /* inc qword [r10+8] */
         code[n++]=0x58;                                                            /* pop rax */
+    }
+    }
+    }
+    if(mode==3){
+    /* Argument snapshot (crash-safe): copy the rcx argument array, which
+     * holds the pushed page object and the event-source string pointers,
+     * into the log buffer while it is still live. rcx is only read after
+     * a bounds check, and nothing it points to is dereferenced here. */
+    {
+        code[n++]=0x4C;code[n++]=0x8B;code[n++]=0xD1;  /* mov r10,rcx */
+        code[n++]=0x4C;code[n++]=0x2B;code[n++]=0xD4;  /* sub r10,rsp */
+        code[n++]=0x49;code[n++]=0x81;code[n++]=0xFA;code[n++]=0x00;code[n++]=0x00;code[n++]=0x01;code[n++]=0x00;  /* cmp r10,0x10000 */
+        code[n++]=0x72;code[n++]=0x05;  /* jb have */
+        code[n++]=0xE9;code[n++]=0xAF;code[n++]=0x00;code[n++]=0x00;code[n++]=0x00;  /* jmp END */
+        code[n++]=0x4C;code[n++]=0x8B;code[n++]=0x11;  /* mov r10,[rcx+0x0] */
+        code[n++]=0x4D;code[n++]=0x89;code[n++]=0x93;code[n++]=0x00;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;  /* rcx[0] -> log+0x100 */
+        code[n++]=0x4C;code[n++]=0x8B;code[n++]=0x51;code[n++]=0x08;  /* mov r10,[rcx+0x8] */
+        code[n++]=0x4D;code[n++]=0x89;code[n++]=0x93;code[n++]=0x08;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;  /* rcx[1] -> log+0x108 */
+        code[n++]=0x4C;code[n++]=0x8B;code[n++]=0x51;code[n++]=0x10;  /* mov r10,[rcx+0x10] */
+        code[n++]=0x4D;code[n++]=0x89;code[n++]=0x93;code[n++]=0x10;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;  /* rcx[2] -> log+0x110 */
+        code[n++]=0x4C;code[n++]=0x8B;code[n++]=0x51;code[n++]=0x18;  /* mov r10,[rcx+0x18] */
+        code[n++]=0x4D;code[n++]=0x89;code[n++]=0x93;code[n++]=0x18;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;  /* rcx[3] -> log+0x118 */
+        code[n++]=0x4C;code[n++]=0x8B;code[n++]=0x51;code[n++]=0x20;  /* mov r10,[rcx+0x20] */
+        code[n++]=0x4D;code[n++]=0x89;code[n++]=0x93;code[n++]=0x20;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;  /* rcx[4] -> log+0x120 */
+        code[n++]=0x4C;code[n++]=0x8B;code[n++]=0x51;code[n++]=0x28;  /* mov r10,[rcx+0x28] */
+        code[n++]=0x4D;code[n++]=0x89;code[n++]=0x93;code[n++]=0x28;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;  /* rcx[5] -> log+0x128 */
+        code[n++]=0x4C;code[n++]=0x8B;code[n++]=0x51;code[n++]=0x30;  /* mov r10,[rcx+0x30] */
+        code[n++]=0x4D;code[n++]=0x89;code[n++]=0x93;code[n++]=0x30;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;  /* rcx[6] -> log+0x130 */
+        code[n++]=0x4C;code[n++]=0x8B;code[n++]=0x51;code[n++]=0x38;  /* mov r10,[rcx+0x38] */
+        code[n++]=0x4D;code[n++]=0x89;code[n++]=0x93;code[n++]=0x38;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;  /* rcx[7] -> log+0x138 */
+        code[n++]=0x4C;code[n++]=0x8B;code[n++]=0x51;code[n++]=0x40;  /* mov r10,[rcx+0x40] */
+        code[n++]=0x4D;code[n++]=0x89;code[n++]=0x93;code[n++]=0x40;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;  /* rcx[8] -> log+0x140 */
+        code[n++]=0x4C;code[n++]=0x8B;code[n++]=0x51;code[n++]=0x48;  /* mov r10,[rcx+0x48] */
+        code[n++]=0x4D;code[n++]=0x89;code[n++]=0x93;code[n++]=0x48;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;  /* rcx[9] -> log+0x148 */
+        code[n++]=0x4C;code[n++]=0x8B;code[n++]=0x51;code[n++]=0x50;  /* mov r10,[rcx+0x50] */
+        code[n++]=0x4D;code[n++]=0x89;code[n++]=0x93;code[n++]=0x50;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;  /* rcx[10] -> log+0x150 */
+        code[n++]=0x4C;code[n++]=0x8B;code[n++]=0x51;code[n++]=0x58;  /* mov r10,[rcx+0x58] */
+        code[n++]=0x4D;code[n++]=0x89;code[n++]=0x93;code[n++]=0x58;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;  /* rcx[11] -> log+0x158 */
+        code[n++]=0x4C;code[n++]=0x8B;code[n++]=0x51;code[n++]=0x60;  /* mov r10,[rcx+0x60] */
+        code[n++]=0x4D;code[n++]=0x89;code[n++]=0x93;code[n++]=0x60;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;  /* rcx[12] -> log+0x160 */
+        code[n++]=0x4C;code[n++]=0x8B;code[n++]=0x51;code[n++]=0x68;  /* mov r10,[rcx+0x68] */
+        code[n++]=0x4D;code[n++]=0x89;code[n++]=0x93;code[n++]=0x68;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;  /* rcx[13] -> log+0x168 */
+        code[n++]=0x4C;code[n++]=0x8B;code[n++]=0x51;code[n++]=0x70;  /* mov r10,[rcx+0x70] */
+        code[n++]=0x4D;code[n++]=0x89;code[n++]=0x93;code[n++]=0x70;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;  /* rcx[14] -> log+0x170 */
+        code[n++]=0x4C;code[n++]=0x8B;code[n++]=0x51;code[n++]=0x78;  /* mov r10,[rcx+0x78] */
+        code[n++]=0x4D;code[n++]=0x89;code[n++]=0x93;code[n++]=0x78;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;  /* rcx[15] -> log+0x178 */
+    }
+    }
+    if(mode==4){
+    /* Invoke watch: bump log+0x100 whenever the invoked rdi equals the
+     * configured watch address. Detects a specific VM object being invoked
+     * at the chokepoint regardless of how its instance address changes. */
+    {
+        uintptr_t wv=watch;
+        code[n++]=0x49;code[n++]=0xBA;memcpy(code+n,&wv,8);n+=8;                  /* mov r10,watch */
+        code[n++]=0x4D;code[n++]=0x39;code[n++]=0x13;                            /* cmp [r11],r10 (rdi) */
+        code[n++]=0x75;code[n++]=0x02;                                           /* jne skip */
+        code[n++]=0x49;code[n++]=0xFF;code[n++]=0x83;code[n++]=0x00;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00; /* inc [r11+0x100] */
+    }
     }
     memcpy(code+n,orig,displaced);n+=displaced;
     code[n++]=0x49;code[n++]=0xBB;uintptr_t resume=target+displaced;memcpy(code+n,&resume,8);n+=8;
     code[n++]=0x41;code[n++]=0xFF;code[n++]=0xE3;                             /* jmp r11 */
-    if(n>0x3f0)return -1;
+    if(n>0x7f0)return -1;
     unsigned char snapshot[0x50];memset(snapshot,0,sizeof(snapshot));
     memcpy(snapshot,&target,8);memcpy(snapshot+8,&displaced,4);memcpy(snapshot+0x0c,orig,displaced);
     if(verified_write(pid,record,snapshot,sizeof(snapshot)))return -1;
     if(verified_write(pid,stub,code,n))return -1;
-    {unsigned char zero[0x100];memset(zero,0,sizeof(zero));if(verified_write(pid,log,zero,sizeof(zero)))return -1;}
+    {unsigned char zero[0x400];memset(zero,0,sizeof(zero));if(verified_write(pid,log,zero,sizeof(zero)))return -1;}
     {static unsigned char zobj[0x4000];if(verified_write(pid,log+0x4000,zobj,sizeof(zobj)))return -1;}
     unsigned char patch[0x40];
     patch[0]=0xFF;patch[1]=0x25;patch[2]=0;patch[3]=0;patch[4]=0;patch[5]=0;memcpy(patch+6,&stub,8);

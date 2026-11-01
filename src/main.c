@@ -27,7 +27,7 @@
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 #endif
-#define VERSION "0.3.2.26-11-01_1900"
+#define VERSION "0.3.2.26-11-01_2250"
 #ifndef PORT
 #define PORT 7210
 #endif
@@ -262,12 +262,14 @@ static void serve(int fd){
             /* Temporary read-only diagnostic: last logged hook registers. Remove before release. */
             if(!authorized){response(fd,403,"text/plain","Reload this page before reading live memory.");return;}
 #ifdef PS5
-            uintptr_t words[128];char body[2048];int at;
+            uintptr_t words[128];char body[4096];int at;
             if(gt7_live_probe_read(words,128)){response(fd,409,"text/plain","Live memory is unavailable while supported GT7 is not running.");return;}
             at=snprintf(body,sizeof(body),"{\"rdi\":\"0x%llx\",\"rsi\":\"0x%llx\",\"rdx\":\"0x%llx\",\"rcx\":\"0x%llx\",\"r8\":\"0x%llx\",\"r9\":\"0x%llx\",\"rsp\":\"0x%llx\",\"count\":%llu,\"ret\":\"0x%llx\",\"rbp\":\"0x%llx\",\"stack\":[",
                 (unsigned long long)words[0],(unsigned long long)words[1],(unsigned long long)words[2],(unsigned long long)words[3],(unsigned long long)words[4],(unsigned long long)words[5],(unsigned long long)words[6],(unsigned long long)words[7],(unsigned long long)words[8],(unsigned long long)words[9]);
             for(int i=0;i<48&&at>0&&at<(int)sizeof(body)-40;i++)at+=snprintf(body+at,sizeof(body)-at,"%s\"0x%llx\"",i?",":"",(unsigned long long)words[64+i]);
-            snprintf(body+at,sizeof(body)-at,"]}");
+            if(at>0&&at<(int)sizeof(body)-40)at+=snprintf(body+at,sizeof(body)-at,"],\"snap\":[");
+            for(int i=0;i<24&&at>0&&at<(int)sizeof(body)-40;i++)at+=snprintf(body+at,sizeof(body)-at,"%s\"0x%llx\"",i?",":"",(unsigned long long)words[32+i]);
+            if(at>0&&at<(int)sizeof(body)-8)snprintf(body+at,sizeof(body)-at,"]}");
             response(fd,200,"application/json",body);return;
 #else
             response(fd,409,"text/plain","Live memory is only available while supported GT7 is running on PS5.");return;
@@ -349,10 +351,12 @@ static void serve(int fd){
             if(gt7_live_probe_remove()){response(fd,409,"text/plain","Could not remove the probe; the bridge may be unavailable.");return;}
             response(fd,200,"application/json","{\"removed\":true}");return;
         }
-        char *query=strchr(path,'?');unsigned long long address=0;unsigned displaced=0;
+        char *query=strchr(path,'?');unsigned long long address=0;unsigned displaced=0;unsigned mode=0;unsigned long long watch=0;
         if(!query||sscanf(query,"?addr=%llx&len=%u",&address,&displaced)!=2){response(fd,400,"text/plain","Use /api/live/probe?addr=0xADDR&len=N");return;}
         if(length){response(fd,400,"text/plain","Unexpected request body");return;}
-        if(gt7_live_probe_install((uintptr_t)address,displaced)){response(fd,409,"text/plain","Could not install the probe at that address.");return;}
+        {const char *mp=strstr(query,"&mode=");if(mp)mode=(unsigned)strtoul(mp+6,NULL,10);}
+        {const char *wp=strstr(query,"&watch=");if(wp)watch=strtoull(wp+7,NULL,0);}
+        if(gt7_live_probe_install((uintptr_t)address,displaced,mode,(uintptr_t)watch)){response(fd,409,"text/plain","Could not install the probe at that address.");return;}
         response(fd,200,"application/json","{\"installed\":true}");return;
 #else
         response(fd,409,"text/plain","Probes are only available while supported GT7 is running on PS5.");return;

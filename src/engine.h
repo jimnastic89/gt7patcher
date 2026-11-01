@@ -27,7 +27,7 @@ void gt7_live_pad_configure(int enabled);
 int gt7_live_peek(uintptr_t address,void *buffer,uint32_t length);
 int gt7_live_mapinfo(char *out,uint32_t size);
 int gt7_live_find(uintptr_t address,uint32_t length,const char *needle,uint32_t needle_length,uintptr_t *hits,uint32_t max_hits,uint32_t *out_count);
-int gt7_live_probe_install(uintptr_t target,uint32_t displaced);
+int gt7_live_probe_install(uintptr_t target,uint32_t displaced,int mode,uintptr_t watch);
 int gt7_live_probe_remove(void);
 int gt7_live_probe_read(uintptr_t *words,uint32_t count);
 void gt7_live_configure(int enabled);

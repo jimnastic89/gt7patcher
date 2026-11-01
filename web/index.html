@@ -554,11 +554,6 @@ button:not([role="tab"]) {
                 <li>Region presets affect display preferences only. They do not change the title ID, save location,
                 DLC region, or internal GameRegionCode.</li>
             </ul>
-            <div class="actions">
-                <button type="button" id="reinstall-shortcut" disabled>Reinstall home screen shortcut</button>
-                <button type="button" id="stop-engine" disabled>Stop engine</button>
-                <button type="button" id="stop-payload" class="danger" disabled>Stop payload</button>
-            </div>
         </div>
     </section>
     <div id="controls">
@@ -573,6 +568,8 @@ button:not([role="tab"]) {
             <button type="submit" id="save" class="primary" disabled>Save</button>
             <button type="button" id="start" disabled>Start engine</button>
             <button type="button" id="launch-game" disabled>Start GT7</button>
+            <button type="button" id="reinstall-shortcut" disabled>Reinstall home screen shortcut</button>
+            <button type="button" id="stop-payload" class="danger" disabled>Stop payload</button>
         </div>
     </div>
 </form>
@@ -717,7 +714,7 @@ button:not([role="tab"]) {
         $('status').textContent = text; $('status').hidden = !visible;
     }
     function units() { for (const e of $('unit-fields').querySelectorAll('select')) e.disabled = $('units').value === '0' }
-    function buttons() { $('save').disabled = !loaded || busy || halted; $('start').disabled = !loaded || busy || engine || halted; $('launch-game').disabled = !loaded || busy || halted || !engine || !gameClosed; $('reinstall-shortcut').disabled = !loaded || busy || halted; $('stop-engine').disabled = !loaded || busy || !engineActive || halted; $('stop-payload').disabled = !loaded || busy || halted; creditButtons(); wheelSettingsButtons(); engineSwapButtons() }
+    function buttons() { const running = engine || engineActive; $('save').disabled = !loaded || busy || halted; $('start').textContent = running ? 'Stop engine' : 'Start engine'; $('start').disabled = !loaded || busy || halted; $('launch-game').disabled = !loaded || busy || halted || !engine || !gameClosed; $('reinstall-shortcut').disabled = !loaded || busy || halted; $('stop-payload').disabled = !loaded || busy || halted; creditButtons(); wheelSettingsButtons(); engineSwapButtons() }
     function mark() { dirty = true; liveTab(Boolean($('patch-6')?.checked)); buttons(); if (loaded && !busy && !halted) $('save').disabled = false; status('Unsaved choices. Save them to apply them on the next GT7 launch.') }
     function liveTab(selected) { if (!$('live-tab')) return;
         $('live-tab').hidden = !selected;
@@ -741,16 +738,15 @@ button:not([role="tab"]) {
     async function post(path, body, savesSettings = false) { busy = true; revision++; buttons(); try { const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (savesSettings) dirty = false; render(result); status(result.message) } catch (e) { status(e.message, true) } finally { busy = false; buttons() } }
     function configBody() { const c = { mask: 0, autostart: Number($('autostart').checked) }; document.querySelectorAll('#features input[data-bit]').forEach(input => { if (input.checked) c.mask |= 1 << Number(input.dataset.bit) }); for (const k of keys) c[k] = Number($(k).value); return new URLSearchParams(c).toString() }
     $('form').addEventListener('submit', e => { e.preventDefault(); post('/api/config', configBody(), true) });
-    $('start').onclick = async () => { if (busy || !loaded || engine || halted) return; busy = true; revision++; buttons(); try { if (dirty) { const saved = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: configBody() }); if (!saved.ok) throw Error(await saved.text()); dirty = false; render(await saved.json()) } const started = await fetch('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: '' }); if (!started.ok) throw Error(await started.text()); const result = await started.json(); render(result); status(result.message) } catch (e) { status(e.message, true) } finally { busy = false; buttons() } };
+    $('start').onclick = async () => { if (busy || !loaded || halted) return; if (engine || engineActive) { await read(); if (gameRunning && !confirm('GT7 is running. Stopping the engine now leaves the current game unpatched and may prevent automatic restoration. Continue?')) return; post('/api/engine/stop', ''); return; } busy = true; revision++; buttons(); try { if (dirty) { const saved = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: configBody() }); if (!saved.ok) throw Error(await saved.text()); dirty = false; render(await saved.json()) } const started = await fetch('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: '' }); if (!started.ok) throw Error(await started.text()); const result = await started.json(); render(result); status(result.message) } catch (e) { status(e.message, true) } finally { busy = false; buttons() } };
     $('launch-game').onclick = () => post('/api/game/start', '');
     $('reinstall-shortcut').onclick = () => post('/api/shortcut/reinstall', '');
-    $('stop-engine').onclick = async () => { await read(); if (gameRunning && !confirm('GT7 is running. Stopping the engine now leaves the current game unpatched and may prevent automatic restoration. Continue?')) return; post('/api/engine/stop', '') };
     $('stop-payload').onclick = async () => { const warning = gameRunning ? 'GT7 is running. Stopping GT7Patcher now stops its engine and closes the web interface. Continue?' : 'Stop GT7Patcher? Port 7210 will close until the payload is run again.'; if (!confirm(warning)) return; busy = true; buttons(); try { const r = await fetch('/api/payload/stop', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: '' }); if (!r.ok) throw Error(await r.text()); halted = true; engine = false; status('GT7Patcher has stopped. Run the payload again to reconnect.') } catch (e) { status(e.message, true) } finally { busy = false; buttons() } };
     $('form').addEventListener('change', e => { if (e.target.id === 'credits' || e.target.id.startsWith('clean-')) return; if (e.target.id === 'patch-2' && e.target.checked) $('patch-0').checked = true; if (e.target.id === 'patch-0' && !e.target.checked) $('patch-2').checked = false; if (e.target.id === 'units') units(); if (['speed', 'mass', 'power', 'torque', 'temperature', 'language'].includes(e.target.id)) $('preset').value = 0; mark() });
     const presets = { 1: { language: 2, speed: 0, mass: 0, power: 2, torque: 2, temperature: 1 }, 2: { language: 2, speed: 0, mass: 0, power: 1, torque: 2, temperature: 1 }, 3: { language: 1, speed: 1, mass: 1, power: 1, torque: 1, temperature: 2 }, 4: { language: 0, speed: 0, mass: 0, power: 0, torque: 0, temperature: 1 }, 5: { language: 2, speed: 1, mass: 0, power: 1, torque: 2, temperature: 1 } };
     $('preset').addEventListener('change', () => { const p = presets[$('preset').value]; if (p) { for (const [k, v] of Object.entries(p)) $(k).value = v; $('units').value = 1; units() } });
     const tabs = [['patch-tab', 'patches'], ['game-tab', 'game'], ['live-tab', 'live'], ['help-tab', 'help']].filter(([id]) => $(id));
-    for (const [id, panel] of tabs) $(id).onclick = () => { activePanel = panel; for (const [t, p] of tabs) { $(t).setAttribute('aria-selected', String(t === id)); $(p).hidden = p !== panel } $('launch-guidance').hidden = panel === 'help' || panel === 'live'; $('controls').hidden = panel === 'help' || panel === 'live'; pageStatus(persistentMessage) };
+    for (const [id, panel] of tabs) $(id).onclick = () => { activePanel = panel; for (const [t, p] of tabs) { $(t).setAttribute('aria-selected', String(t === id)); $(p).hidden = p !== panel } $('launch-guidance').hidden = panel === 'help' || panel === 'live'; $('controls').hidden = false; pageStatus(persistentMessage) };
     read(); setInterval(() => { if (!busy && !halted) read() }, 5000);
 </script>
 
