@@ -568,6 +568,7 @@ button:not([role="tab"]) {
             <button type="submit" id="save" class="primary" disabled>Save</button>
             <button type="button" id="start" disabled>Start engine</button>
             <button type="button" id="launch-game" disabled>Start GT7</button>
+            <button type="button" id="edit-credits-control" disabled title="Opens GT7's own number pad to set the credit balance">Edit credits in game</button>
             <button type="button" id="reinstall-shortcut" disabled>Reinstall home screen shortcut</button>
             <button type="button" id="stop-payload" class="danger" disabled>Stop payload</button>
         </div>
@@ -579,7 +580,7 @@ button:not([role="tab"]) {
     let token = '', busy = false, dirty = false, loaded = false, engine = false, engineActive = false, halted = false, gameRunning = false, gameClosed = false;
     let creditAvailable = false, creditAmount = null, creditSession = null, creditDirty = false, wheelWidth = null, wheelDirty = false, wheelGeometry = null, geometryDirty = false, engineSwap = null, refreshing = false, revision = 0, activePanel = 'patches', persistentMessage = '', initialStatusShown = false;
     function validCredits() { return /^\d{1,10}$/.test($('credits').value) && Number($('credits').value) <= 100000000 }
-    function creditButtons() { if (!$('credits')) return; $('credits').disabled = !creditAvailable || busy || halted; $('apply-credits').disabled = !creditAvailable || busy || halted || !validCredits(); $('edit-credits').disabled = !creditAvailable || busy || halted }
+    function creditButtons() { if (!$('credits')) return; const disabled = !creditAvailable || busy || halted; $('credits').disabled = disabled; $('apply-credits').disabled = disabled || !validCredits(); $('edit-credits').disabled = disabled; if ($('edit-credits-control')) $('edit-credits-control').disabled = disabled }
     function validWheelValue(element) { return /^-?\d{1,3}$/.test(element.value) && Number(element.value) >= -128 && Number(element.value) <= 127 }
     const geometryIds = ['wheel-inch', 'wheel-offset-front', 'wheel-offset-rear', 'hub-offset-front', 'hub-offset-rear'];
     function validGeometryValue(id, limit) { const value = $(id).value; return /^-?\d{1,5}$/.test(value) && Number(value) >= -limit && Number(value) <= limit }
@@ -673,13 +674,15 @@ button:not([role="tab"]) {
     $('credits').addEventListener('input', () => { creditDirty = true; creditButtons() });
     $('credits').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyCredits() } });
     $('apply-credits').onclick = applyCredits;
-    $('edit-credits').onclick = async () => { if (!creditAvailable || busy || halted) return; busy = true; revision++; buttons();
+    const editCredits = async () => { if (!creditAvailable || busy || halted) return; busy = true; revision++; buttons();
         try {
             const r = await fetch('/api/live/credit-input', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: '' });
             if (!r.ok) throw Error(await r.text());
             $('credit-input-feedback').textContent = 'Opening the number pad in GT7...'; $('credit-input-feedback').classList.remove('error'); status("Requested GT7's number pad.");
         } catch (e) { $('credit-input-feedback').textContent = e.message; $('credit-input-feedback').classList.add('error'); status(e.message, true) }
         finally { busy = false; buttons() } };
+    $('edit-credits').onclick = editCredits;
+    if ($('edit-credits-control')) $('edit-credits-control').onclick = editCredits;
     for (const id of ['wheel-width-front', 'wheel-width-rear']) {
         $(id).addEventListener('input', () => { wheelDirty = true; wheelSettingsButtons() });
         $(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyWheelSettings() } });

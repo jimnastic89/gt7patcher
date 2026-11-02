@@ -15,7 +15,7 @@ PATCH_SOURCES = [
     ('Unlock Vehicle DLC', 'unlock_vehicle_dlcs'),
     ('Wheel Offset Presets', 'wheel_offset_custom'),
     ('Live Settings', 'live_settings'),
-    ('Allow skipping new game intro movie', 'opening_movie_skip'),
+    ('Skippable new game intro movie', 'opening_movie_skip'),
 ]
 
 def cstring(value):
