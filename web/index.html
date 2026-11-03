@@ -469,6 +469,21 @@ button:not([role="tab"]) {
                     id="country"></select></div>
             <p class="detail">Overrides the flag shown for your car in races. Leave on "Game default" to keep the game's own value. Independent of language and units.</p>
         </div>
+        <div class="card">
+            <div class="field"><label for="aspect">Video output aspect ratio</label><select id="aspect">
+                    <option value="-1">Game default (16:9)</option>
+                    <option value="0">16:10</option>
+                    <option value="1">21:9 ultrawide</option>
+                    <option value="2">32:9 super ultrawide</option>
+                    <option value="3">3:2</option>
+                    <option value="4">4:3</option>
+                    <option value="5">5:4</option>
+                    <option value="6">2:1</option>
+                    <option value="7">2.35:1</option>
+                    <option value="8">2.39:1</option>
+                </select></div>
+            <p class="detail">Widens the 3D projection to the selected aspect by redirecting only the camera's +/-16:9 bounds; the render target and UI scaling keep the game's 16:9 value. Restart GT7 to apply.</p>
+        </div>
     </section>
     <section id="live" role="tabpanel" aria-labelledby="live-tab" hidden>
         <div class="card">
@@ -480,7 +495,7 @@ button:not([role="tab"]) {
             </div>
             <div class="actions"><button type="button" id="apply-credits" class="primary" disabled>Apply</button><button type="button" id="edit-credits" disabled>Edit in game</button></div>
             <p id="credit-feedback" class="detail" role="status">Enter 0 to 100,000,000 credits. The balance refreshes every five seconds. Apply changes the live amount immediately.</p>
-            <p id="credit-input-feedback" class="detail" role="status">Edit in game opens GT7's own number pad so you can set the balance with the console keyboard.</p>
+            <p id="credit-input-feedback" class="detail" role="status">Edit in game opens the system number pad with its own text field so you can type the balance on the console.</p>
         </div>
         <div class="card">
             <h2>Wheel settings</h2>
@@ -508,6 +523,45 @@ button:not([role="tab"]) {
             <label><input id="engine-unlock" type="checkbox" disabled> Unlock a supported swap slot before installing it</label>
             <div class="actions"><button type="button" id="apply-engine-swap" class="primary" disabled>Apply engine</button></div>
             <p id="engine-swap-feedback" class="detail" role="status">Slots are predefined by GT7 for this recipient car; arbitrary donor engines are not supported.</p>
+        </div>
+        <style>
+        #hud-elements{margin:8px 0}
+        .hud-group{border:1px solid #333;border-radius:6px;margin:0 0 6px;padding:6px 8px}
+        .hud-group-head{display:flex;align-items:center;gap:8px;font-weight:600}
+        .hud-group-name{flex:1;cursor:pointer}
+        .hud-fold{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;line-height:1;border:0;background:none;color:inherit;cursor:pointer;font:inherit}
+        .hud-grip{cursor:grab;color:#888;user-select:none;font-size:1.05em;line-height:1}
+        .hud-group-head .hud-label-edit{flex:1}
+        .hud-group-head .detail{font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .hud-label-edit{flex:1;min-width:120px;font:inherit}
+        .hud-nested{border-left:3px solid #2a2a2a}
+        .hud-items{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1px 12px;margin-top:4px;min-height:26px}
+        .hud-item{display:flex;align-items:center;gap:6px;font-size:.92em;padding:1px 0}
+        .hud-item>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .hud-item[draggable=true]{cursor:grab}
+        .hud-item .hud-rename{visibility:hidden;border:0;background:none;color:#8ab;cursor:pointer;padding:0 2px;font:inherit}
+        .hud-item:hover .hud-rename,.hud-item:focus-within .hud-rename{visibility:visible}
+        .hud-rename-box{font:inherit;min-width:90px;max-width:170px}
+        .hud-empty{opacity:.5;font-size:.85em;grid-column:1/-1}
+        .hud-absent{opacity:.45}
+        .hud-drop{outline:2px dashed #6cf;outline-offset:2px}
+        .hud-topdrop{border:1px dashed #444;border-radius:6px;padding:4px 8px;margin:0 0 6px;font-size:.85em;color:#888;text-align:center}
+        #hud-export{width:100%;height:8em;font:12px/1.35 ui-monospace,monospace;margin-top:6px}
+        </style>
+        <div class="card">
+            <h2>In-race HUD</h2>
+            <p id="hud-status" aria-live="polite">HUD control unavailable. Start GT7 with the Live Settings patch selected.</p>
+            <div class="actions" style="margin:6px 0"><input id="hud-search" type="search" placeholder="Filter items\u2026" style="flex:1;min-width:180px"><button type="button" id="hud-edit">Edit groups</button></div>
+            <div id="hud-editor" hidden>
+                <div class="actions" style="margin:6px 0"><button type="button" id="hud-new">New group</button><button type="button" id="hud-export-btn">Export layout</button><button type="button" id="hud-import-btn">Import layout</button><button type="button" id="hud-reset">Reset to default</button>
+                <button type="button" id="hud-fold-all">Fold all / unfold all</button></div>
+                <p class="detail">Rename a heading, drag an item between groups, or drag a group onto another group to nest it. Hover an item and click the pencil to give it your own name; the original name is shown as a tooltip. The layout is saved on the console under /data/gt7p/hud_layout.json, so every browser that connects to this payload sees the same grouping.</p>
+                <textarea id="hud-export" hidden spellcheck="false"></textarea>
+            </div>
+            <div id="hud-elements"></div>
+            <p id="hud-layout-note" class="detail" role="status">The group layout is saved on the console and shared by every browser.</p>
+            <div class="actions"><button type="button" id="hud-refresh">Refresh widget tree</button></div>
+            <p id="hud-feedback" class="detail" role="status">Tick an item to hide that layer in-race. Each group heading has a checkbox that hides every item in the group. Changes are sent to the console as you make them; selections are kept across races and game restarts, and the group layout is saved on the console for every browser.</p>
         </div>
     </section>
     <section id="help" role="tabpanel" aria-labelledby="help-tab" hidden>
@@ -565,10 +619,9 @@ button:not([role="tab"]) {
         </div>
         <div class="actions">
             <div id="status" role="status" aria-live="polite" hidden></div>
-            <button type="submit" id="save" class="primary" disabled>Save</button>
             <button type="button" id="start" disabled>Start engine</button>
             <button type="button" id="launch-game" disabled>Start GT7</button>
-            <button type="button" id="edit-credits-control" disabled title="Opens GT7's own number pad to set the credit balance">Edit credits in game</button>
+            <button type="button" id="edit-credits-control" disabled title="Opens the system number pad with a text field to set the credit balance">Edit credits in game</button>
             <button type="button" id="reinstall-shortcut" disabled>Reinstall home screen shortcut</button>
             <button type="button" id="stop-payload" class="danger" disabled>Stop payload</button>
         </div>
@@ -576,8 +629,8 @@ button:not([role="tab"]) {
 </form>
 <script>
     'use strict';
-    const $ = id => document.getElementById(id), keys = ['preset', 'units', 'language', 'country', 'speed', 'mass', 'power', 'torque', 'temperature'];
-    let token = '', busy = false, dirty = false, loaded = false, engine = false, engineActive = false, halted = false, gameRunning = false, gameClosed = false;
+    const $ = id => document.getElementById(id), keys = ['preset', 'aspect', 'units', 'language', 'country', 'speed', 'mass', 'power', 'torque', 'temperature'];
+    let token = '', busy = false, dirty = false, loaded = false, engine = false, engineActive = false, halted = false, gameRunning = false, gameClosed = false, saveTimer = 0;
     let creditAvailable = false, creditAmount = null, creditSession = null, creditDirty = false, wheelWidth = null, wheelDirty = false, wheelGeometry = null, geometryDirty = false, engineSwap = null, refreshing = false, revision = 0, activePanel = 'patches', persistentMessage = '', initialStatusShown = false;
     function validCredits() { return /^\d{1,10}$/.test($('credits').value) && Number($('credits').value) <= 100000000 }
     function creditButtons() { if (!$('credits')) return; const disabled = !creditAvailable || busy || halted; $('credits').disabled = disabled; $('apply-credits').disabled = disabled || !validCredits(); $('edit-credits').disabled = disabled; if ($('edit-credits-control')) $('edit-credits-control').disabled = disabled }
@@ -605,7 +658,7 @@ button:not([role="tab"]) {
         if (available && !creditDirty && document.activeElement !== $('credits')) $('credits').value = String(creditAmount);
         creditButtons();
     }
-    const creditPromptMessages = { 1: 'Opening the number pad in GT7...', 2: 'Opening the number pad in GT7...', 3: "Type the amount on GT7's number pad, then confirm with the console keyboard.", 4: 'Applying the amount you entered...', 5: 'Credit amount set from the in-game number pad.', 6: 'In-game entry cancelled.' };
+    const creditPromptMessages = { 1: 'Opening the number pad...', 2: 'Opening the number pad...', 3: 'Type the amount in the text field, then confirm with the console keyboard.', 4: 'Applying the amount you entered...', 5: 'Credit amount set from the in-game number pad.', 6: 'In-game entry cancelled.' };
     function renderCreditInput(live) { if (!$('credit-input-feedback')) return;
         const prompt = live?.creditPrompt, available = prompt?.available === true;
         if (!available || prompt.state === 0) return;
@@ -678,7 +731,7 @@ button:not([role="tab"]) {
         try {
             const r = await fetch('/api/live/credit-input', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: '' });
             if (!r.ok) throw Error(await r.text());
-            $('credit-input-feedback').textContent = 'Opening the number pad in GT7...'; $('credit-input-feedback').classList.remove('error'); status("Requested GT7's number pad.");
+            $('credit-input-feedback').textContent = 'Opening the number pad...'; $('credit-input-feedback').classList.remove('error'); status('Requested the in-game number pad.');
         } catch (e) { $('credit-input-feedback').textContent = e.message; $('credit-input-feedback').classList.add('error'); status(e.message, true) }
         finally { busy = false; buttons() } };
     $('edit-credits').onclick = editCredits;
@@ -717,8 +770,16 @@ button:not([role="tab"]) {
         $('status').textContent = text; $('status').hidden = !visible;
     }
     function units() { for (const e of $('unit-fields').querySelectorAll('select')) e.disabled = $('units').value === '0' }
-    function buttons() { const running = engine || engineActive; $('save').disabled = !loaded || busy || halted; $('start').textContent = running ? 'Stop engine' : 'Start engine'; $('start').disabled = !loaded || busy || halted; $('launch-game').disabled = !loaded || busy || halted || !engine || !gameClosed; $('reinstall-shortcut').disabled = !loaded || busy || halted; $('stop-payload').disabled = !loaded || busy || halted; creditButtons(); wheelSettingsButtons(); engineSwapButtons() }
-    function mark() { dirty = true; liveTab(Boolean($('patch-6')?.checked)); buttons(); if (loaded && !busy && !halted) $('save').disabled = false; status('Unsaved choices. Save them to apply them on the next GT7 launch.') }
+    function buttons() { hudButtons(); const running = engine || engineActive; $('start').textContent = running ? 'Stop engine' : 'Start engine'; $('start').disabled = !loaded || busy || halted; $('launch-game').disabled = !loaded || busy || halted || !engine || !gameClosed; $('reinstall-shortcut').disabled = !loaded || busy || halted; $('stop-payload').disabled = !loaded || busy || halted; creditButtons(); wheelSettingsButtons(); engineSwapButtons() }
+    function mark() { dirty = true; liveTab(Boolean($('patch-6')?.checked)); buttons(); scheduleSave() }
+    function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(saveConfig, 300) }
+    async function saveConfig() {
+        if (!loaded || halted) return;
+        if (busy) { scheduleSave(); return }
+        busy = true; revision++; buttons();
+        try { const r = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: configBody() }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); dirty = false; render(result); status(result.message) }
+        catch (e) { status(e.message, true) } finally { busy = false; buttons() }
+    }
     function liveTab(selected) { if (!$('live-tab')) return;
         $('live-tab').hidden = !selected;
         if (!selected) {
@@ -735,13 +796,13 @@ button:not([role="tab"]) {
         if (!loaded) { s.features.forEach((f, i) => { const row = document.createElement('div'); row.className = 'feature'; const input = document.createElement('input'); input.type = 'checkbox'; input.id = `patch-${i}`; input.dataset.bit = i; const box = document.createElement('div'), label = document.createElement('label'), note = document.createElement('p'); label.htmlFor = input.id; label.textContent = f.name; note.className = 'detail'; note.textContent = f.note; box.append(label, note); row.append(input, box); $('features').append(row) }) }
         if (!dirty) { for (const k of keys) $(k).value = s.config[k]; $('autostart').checked = Boolean(s.config.autostart); s.features.forEach((_, i) => { $(`patch-${i}`).checked = Boolean(s.config.mask & (1 << i)) }); units() }
         liveTab(dirty ? Boolean($('patch-6')?.checked) : Boolean(s.config.mask & 64));
-        loaded = true; buttons(); if (!dirty) pageStatus(s.gameRunning === 1 ? 'GT7 is running. Saved changes will apply the next time it starts.' : '');
+        loaded = true; buttons(); readHud(); if (!dirty) pageStatus(s.gameRunning === 1 ? 'GT7 is running. Saved changes will apply the next time it starts.' : '');
     }
     async function read() { if (refreshing) return; refreshing = true; const before = revision; try { const r = await fetch('/api/status', { cache: 'no-store' }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (!busy && !halted && before === revision) { render(result); if (!initialStatusShown) { initialStatusShown = true; if (result.message) status(result.message) } } } catch (e) { if (!busy && !halted && before === revision) { renderCredits(null); renderWheelWidth(null); renderWheelGeometry(null); renderEngineSwap(null); status(e.message, true) } } finally { refreshing = false } }
     async function post(path, body, savesSettings = false) { busy = true; revision++; buttons(); try { const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (savesSettings) dirty = false; render(result); status(result.message) } catch (e) { status(e.message, true) } finally { busy = false; buttons() } }
     function configBody() { const c = { mask: 0, autostart: Number($('autostart').checked) }; document.querySelectorAll('#features input[data-bit]').forEach(input => { if (input.checked) c.mask |= 1 << Number(input.dataset.bit) }); for (const k of keys) c[k] = Number($(k).value); return new URLSearchParams(c).toString() }
-    $('form').addEventListener('submit', e => { e.preventDefault(); post('/api/config', configBody(), true) });
-    $('start').onclick = async () => { if (busy || !loaded || halted) return; if (engine || engineActive) { await read(); if (gameRunning && !confirm('GT7 is running. Stopping the engine now leaves the current game unpatched and may prevent automatic restoration. Continue?')) return; post('/api/engine/stop', ''); return; } busy = true; revision++; buttons(); try { if (dirty) { const saved = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: configBody() }); if (!saved.ok) throw Error(await saved.text()); dirty = false; render(await saved.json()) } const started = await fetch('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: '' }); if (!started.ok) throw Error(await started.text()); const result = await started.json(); render(result); status(result.message) } catch (e) { status(e.message, true) } finally { busy = false; buttons() } };
+    $('form').addEventListener('submit', e => { e.preventDefault(); clearTimeout(saveTimer); saveConfig() });
+    $('start').onclick = async () => { if (busy || !loaded || halted) return; if (engine || engineActive) { await read(); if (gameRunning && !confirm('GT7 is running. Stopping the engine now leaves the current game unpatched and may prevent automatic restoration. Continue?')) return; post('/api/engine/stop', ''); return; } clearTimeout(saveTimer); busy = true; revision++; buttons(); try { if (dirty) { const saved = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: configBody() }); if (!saved.ok) throw Error(await saved.text()); dirty = false; render(await saved.json()) } const started = await fetch('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: '' }); if (!started.ok) throw Error(await started.text()); const result = await started.json(); render(result); status(result.message) } catch (e) { status(e.message, true) } finally { busy = false; buttons() } };
     $('launch-game').onclick = () => post('/api/game/start', '');
     $('reinstall-shortcut').onclick = () => post('/api/shortcut/reinstall', '');
     $('stop-payload').onclick = async () => { const warning = gameRunning ? 'GT7 is running. Stopping GT7Patcher now stops its engine and closes the web interface. Continue?' : 'Stop GT7Patcher? Port 7210 will close until the payload is run again.'; if (!confirm(warning)) return; busy = true; buttons(); try { const r = await fetch('/api/payload/stop', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: '' }); if (!r.ok) throw Error(await r.text()); halted = true; engine = false; status('GT7Patcher has stopped. Run the payload again to reconnect.') } catch (e) { status(e.message, true) } finally { busy = false; buttons() } };
@@ -750,7 +811,446 @@ button:not([role="tab"]) {
     $('preset').addEventListener('change', () => { const p = presets[$('preset').value]; if (p) { for (const [k, v] of Object.entries(p)) $(k).value = v; $('units').value = 1; units() } });
     const tabs = [['patch-tab', 'patches'], ['game-tab', 'game'], ['live-tab', 'live'], ['help-tab', 'help']].filter(([id]) => $(id));
     for (const [id, panel] of tabs) $(id).onclick = () => { activePanel = panel; for (const [t, p] of tabs) { $(t).setAttribute('aria-selected', String(t === id)); $(p).hidden = p !== panel } $('launch-guidance').hidden = panel === 'help' || panel === 'live'; $('controls').hidden = false; pageStatus(persistentMessage) };
-    read(); setInterval(() => { if (!busy && !halted) read() }, 5000);
+
+    /* In-race HUD control: a flat list of groups. A group is a label plus a
+     * list of widgets; every widget gets its own checkbox and the heading gets
+     * one that hides or reveals the whole list at once. Items are stored
+     * relative to the group path ('' is the group's own widget); a leading '/'
+     * marks an item that lives outside its group. HUD_GROUPS_DEFAULT is the
+     * layout shipped with the payload; rearranging it in the page writes to
+     * localStorage, and the editor can export the result to be baked back in. */
+    const HUD_GROUPS_KEY = 'gt7.hud.groups.v1';
+    const HUD_GROUPS_DEFAULT = [
+      ['Speed / rev-limit / gear / transmission panel','RaceDisplay/Container/objective/RaceIndicator',['','BrakingAlert','Gear','Gear/Suggested_base','Gear/Suggested_blank','Gear/gear','Indicator','Indicator/Indicator','Indicator/Indicator_color','Indicator_base','Indicator_scale','L','L/Active','L/Active/01','L/Active/02','L/Active/03','L/Base','L/Base/01','L/Base/02','L/Base/03','Line','R','R/Active','R/Active/01','R/Active/02','R/Active/03','R/Base','R/Base/01','R/Base/02','R/Base/03','RPMRange','Speed','SuggestSpeed','Transmission','Transmission/AT','Transmission/MT','_Tacho','_speed_unit','bg','unit']],
+      ['Accelerator meter','RaceDisplay/Container/objective/AccelIndicator',['','IconObjective','IconSubjective','Scale']],
+      ['Throttle position bar','RaceDisplay/Container/objective/AccelIndicator/Throttle',['','ThrottleInput','ThrottleTCS']],
+      ['Brake position bar','RaceDisplay/Container/objective/BrakeIndicator',['','Brake','Brake/BrakeABS','Brake/BrakeInput','IconObjective','IconSubjective','Scale']],
+      ['Steering meter','RaceDisplay/Container/objective/RaceIndicator/SteerIndicator',['','ColorFace','Needle','Needle/ColorFace']],
+      ['Odometer','RaceDisplay/Container/objective/FuelMeter/Odometer',['','TextFace','bg']],
+      ['Fuel gauge','RaceDisplay/Container/objective/FuelMeter',['','EV','Fuel','Fuel/Base','Fuel/Icon','Fuel/Icon/Icon','Fuel/Icon/bg','Fuel/IconAlert','Fuel/Red','Scale','bg']],
+      ['Tyre wear indicators','RaceDisplay/Container/objective/DamageInfo/TireMeter',['','FrontL','FrontL/Meter','FrontL/Meter/Base','FrontL/Meter/Meter','FrontL/Meterbase','FrontR','FrontR/Meter','FrontR/Meter/Base','FrontR/Meter/Meter','FrontR/Meterbase','RearL','RearL/Meter','RearL/Meter/Base','RearL/Meter/Meter','RearL/Meterbase','RearR','RearR/Meter','RearR/Meter/Base','RearR/Meter/Meter','RearR/Meterbase','TypeFront','TypeRear']],
+      ['Track wetness bar','RaceDisplay/Container/objective/WetInfo2',['','Bar','Bar/ColorFace2','Bar/item','Bar/item/ColorFace0','Bar/item/ColorFace1','Scale','icon']],
+      ['Track wetness label','RaceDisplay/Container/objective/WetInfo',['','Wet','bg']],
+      ['Wind speed','RaceDisplay/Container/common/ShiftOnReplay/HiddenOnDrift/WindInfo',['','Direction','Direction/ImageFace','Unit','Value']],
+      ['Lap time list','RaceDisplay/Container/common/ShiftOnReplay/LapTimeHistory',['','List','List/LapTime0','List/LapTime0/Composite','List/LapTime0/Composite/BG','List/LapTime0/Composite/Lap','List/LapTime0/Composite0','List/LapTime0/Composite0/BG','List/LapTime0/Composite0/Pit','List/LapTime0/Composite0/Time','List/LapTime0/SBox','List/LapTime1','List/LapTime10','List/LapTime11','List/LapTime12','List/LapTime13','List/LapTime14','List/LapTime15','List/LapTime16','List/LapTime17','List/LapTime18','List/LapTime19','List/LapTime2','List/LapTime20','List/LapTime3','List/LapTime4','List/LapTime5','List/LapTime6','List/LapTime7','List/LapTime8','List/LapTime9','hidden']],
+      ['Total race time','RaceDisplay/Container/common/TotalTime',['','Value']],
+      ['MFD display','RaceDisplay/Container/objective/MFD',['','bg','emoticon','mfd_1','mfd_1/CourseMapFace','mfd_1/ImageFace','mfd_1/Title','mfd_2','mfd_3','mfd_4','mfd_5','rta_1','rta_2','rta_3','rta_4']],
+      ['MFD navigation dots','RaceDisplay/Container/objective/MFDNav',['','MfdNavDots','MfdNavDots/hidden']],
+      ['ABS indicator','RaceDisplay/Container/objective/ABS',['','Icon','IconActive','bg']],
+      ['TCS indicator','RaceDisplay/Container/objective/TCS',['','Icon','IconActive','bg']],
+      ['ASM indicator','RaceDisplay/Container/objective/ASM',['','Icon','IconActive','bg']],
+      ['Auto-drive indicator (3)','RaceDisplay/RaceInformation/AutoDrive',['']],
+      ['Auto-drive indicator','RaceDisplay/Container/objective/AutoDrive',['']],
+      ['Auto-drive indicator (2)','RaceDisplay/Container/objective/AutoDrive/AutoDrive',['']],
+      ['Brake assist indicator','RaceDisplay/Container/objective/BrakeAssist',['','HBox','HBox/IconActive','HBox/TextFace','HBox/bgActive']],
+      ['Handbrake indicator','RaceDisplay/Container/objective/SideBrake',['','Icon','IconActive','bg','bgActive']],
+      ['Lights indicator','RaceDisplay/Container/objective/HeadLight',['','Icon','IconActive','bg','bgActive']],
+      ['Counter-steer indicator','RaceDisplay/Container/objective/CounterSteer',['','Icon','IconActive','bg']],
+      ['Left indicator','RaceDisplay/Container/objective/RaceIndicator/BlinkerL',['','ColorFace','ImageFace']],
+      ['Right indicator','RaceDisplay/Container/objective/RaceIndicator/BlinkerR',['','ColorFace','ImageFace']],
+      ['NOS indicator','RaceDisplay/Container/objective/NOS',['']],
+      ['Boost meter','RaceDisplay/Container/objective/BoostMeter',['']],
+      ['Hybrid indicator','RaceDisplay/Container/objective/FuelMeter/Hybrid',['']],
+      ['DRS indicator','RaceDisplay/Container/objective/DRS',['']],
+      ['Overtake indicator','RaceDisplay/Container/objective/Overtake',['']],
+      ['Damage info','RaceDisplay/Container/objective/DamageInfo',['','Bumper','Bumper/Front','Bumper/Rear','CarBase','CarBase/Base','CarBase/Engine','CarBase/Front','CarBase/Rear','CarBase/SusFL','CarBase/SusFR','CarBase/SusRL','CarBase/SusRR','CarBase/Window','Engine','bg']],
+      ['Suspension display','RaceDisplay/Container/objective/DamageInfo/Suspension',['','FrontL','FrontR','RearL','RearR']],
+      ['Start lights','RaceDisplay/Container/common/RaceSignFlying/StartLights',['']],
+      ['Race flag','RaceDisplay/RaceInformation/RaceFlag',['']],
+      ['Yellow flag','RaceDisplay/RaceInformation/RaceFlagYellow',['']],
+      ['Green flag','RaceDisplay/RaceInformation/RaceFlag_green',['']],
+      ['Full-course yellow','RaceDisplay/RaceInformation/FullCourseFlag',['']],
+      ['Wrong-way warning','RaceDisplay/RaceInformation/WrongWay',['']],
+      ['Pit lane indicator','RaceDisplay/RaceInformation/PitLane',['']],
+      ['Slow-down penalty','RaceDisplay/Container/common/RaceSignFlying/Slowdown',['','penalty']],
+      ['Countdown','RaceDisplay/RaceInformation/CountDownStatus',['','TextFace']],
+      ['Laps-to-go warning','RaceDisplay/RaceInformation/5laps_to_go',['']],
+      ['Times block','RaceDisplay/RaceInformation/Times',['','PitIn','PitIn/ColorFace','PitIn/Time','PitIn/Time/TextFace','PitIn/Title','PitIn/Title/TextFace','Stop','Stop/ColorFace','Stop/Time','Stop/Time/TextFace','Stop/Title','Stop/Title/TextFace']],
+      ['Current lap time','RaceDisplay/Container/common/ShiftOnReplay/LapTimeHistory/List/LapTime',['','Composite','Composite/BG','Composite/Lap','Composite0','Composite0/BG','Composite0/Pit','Composite0/Time','SBox']],
+      ['Current lap time (2)','RaceDisplay/Container/common/TimeBase/Time/center/LapTime',['','Value']],
+      ['Fastest lap','RaceDisplay/Container/common/FastestLap',['']],
+      ['Fastest lap (2)','RaceDisplay/Container/common/FastestLap/FastestLap',['','Name','Name/Name','Name/Name/BG','Name/Name/Name','Name/Name/country','Name/Name/country/ColorFace','Name/Name/country/ImageFace','Name/RaceNumber','Pos','Pos/Pos','Pos/Pos/BG','Pos/Pos/Pos','Space']],
+      ['Fastest lap (3)','RaceDisplay/Container/common/FastestLap/FastestLap/FastestLap',['','BG','Time']],
+      ['Sector time','RaceDisplay/Container/common/TimeBase/Time/center/sectortime',['']],
+      ['Position / lap counter','RaceDisplay/Container/common/ShiftOnReplay/RankLap',['','LapContainer','LapContainer/LapCount','LapContainer/LapCount/FinalLap','LapContainer/LapCount/FinalLap/SBox','LapContainer/LapCount/FinalLap/SBox/FinalLap','LapContainer/LapCount/FinalLap/Unit','LapContainer/LapCount/HBox','LapContainer/LapCount/HBox/Slash','LapContainer/LapCount/HBox/Value','LapContainer/LapCount/Value','RankContainer','RankContainer/Rank','RankContainer/Rank/MoveUp','RankContainer/Rank/MoveUp/Line','RankContainer/Rank/MoveUp/bg','RankContainer/Rank/Num','RankContainer/Rank/SBox','RankContainer/Rank/SBox/Hyphen','RankContainer/Rank/SBox/Num','RankContainer/Rank/SBox/Position','RankContainer/Rank/bg']],
+      ['Leaderboard','RaceDisplay/Container/common/ShiftOnReplay/HiddenOnDrift/MemberList',['','List','List/MemberItem','List/MemberItem/Diff_B','List/MemberItem/Diff_F','List/MemberItem/Emoticon','List/MemberItem/Fuel','List/MemberItem/Lap','List/MemberItem/Name','List/MemberItem/Name/Name','List/MemberItem/Pos','List/MemberItem/Pos/Pos','List/MemberItem/Pos/Pos/BG','List/MemberItem/Pos/Pos/Pos','List/MemberItem/RaceNumber','List/MemberItem/Sign','List/MemberItem/SignalLevel','List/MemberItem/Time','List/MemberItem/Time/Gap','List/MemberItem/Time/GapAll','List/MemberItem/TireMark','List/MemberItem0','List/MemberItem0/Diff_B','List/MemberItem0/Diff_F','List/MemberItem0/Emoticon','List/MemberItem0/Fuel','List/MemberItem0/Lap','List/MemberItem0/Name','List/MemberItem0/Name/Name','List/MemberItem0/Pos','List/MemberItem0/Pos/Pos','List/MemberItem0/Pos/Pos/BG','List/MemberItem0/RaceNumber','List/MemberItem0/Sign','List/MemberItem0/Time','List/MemberItem0/Time/Gap','List/MemberItem0/TireMark','List/MemberItem1','List/MemberItem1/Diff_B','List/MemberItem1/Diff_F','List/MemberItem1/Emoticon','List/MemberItem1/Fuel','List/MemberItem1/Lap','List/MemberItem1/Name','List/MemberItem1/Name/Name','List/MemberItem1/Pos','List/MemberItem1/Pos/Pos','List/MemberItem1/Pos/Pos/BG','List/MemberItem1/RaceNumber','List/MemberItem1/Sign','List/MemberItem1/Time','List/MemberItem1/Time/Gap','List/MemberItem1/TireMark','List/MemberItem10','List/MemberItem11','List/MemberItem12','List/MemberItem13','List/MemberItem14','List/MemberItem15','List/MemberItem16','List/MemberItem17','List/MemberItem18','List/MemberItem19','List/MemberItem2','List/MemberItem2/Diff_B','List/MemberItem2/Diff_F','List/MemberItem2/Emoticon','List/MemberItem2/Fuel','List/MemberItem2/Lap','List/MemberItem2/Name','List/MemberItem2/Name/Name','List/MemberItem2/Pos','List/MemberItem2/Pos/Pos','List/MemberItem2/Pos/Pos/BG','List/MemberItem2/RaceNumber','List/MemberItem2/Sign','List/MemberItem2/Time','List/MemberItem2/Time/Gap','List/MemberItem2/TireMark','List/MemberItem20','List/MemberItem3','List/MemberItem3/Diff_B','List/MemberItem3/Diff_F','List/MemberItem3/Emoticon','List/MemberItem3/Fuel','List/MemberItem3/Lap','List/MemberItem3/Name','List/MemberItem3/Name/Name','List/MemberItem3/Pos','List/MemberItem3/Pos/Pos','List/MemberItem3/Pos/Pos/BG','List/MemberItem3/RaceNumber','List/MemberItem3/Sign','List/MemberItem3/Time','List/MemberItem3/Time/Gap','List/MemberItem3/TireMark','List/MemberItem4','List/MemberItem4/Diff_B','List/MemberItem4/Diff_F','List/MemberItem4/Emoticon','List/MemberItem4/Fuel','List/MemberItem4/Lap','List/MemberItem4/Name','List/MemberItem4/Name/Name','List/MemberItem4/Pos','List/MemberItem4/Pos/Pos','List/MemberItem4/Pos/Pos/BG','List/MemberItem4/RaceNumber','List/MemberItem4/Sign','List/MemberItem4/Time','List/MemberItem4/Time/Gap','List/MemberItem4/TireMark','List/MemberItem5','List/MemberItem5/Diff_B','List/MemberItem5/Diff_F','List/MemberItem5/Emoticon','List/MemberItem5/Fuel','List/MemberItem5/Lap','List/MemberItem5/Name','List/MemberItem5/Name/Name','List/MemberItem5/Pos','List/MemberItem5/Pos/Pos','List/MemberItem5/Pos/Pos/BG','List/MemberItem5/RaceNumber','List/MemberItem5/Sign','List/MemberItem5/Time','List/MemberItem5/Time/Gap','List/MemberItem5/TireMark','List/MemberItem6','List/MemberItem6/Diff_B','List/MemberItem6/Diff_B/BG','List/MemberItem6/Diff_F','List/MemberItem6/Diff_F/BG','List/MemberItem6/Emoticon','List/MemberItem6/Fuel','List/MemberItem6/Lap','List/MemberItem6/Name','List/MemberItem6/Name/Name','List/MemberItem6/Pos','List/MemberItem6/Pos/Pos','List/MemberItem6/RaceNumber','List/MemberItem6/Sign','List/MemberItem6/Time','List/MemberItem6/Time/Gap','List/MemberItem6/TireMark','List/MemberItem7','List/MemberItem8','List/MemberItem9','List/Separator','List/Separator0','hidden']],
+      ['Track map','RaceDisplay/Container/common/ShiftOnReplay/HiddenOnDrift/CourseMap',['','CourseMapFace']],
+      ['Car info (name / manufacturer)','SBox/CarInfo',['','CarBase','CarBase/Base','CarBase/ColorFace','CarName','CarThumb','CarThumbLivery','Emoticon','Emoticon/Base','Emoticon/ImageFace','Manufacture']],
+      ['Race information block','RaceDisplay/RaceInformation',['','FuelAlert','FuelAlert/FuelAlert','TextFace','lappenalty','lappenalty/Reason','lappenalty/Value','lappenalty/lappenalty','lappenalty/lappenalty/lappenalty','lappenalty/lappenalty/restrict2','lappenalty/restrict','line','penalty','penalty/manual_penalty']],
+      ['Whole race display','RaceDisplay',['']],
+      ['Whole HUD container','RaceDisplay/Container',['','CarSign','CarSign/CarSign1','CarSign/CarSign2','CarSign/CarSign3','VR_Info','VR_Meter','VR_Time','common','common/EmotePreview','common/Message','common/Message/TextFace','common/Message/base','common/RaceSign','common/RaceSign/Call','common/RaceSign/Count','common/RaceSign/Count/Count_1','common/RaceSign/Count/Count_1/ImageFace','common/RaceSign/Count/Count_1/PieChart','common/RaceSign/Count/Count_1/TextFace','common/RaceSign/Count/Count_2','common/RaceSign/Count/Count_2/ImageFace','common/RaceSign/Count/Count_2/PieChart','common/RaceSign/Count/Count_2/TextFace','common/RaceSign/Count/Count_3','common/RaceSign/Count/Count_3/ImageFace','common/RaceSign/Count/Count_3/PieChart','common/RaceSign/Count/Count_3/TextFace','common/RaceSignFlying','common/RaceSignFlying/Flying','common/RaceSignFlying/Flying/warning','common/SBox','common/ShiftOnReplay','common/ShiftOnReplay/HiddenOnDrift','common/ShiftOnReplay/HiddenOnDrift/Clock','common/TimeBase','common/TimeBase/Time','common/TimeBase/Time/center','common/TimeBase/Time/center/CurrenttimeBase','common/TimeBase/Time/center/FinalLap','common/TimeBase/Time/center/FinalLap/ColorFace','common/TimeBase/Time/center/FinalLap/TextFace','common/TimeBase/Time/center/OutLap','common/TimeBase/Time/left','common/TimeBase/Time/left/SBox','common/TimeBase/Time/left/SBox/BG','common/TimeBase/Time/left/SBox/Best','common/TimeBase/Time/left/SBox/Value','common/TimeBase/Time/right','common/TimeBase/Time/right/SBox','common/TimeBase/Time/right/SBox/BG','common/TimeBase/Time/right/SBox/Value','common/TimeLimit','common/TimeLimitRace','common/TimeLimitRace/LapLimitLabel','common/TimeLimitRace/LapLimitLabel/ColorFace','common/TimeLimitRace/LapLimitLabel/TextFace','common/TimeLimitRace/Value','common/TimeLimitRace/ValueA','disqualify_sbox','objective','objective/BrakingAlert','objective/Demonstration','objective/Icon','objective/IconActive','objective/MfdController','objective/MfdController/ArrowLeft','objective/MfdController/ArrowLeft/ColorFace','objective/MfdController/ArrowLeft/ImageFace','objective/MfdController/ArrowRight','objective/MfdController/ArrowRight/ColorFace','objective/MfdController/ArrowRight/ImageFace','objective/MfdController/TextFace','objective/MfdController/bg','objective/bg','objective/bgActive','spv2','subjective']],
+      ['Whole HUD container (2)','RaceDisplay/Container/objective/BoostMeter/Container',['','Icon','Scale','bg','guage_neg','guage_pos']],
+      ['Whole HUD container (3)','RaceDisplay/Container/objective/DRS/Container',['']],
+      ['Whole HUD container (5)','RaceDisplay/Container/objective/NOS/Container',['']],
+      ['Whole HUD container (6)','RaceDisplay/Container/objective/Overtake/Container',['']],
+      ['Whole HUD container (4)','RaceDisplay/Container/objective/MFDNav/MfdNavDots/Container',['','Dot','Dot/Active','Dot/ColorFace','Dot0','Dot0/Active','Dot0/ColorFace','Dot1','Dot1/Active','Dot1/ColorFace','Dot10','Dot11','Dot12','Dot13','Dot14','Dot2','Dot2/Active','Dot2/ColorFace','Dot3','Dot3/Active','Dot3/ColorFace','Dot4','Dot5','Dot6','Dot7','Dot8','Dot9']],
+      ['Ungrouped (not in the in-race HUD)','',['/BGMInfo','/BGMInfo/Bg','/BGMInfo/HBox','/BGMInfo/HBox/Icon','/BGMInfo/HBox/VBox','/BGMInfo/HBox/VBox/Artist','/BGMInfo/HBox/VBox/Title','/BuddyLayerRoot','/BuddyLayerRoot/Caution','/BuddyLayerRoot/CenterNotify','/BuddyLayerRoot/Dock','/BuddyLayerRoot/MenuBookStart','/BuddyLayerRoot/Message','/BuddyLayerRoot/Narration','/BuddyLayerRoot/Notify','/Dimmer','/DriverInfo','/DriverInfo_OLD','/EventTitle','/GiftCarItem','/GiftCarItem/VBox','/GiftCarItem/VBox/SBox','/GiftCarItem/VBox/SBox/ColorFace','/GiftCarItem/VBox/SBox/HBox','/GiftCarItem/VBox/SBox/HBox/Compass','/GiftCarItem/VBox/SBox/HBox/Compass/Base','/GiftCarItem/VBox/SBox/HBox/Compass/BaseActive','/GiftCarItem/VBox/SBox/HBox/Compass/Icon','/GiftCarItem/VBox/SBox/SBox4','/GiftCarItem/VBox/SBox/SBox4/CarAcquired','/GiftCarItem/VBox/SBox/SBox4/ImageFace','/GiftCarItem/VBox/SBox/SBox4/OwnCarMark','/GiftCarItem/VBox/SBox/SBox4/PresentCarName','/GiftCarItem/VBox/SBox5','/GiftCarItem/VBox/SBox5/BG_Color','/GiftCarItem/VBox/SBox5/SBox_Prize','/GiftCarItem/VBox/SBox5/TextFace0','/Loading','/MUIUpdate','/NotVR','/NotVR/ColorFace','/NotVR/RacePauseMenu','/NotVR/RacePauseMenu/Cancel','/NotVR/RacePauseMenu/Cancel/Blur','/NotVR/RacePauseMenu/Cancel/ColorFace','/NotVR/RacePauseMenu/Cancel/TextFace','/NotVR/RacePauseMenu/Chat','/NotVR/RacePauseMenu/Finish','/NotVR/RacePauseMenu/FinishPractice','/NotVR/RacePauseMenu/ForceFinishRace','/NotVR/RacePauseMenu/Mask','/NotVR/RacePauseMenu/Options','/NotVR/RacePauseMenu/Options/Blur','/NotVR/RacePauseMenu/Options/ColorFace','/NotVR/RacePauseMenu/Options/TextFace','/NotVR/RacePauseMenu/OptionsOnline','/NotVR/RacePauseMenu/Quit','/NotVR/RacePauseMenu/Quit/Blur','/NotVR/RacePauseMenu/Quit/ColorFace','/NotVR/RacePauseMenu/Quit/TextFace','/NotVR/RacePauseMenu/Quit/TextFace_i','/NotVR/RacePauseMenu/QuitOnline','/NotVR/RacePauseMenu/Retire','/NotVR/RacePauseMenu/Retry','/NotVR/RacePauseMenu/Retry/Blur','/NotVR/RacePauseMenu/Retry/ColorFace','/NotVR/RacePauseMenu/Retry/TextFace','/NotVR/RacePauseMenu/Retry/TextFace_i','/NotVR/RacePauseMenu/StartOnlineRace','/NotVR/RacePauseMenu/ToPit','/RaceFader','/RaceFader/ColorFace','/RaceFaderBase','/RaceFaderBase/ColorFace','/RaceFaderBase/LoadingCircle','/RaceFaderBase/LoadingCircle/Label','/RaceFaderBase/LoadingCircle/Preloader','/RaceFaderBase/LoadingCircle/Preloader/ImageFace','/RaceFaderBase/LoadingCircle/Preloader/ImageFace0','/RaceFaderBase/LoadingCircle/Preloader/PieChart','/RaceFaderBase/LoadingCircle/Preloader/PieChart0','/RaceFaderBase/LoadingCircle/TimerFrame','/RenderControl','/SBox','/VR','/`','/`/Message']],
+    ];
+    let hudAvailable = false, hudHidden = new Set(), hudDirty = false;
+    let hudLive = null, hudTreeAge = 0, hudEdit = false, hudDrag = null, hudDragGroup = null;
+    let hudLiveStamp = '', hudSig = '';
+    let hudCollapsed = hudCollapsedLoad();
+    let hudGroups = hudGroupsLoad();
+    let hudNames = hudNamesLoad();
+
+    /* Which headings are folded away, and a guard so the 5s poll cannot
+     * rebuild the list under the pointer or steal focus from a rename box. */
+    const HUD_COLLAPSED_KEY = 'gt7.hud.groups.collapsed.v1';
+    const HUD_NAMES_KEY = 'gt7.hud.names.v1';
+    function hudCollapsedLoad() { try { const a = JSON.parse(localStorage.getItem(HUD_COLLAPSED_KEY));
+        if (Array.isArray(a)) return new Set(a.map(String)) } catch (e) { } return new Set() }
+    function hudCollapsedSave() { try { localStorage.setItem(HUD_COLLAPSED_KEY, JSON.stringify([...hudCollapsed])) } catch (e) { } }
+    function hudNamesLoad() { try { const o = JSON.parse(localStorage.getItem(HUD_NAMES_KEY));
+        if (o && typeof o === 'object' && !Array.isArray(o)) return o } catch (e) { } return {} }
+    function hudNamesSave() { try { localStorage.setItem(HUD_NAMES_KEY, JSON.stringify(hudNames)) } catch (e) { } hudLayoutPush() }
+
+    /* The group layout is kept on the console so every browser that connects
+     * sees the same grouping and the same custom item names. localStorage stays
+     * as an offline cache for the first paint, and is seeded from the console
+     * copy as soon as the page can reach it. */
+    const HUD_LAYOUT_URL = '/api/live/hud/layout';
+    let hudLayoutTimer = 0, hudLayoutRemote = false, hudLayoutSynced = false;
+    function hudLayoutBody() { return JSON.stringify({ groups: hudGroups, names: hudNames }) }
+    function hudLayoutNote() { const e = $('hud-layout-note'); if (!e) return;
+        e.textContent = hudLayoutRemote ? 'Group layout saved on the console; every browser that connects sees it.'
+            : 'The group layout could not be saved on the console; this browser is using its own copy.' }
+    function hudLayoutPush() { if (!token) return; clearTimeout(hudLayoutTimer);
+        hudLayoutTimer = setTimeout(() => { hudLayoutTimer = 0; hudLayoutPost() }, 400) }
+    async function hudLayoutPost() {
+        try { const r = await fetch(HUD_LAYOUT_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-GT7-Token': token }, body: hudLayoutBody() });
+            hudLayoutRemote = r.ok } catch (e) { hudLayoutRemote = false }
+        hudLayoutNote() }
+    function hudLayoutEnsure() { if (hudLayoutSynced || !token) return; hudLayoutSynced = true; hudLayoutSync() }
+    /* Key order must not decide whether two layouts are "the same". */
+    function hudCanon(v) { return JSON.stringify(v, (k, x) =>
+        x && typeof x === 'object' && !Array.isArray(x)
+            ? Object.keys(x).sort().reduce((a, n) => (a[n] = x[n], a), {}) : x) }
+    /* A change made in another browser is picked up here within a poll. Local
+     * edits are never overwritten: a pending push, an apply in flight or focus
+     * inside the card all stop the check. */
+    async function hudLayoutWatch() {
+        if (!token || hudLayoutTimer || hudApplying || hudFocusBusy()) return;
+        try { const r = await fetch(HUD_LAYOUT_URL, { cache: 'no-store', headers: { 'X-GT7-Token': token } });
+            if (!r.ok) return;
+            const o = await r.json(); const gs = o && o.groups;
+            if (!Array.isArray(gs) || !gs.length) return;
+            const rg = hudNormalizeGroups(gs), rn = (o.names && typeof o.names === 'object') ? o.names : {};
+            if (hudCanon(rg) === hudCanon(hudGroups) && hudCanon(rn) === hudCanon(hudNames)) { hudLayoutRemote = true; return }
+            try { localStorage.setItem(HUD_GROUPS_KEY, JSON.stringify(gs)); localStorage.setItem(HUD_NAMES_KEY, JSON.stringify(rn)) } catch (e) { }
+            hudGroups = rg; hudNames = rn; hudLayoutRemote = true; hudRefresh(); hudLayoutNote() }
+        catch (e) { } }
+    async function hudLayoutSync() {
+        try { const r = await fetch(HUD_LAYOUT_URL, { cache: 'no-store', headers: { 'X-GT7-Token': token } });
+            if (!r.ok) { hudLayoutRemote = false; hudLayoutNote(); return }
+            const o = await r.json();
+            if (o && Array.isArray(o.groups) && o.groups.length) {
+                try { localStorage.setItem(HUD_GROUPS_KEY, JSON.stringify(o.groups)) } catch (e) { }
+                try { localStorage.setItem(HUD_NAMES_KEY, JSON.stringify(o.names && typeof o.names === 'object' ? o.names : {})) } catch (e) { }
+                hudGroups = hudGroupsLoad(); hudNames = hudNamesLoad(); hudLayoutRemote = true; hudRefresh() }
+            else await hudLayoutPost()
+        } catch (e) { hudLayoutRemote = false }
+        hudLayoutNote() }
+    function hudGroupId(g) { return g.id }
+    function hudFolded(g) { return !($('hud-search') && $('hud-search').value) && hudCollapsed.has(hudGroupId(g)) }
+    function hudFocusBusy() { const a = document.activeElement;
+        return !!(a && a.closest && a.closest('#hud-elements') && ((a.tagName || '').toUpperCase() === 'INPUT' || (a.tagName || '').toUpperCase() === 'TEXTAREA')) }
+    function hudStamp(nodes) { let h = 5381;
+        for (const n of nodes) for (let i = 0; i < n.p.length; i++) h = ((h * 33) ^ n.p.charCodeAt(i)) >>> 0;
+        return nodes.length + ':' + h }
+    function hudSignature() { return JSON.stringify([[...hudHidden].sort(), hudLiveStamp,
+        ($('hud-search') && $('hud-search').value) || '', hudEdit, [...hudCollapsed].sort(),
+        hudAvailable, busy, halted, JSON.stringify(hudGroups), JSON.stringify(hudNames)]) }
+    function hudRefresh() { if (!$('hud-elements')) return;
+        if (hudFocusBusy()) return;
+        if (hudSignature() === hudSig) return;
+        renderHud() }
+
+    function hudNormalizeGroups(a) {
+        const ids = new Set();
+        const out = a.map((g, i) => {
+            let id = String(g.id || '') || ('g' + i);
+            while (ids.has(id)) id += '_';
+            ids.add(id);
+            return { id: id, label: String(g.label || ''), path: String(g.path || ''),
+                parent: String(g.parent || ''), items: (g.items || []).map(String) } });
+        for (const g of out) if (g.parent && !out.some(x => x.id === g.parent)) g.parent = '';
+        return out }
+    function hudGroupsLoad() {
+        let a = null;
+        try { const raw = localStorage.getItem(HUD_GROUPS_KEY);
+            if (raw) { const p = JSON.parse(raw);
+                if (Array.isArray(p) && p.length) a = p;
+                else if (p && Array.isArray(p.groups) && p.groups.length) a = p.groups } }
+        catch (e) { }
+        if (!a) a = HUD_GROUPS_DEFAULT.map(g => ({ label: g[0], path: g[1], items: g[2].slice() }));
+        return hudNormalizeGroups(a) }
+    function hudGroupsSave() { try { localStorage.setItem(HUD_GROUPS_KEY, JSON.stringify(hudGroups)) } catch (e) { } hudLayoutPush() }
+    function hudNewId() { let n = 0; while (hudGroups.some(g => g.id === 'n' + n)) n++; return 'n' + n }
+    function hudById(id) { for (const g of hudGroups) if (g.id === id) return g; return null }
+    function hudChildren(id) { return hudGroups.filter(g => g.parent === id) }
+    function hudRoots() { return hudGroups.filter(g => !g.parent || !hudById(g.parent)) }
+    function hudSubtree(g) { const out = [g]; for (const c of hudChildren(g.id)) out.push(...hudSubtree(c)); return out }
+    function hudIsAncestor(a, g) { return !!a && !!g && hudSubtree(a).indexOf(g) > 0 }
+    function hudAbs(g, it) { return it.charAt(0) === '/' ? it.slice(1) : (it ? g.path + '/' + it : g.path) }
+    function hudRel(g, p) { if (!g.path) return '/' + p;
+        if (p === g.path) return '';
+        if (p.startsWith(g.path + '/')) return p.slice(g.path.length + 1);
+        return '/' + p }
+    function hudAllPaths() { const out = []; for (const g of hudGroups) for (const it of g.items) out.push(hudAbs(g, it)); return out }
+    /* The widget hiding p, or p itself when it is in the list. */
+    function hudCover(p) { if (hudHidden.has(p)) return p;
+        let i = p.lastIndexOf('/');
+        while (i > 0) { const a = p.slice(0, i); if (hudHidden.has(a)) return a; i = a.lastIndexOf('/') }
+        return null }
+    /* Drop every entry that sits under another entry: hiding a widget already
+     * cascades to everything below it, so only the top ones need storing. */
+    function hudMinimise(list) { const out = new Set();
+        for (const p of [...list].sort()) { let covered = false;
+            let i = p.lastIndexOf('/');
+            while (i > 0) { if (out.has(p.slice(0, i))) { covered = true; break } i = p.slice(0, i).lastIndexOf('/') }
+            if (!covered) out.add(p) }
+        return out }
+    function hudHide(p) { hudHidden.add(p); hudHidden = hudMinimise(hudHidden); hudDirty = true }
+    /* Make p visible. When an ancestor is hiding it that ancestor is swapped
+     * for its other descendants, so unticking one item leaves the rest hidden. */
+    function hudReveal(p) {
+        const cov = hudCover(p); if (!cov) return;
+        if (cov === p) hudHidden.delete(p);
+        else { const add = [];
+            for (const q of hudAllPaths())
+                if (q.startsWith(cov + '/') && q !== p && !p.startsWith(q + '/') && !q.startsWith(p + '/')) add.push(q);
+            hudHidden.delete(cov);
+            for (const q of hudMinimise(add)) hudHidden.add(q) }
+        hudDirty = true }
+    function hudGroupItems(g) { const out = []; for (const x of hudSubtree(g)) for (const it of x.items) out.push(hudAbs(x, it)); return out }
+    function hudGroupAll(g) { const l = hudGroupItems(g); return l.length > 0 && l.every(p => hudCover(p)) }
+    function hudGroupSet(g, on) {
+        for (const p of hudGroupItems(g)) { if (on) hudHidden.add(p); else hudReveal(p) }
+        if (on) hudHidden = hudMinimise(hudHidden);
+        hudDirty = true; hudSyncBoxes(); hudApplySoon() }
+    function hudBox(key, checked, dis, blocked) { const i = document.createElement('input'); i.type = 'checkbox'; i.checked = checked;
+        i.dataset.hud = key; if (blocked) { i.dataset.blocked = '1';
+            i.title = 'Hidden by ' + blocked + '; clear that tick to control this layer on its own.' }
+        i.disabled = dis || !!blocked; return i }
+    function hudItemName(g, it, p) { if (!it) return g.path ? g.path.slice(g.path.lastIndexOf('/') + 1) : p;
+        return it.charAt(0) === '/' ? it.slice(it.lastIndexOf('/') + 1) : it }
+    function hudDisplay(g, it, p) { return hudNames[p] || hudItemName(g, it, p) }
+    function hudMove(src, dst) { if (!src || !dst || src.g === dst) return;
+        const g = src.g, i = g.items.indexOf(src.it); if (i < 0) return;
+        const p = hudAbs(g, src.it);
+        g.items.splice(i, 1);
+        const rel = hudRel(dst, p);
+        if (dst.items.indexOf(rel) < 0) dst.items.push(rel);
+        hudDrag = null; hudGroupsSave(); renderHud() }
+    function hudGroupMove(gid, dstId) {
+        const g = hudById(gid); if (!g) return;
+        const dst = dstId ? hudById(dstId) : null;
+        if (dst && (dst === g || hudIsAncestor(g, dst))) return;
+        g.parent = dst ? dst.id : '';
+        hudDragGroup = null; hudGroupsSave(); renderHud() }
+    function hudGroupDelete(g) {
+        let u = hudGroups.find(x => x !== g && x.path === '');
+        if (!u) { u = { id: hudNewId(), label: 'Ungrouped', path: '', parent: '', items: [] }; hudGroups.push(u) }
+        for (const it of g.items) { const rel = hudRel(u, hudAbs(g, it)); if (u.items.indexOf(rel) < 0) u.items.push(rel) }
+        for (const c of hudChildren(g.id)) c.parent = g.parent || '';
+        hudGroups = hudGroups.filter(x => x !== g);
+        hudGroupsSave(); renderHud() }
+    function hudSubtreeMatch(g, q) { if (!q) return true;
+        for (const x of hudSubtree(g)) { if (x.label.toLowerCase().indexOf(q) >= 0) return true;
+            for (const it of x.items) if (hudAbs(x, it).toLowerCase().indexOf(q) >= 0) return true }
+        return false }
+    function hudRenameItem(row, span, p, g, it) {
+        if (!span) return;
+        const orig = hudItemName(g, it, p);
+        const inp = document.createElement('input'); inp.type = 'text'; inp.className = 'hud-rename-box';
+        inp.value = hudNames[p] || orig; inp.placeholder = orig;
+        span.replaceWith(inp); inp.focus(); inp.select();
+        let cancel = false;
+        const restore = () => { const s = document.createElement('span'); s.className = 'hud-name';
+            s.textContent = hudNames[p] || orig; inp.replaceWith(s) };
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); inp.blur() }
+            else if (e.key === 'Escape') { cancel = true; inp.blur() } });
+        inp.addEventListener('blur', () => {
+            if (cancel) { restore(); return }
+            const v = inp.value.trim();
+            if (v && v !== orig) hudNames[p] = v; else delete hudNames[p];
+            hudNamesSave(); restore();
+            const renamed = !!hudNames[p];
+            row.title = (renamed ? 'Original: ' + orig + '\n' : '') + p;
+            hudSig = hudSignature() }) }
+    /* Re-read the tick state of every box in place. Rebuilding the list here is
+     * what used to make the whole panel flicker on every tick. */
+    function hudSyncBoxes() { const c = $('hud-elements'); if (!c) return;
+        const dis = !hudAvailable || busy || halted;
+        for (const row of c.querySelectorAll('.hud-item[data-path]')) {
+            const p = row.dataset.path, cov = hudCover(p);
+            const box = row.querySelector('input[type=checkbox]'); if (!box) continue;
+            box.checked = !!cov; box.disabled = dis || !!(cov && cov !== p);
+            if (cov && cov !== p) { box.dataset.blocked = '1'; box.title = 'Hidden by ' + cov + '; clear that tick to control this layer on its own.' }
+            else { delete box.dataset.blocked; box.title = '' } }
+        for (const sec of c.querySelectorAll('.hud-group')) {
+            const g = hudById(sec.dataset.gid); if (!g) continue;
+            const box = sec.querySelector('.hud-group-head > input[type=checkbox]'); if (!box) continue;
+            box.checked = hudGroupAll(g); box.disabled = dis }
+        hudFeedback(); hudButtons(); hudSig = hudSignature() }
+    function hudFeedback() { const f = $('hud-feedback'); if (!f || !hudAvailable) return;
+        const n = hudMinimise(hudHidden).size;
+        f.textContent = 'Tick an item to hide that layer in-race; tick a group heading to hide every item in it. '
+            + hudHidden.size + ' ticked, ' + n + ' stored entr' + (n === 1 ? 'y' : 'ies') + '.'
+            + (n > 64 ? ' That is over the 64 the console accepts - untick some items.' : '') }
+    function renderHud() { const c = $('hud-elements'); if (!c) return;
+        const dis = !hudAvailable || busy || halted;
+        const q = ($('hud-search') && $('hud-search').value || '').trim().toLowerCase();
+        c.textContent = '';
+        if (hudEdit) {
+            const strip = document.createElement('div'); strip.className = 'hud-topdrop';
+            strip.textContent = 'Top level \u2014 drop a group here to un-nest it';
+            strip.addEventListener('dragover', e => { if (hudDragGroup) { e.preventDefault(); strip.classList.add('hud-drop') } });
+            strip.addEventListener('dragleave', () => strip.classList.remove('hud-drop'));
+            strip.addEventListener('drop', e => { e.preventDefault(); strip.classList.remove('hud-drop');
+                if (hudDragGroup) hudGroupMove(hudDragGroup, '') });
+            c.append(strip) }
+        const renderOne = (g, depth) => {
+            const all = g.items.map(it => ({ it, p: hudAbs(g, it) }));
+            const vis = q ? all.filter(o => o.p.toLowerCase().indexOf(q) >= 0) : all;
+            const kids = hudChildren(g.id);
+            if (q && !vis.length && g.label.toLowerCase().indexOf(q) < 0 && !kids.some(k => hudSubtreeMatch(k, q))) return;
+            const folded = hudFolded(g);
+            const sec = document.createElement('section'); sec.className = 'hud-group'; sec.dataset.gid = g.id;
+            if (depth) { sec.classList.add('hud-nested'); sec.style.marginLeft = (depth * 14) + 'px' }
+            const head = document.createElement('div'); head.className = 'hud-group-head';
+            const gbox = hudBox('', hudGroupAll(g), dis, false);
+            gbox.title = 'Hide or reveal every item in this group and its subgroups';
+            gbox.addEventListener('change', () => hudGroupSet(g, gbox.checked));
+            head.append(gbox);
+            const tri = document.createElement('button'); tri.type = 'button'; tri.className = 'hud-fold';
+            tri.textContent = folded ? '\u25b8' : '\u25be';
+            tri.title = folded ? 'Show this group' : 'Fold this group away';
+            tri.addEventListener('click', () => hudFold(g, !folded));
+            head.append(tri);
+            if (hudEdit) {
+                const grip = document.createElement('span'); grip.className = 'hud-grip'; grip.textContent = '\u283f';
+                grip.title = 'Drag this group onto another group to nest it';
+                grip.draggable = true;
+                grip.addEventListener('dragstart', e => { hudDragGroup = g.id; hudDrag = null;
+                    e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', 'group:' + g.id) } catch (x) { } });
+                grip.addEventListener('dragend', () => { hudDragGroup = null });
+                head.append(grip);
+                const inp = document.createElement('input'); inp.type = 'text'; inp.value = g.label; inp.className = 'hud-label-edit';
+                inp.addEventListener('input', () => { g.label = inp.value; hudGroupsSave() });
+                head.append(inp);
+                if (g.parent) { const out = document.createElement('button'); out.type = 'button'; out.textContent = '\u2934';
+                    out.title = 'Move this group back to the top level';
+                    out.addEventListener('click', () => hudGroupMove(g.id, '')); head.append(out) }
+                const del = document.createElement('button'); del.type = 'button'; del.textContent = '\u00d7';
+                del.title = 'Delete this group (its items move to Ungrouped, its subgroups to the top level)';
+                del.addEventListener('click', () => hudGroupDelete(g)); head.append(del);
+            } else { const h = document.createElement('span'); h.className = 'hud-group-name'; h.textContent = g.label;
+                h.title = 'Click to fold or unfold this group';
+                h.addEventListener('click', () => hudFold(g, !folded));
+                head.append(h) }
+            const n = document.createElement('span'); n.className = 'detail';
+            n.textContent = (vis.length === all.length ? all.length : vis.length + ' / ' + all.length) + (g.path ? ' \u00b7 ' + g.path : '');
+            head.append(n);
+            sec.append(head);
+            if (!folded) {
+                const body = document.createElement('div'); body.className = 'hud-items';
+                if (!vis.length && hudEdit) { const ph = document.createElement('span'); ph.className = 'hud-empty'; ph.textContent = 'Drop items here'; body.append(ph) }
+                for (const o of vis) {
+                    const cov = hudCover(o.p);
+                    const row = document.createElement('label'); row.className = 'hud-item'; row.dataset.path = o.p;
+                    const renamed = !!hudNames[o.p];
+                    row.title = (renamed ? 'Original: ' + hudItemName(g, o.it, o.p) + '\n' : '') + o.p;
+                    if (hudEdit) { row.draggable = true;
+                        row.addEventListener('dragstart', e => { hudDrag = { g, it: o.it }; hudDragGroup = null;
+                            e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', o.p) } catch (x) { } });
+                        row.addEventListener('dragend', () => { hudDrag = null }) }
+                    const box = hudBox(o.p, !!cov, dis, cov && cov !== o.p ? cov : '');
+                    box.addEventListener('change', () => { if (box.checked) hudHide(o.p); else hudReveal(o.p); hudSyncBoxes(); hudApplySoon() });
+                    const t = document.createElement('span'); t.className = 'hud-name'; t.textContent = hudDisplay(g, o.it, o.p);
+                    row.append(box, t);
+                    if (hudEdit) { const pen = document.createElement('button'); pen.type = 'button'; pen.className = 'hud-rename';
+                        pen.textContent = '\u270e'; pen.title = 'Rename this item';
+                        pen.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); hudRenameItem(row, row.querySelector('.hud-name'), o.p, g, o.it) });
+                        row.append(pen) }
+                    if (hudLive && !hudLive.has(o.p)) { row.classList.add('hud-absent'); row.title = o.p + ' (not in the current widget tree)' }
+                    body.append(row) }
+                sec.append(body) }
+            if (hudEdit) {
+                sec.addEventListener('dragover', e => {
+                    if (hudDragGroup && (hudDragGroup === g.id || hudIsAncestor(hudById(hudDragGroup), g))) return;
+                    if (!hudDrag && !hudDragGroup) return;
+                    e.preventDefault(); sec.classList.add('hud-drop') });
+                sec.addEventListener('dragleave', e => { if (!sec.contains(e.relatedTarget)) sec.classList.remove('hud-drop') });
+                sec.addEventListener('drop', e => { e.preventDefault(); sec.classList.remove('hud-drop');
+                    if (hudDragGroup) hudGroupMove(hudDragGroup, g.id);
+                    else if (hudDrag) hudMove(hudDrag, g) }) }
+            c.append(sec);
+            if (!folded) for (const k of kids) renderOne(k, depth + 1) };
+        for (const g of hudRoots()) renderOne(g, 0);
+        hudFeedback();
+        hudSig = hudSignature();
+        hudButtons() }
+    function hudFold(g, on) { if (on) hudCollapsed.add(hudGroupId(g)); else hudCollapsed.delete(hudGroupId(g));
+        hudCollapsedSave(); renderHud() }
+    function hudEditorShow() { const e = $('hud-editor'); if (e) e.hidden = !hudEdit;
+        const b = $('hud-edit'); if (b) b.textContent = hudEdit ? 'Done editing' : 'Edit groups' }
+    function hudExport() { const t = $('hud-export'); if (!t) return;
+        t.value = JSON.stringify({ groups: hudGroups, names: hudNames }, null, 1); t.hidden = false; t.focus(); t.select() }
+    function hudImport() { const t = $('hud-export'); if (!t) return;
+        try { const a = JSON.parse(t.value);
+            const gs = Array.isArray(a) ? a : (a && a.groups);
+            if (!Array.isArray(gs) || !gs.length) throw Error('expected a non-empty array of groups');
+            try { localStorage.setItem(HUD_GROUPS_KEY, JSON.stringify(gs)) } catch (e) { }
+            if (a && a.names && typeof a.names === 'object') { try { localStorage.setItem(HUD_NAMES_KEY, JSON.stringify(a.names)) } catch (e) { } }
+            hudGroups = hudGroupsLoad(); hudNames = hudNamesLoad(); renderHud(); hudLayoutPush(); status('Group layout imported.') }
+        catch (e) { status('Import failed: ' + e.message, true) } }
+    function hudButtons() { if (!$('hud-elements')) return; const dis = !hudAvailable || busy || halted;
+        for (const i of $('hud-elements').querySelectorAll('input[type=checkbox]')) i.disabled = dis || i.dataset.blocked === '1';
+        if ($('hud-refresh')) $('hud-refresh').disabled = dis }
+    async function readHud() { if (!$('hud-elements') || !token) return;
+        hudLayoutEnsure();
+        try { const r = await fetch('/api/live/hud', { cache: 'no-store', headers: { 'X-GT7-Token': token } }); if (!r.ok) throw Error(await r.text());
+            const h = await r.json(); hudAvailable = h.available === true;
+            const n = (h.hidden || []).length;
+            if (!hudDirty) hudHidden = new Set(h.hidden || []);
+            $('hud-status').textContent = hudAvailable ? (n ? 'Hiding ' + n + ' entr' + (n === 1 ? 'y' : 'ies') + '; ' + h.applied + ' widget' + (h.applied === 1 ? '' : 's') + ' hidden right now.' : 'No elements hidden.') : 'HUD control unavailable. Start GT7 with the Live Settings patch selected.' }
+        catch (e) { hudAvailable = false; $('hud-status').textContent = 'HUD control unavailable. Start GT7 with the Live Settings patch selected.' }
+        if (!hudDirty) hudRefresh(); else hudSyncBoxes() }
+    async function readHudTree(force) { if (!$('hud-elements') || !token || !hudAvailable) return;
+        if (!force && hudLive && Date.now() - hudTreeAge < 30000) return;
+        try { const r = await fetch('/api/live/hud/tree', { cache: 'no-store', headers: { 'X-GT7-Token': token } });
+            if (!r.ok) { hudLive = null; hudLiveStamp = ''; hudRefresh(); return }
+            const t = await r.json(); const ns = t.nodes || [];
+            hudLive = new Set(ns.map(n => n.p)); hudLiveStamp = hudStamp(ns); hudTreeAge = Date.now(); hudRefresh() }
+        catch (e) { } }
+    let hudApplyTimer = 0, hudApplying = false, hudApplyAgain = false;
+    function hudApplySoon() { clearTimeout(hudApplyTimer); hudApplyTimer = setTimeout(applyHud, 250) }
+    async function applyHud() { if (halted || !hudAvailable) return;
+        if (hudApplying) { hudApplyAgain = true; return }
+        hudApplying = true;
+        try { const out = hudMinimise(hudHidden);
+            const r = await fetch('/api/live/hud', { method: 'POST', headers: { 'Content-Type': 'text/plain', 'X-GT7-Token': token }, body: [...out].join('\n') });
+            if (!r.ok) throw Error(await r.text());
+            hudDirty = false;
+            $('hud-status').textContent = out.size ? 'Hiding ' + out.size + ' entr' + (out.size === 1 ? 'y' : 'ies') + ' applied.' : 'No elements hidden.' }
+        catch (e) { status(e.message, true) }
+        finally { hudApplying = false; hudSig = hudSignature();
+            if (hudApplyAgain) { hudApplyAgain = false; hudApplySoon() } } }
+    hudEditorShow(); renderHud();
+    $('hud-refresh').onclick = () => { hudTreeAge = 0; readHudTree(true) };
+    if ($('hud-search')) $('hud-search').oninput = () => renderHud();
+    if ($('hud-edit')) $('hud-edit').onclick = () => { hudEdit = !hudEdit; hudEditorShow(); renderHud() };
+    if ($('hud-new')) $('hud-new').onclick = () => { hudGroups.push({ id: hudNewId(), label: 'New group', path: '', parent: '', items: [] }); hudGroupsSave(); renderHud() };
+    if ($('hud-export-btn')) $('hud-export-btn').onclick = hudExport;
+    if ($('hud-import-btn')) $('hud-import-btn').onclick = hudImport;
+    if ($('hud-reset')) $('hud-reset').onclick = () => { try { localStorage.removeItem(HUD_GROUPS_KEY); localStorage.removeItem(HUD_NAMES_KEY) } catch (e) { }
+        hudGroups = hudGroupsLoad(); hudNames = hudNamesLoad(); renderHud(); hudLayoutPush() };
+    if ($('hud-fold-all')) $('hud-fold-all').onclick = () => {
+        hudCollapsed = new Set(hudCollapsed.size < hudGroups.length ? hudGroups.map(hudGroupId) : []);
+        hudCollapsedSave(); renderHud() };
+    read(); readHud().then(() => readHudTree());
+    setInterval(() => { if (!busy && !halted) { read(); readHud().then(() => readHudTree()); hudLayoutWatch() } }, 5000);
 </script>
 
 <!-- CLEANER_SCRIPTS -->

@@ -10,6 +10,7 @@
 #include "hook_blob.h"
 #include "icon.h"
 #include "live_bridge.h"
+#include "hud_tree.h"
 #include "live_blob.h"
 #include <ps5/kernel.h>
 #include <ps5/mdbg.h>
@@ -185,30 +186,44 @@ static int credits_game(pid_t *pid,uintptr_t *base){
     if(sysctl(mib,4,NULL,&n,NULL,0))return -1;
     unsigned char *data=malloc(n);if(!data)return -1;
     if(sysctl(mib,4,data,&n,NULL,0)){free(data);return -1;}
-    int result=-1;
+    int result=-1,procs=0,ebs=0;char diag[112]="";
     for(size_t at=0;at+sizeof(struct kinfo_proc)<=n;){
         struct kinfo_proc *k=(void *)(data+at);
         if(k->ki_structsize<(int)sizeof(*k)||at+(size_t)k->ki_structsize>n)break;
+        procs++;
         if(!strcmp(k->ki_comm,"eboot.bin")){
             AppInfo app={0};Module game;char version[32]={0};
-            if(!sceKernelGetAppInfo(k->ki_pid,&app)&&!strcmp(app.title_id,"PPSA01317")&&
-               !sceShellCoreUtilGetAppLaunchedParamString(app.app_id,"CONTENT_VERSION",version,sizeof(version))&&
-               !strcmp(version,"01.710.000")&&!main_module(k->ki_pid,&game)&&game.mapbase&&game.mapsize>0x066e9650){
+            ebs++;
+            int gai=sceKernelGetAppInfo(k->ki_pid,&app);
+            int pvs=gai?1:sceShellCoreUtilGetAppLaunchedParamString(app.app_id,"CONTENT_VERSION",version,sizeof(version));
+            int mm=gai?1:main_module(k->ki_pid,&game);
+            snprintf(diag,sizeof(diag),"pid=%d gai=%d title=%.9s pvs=%d ver=%.9s mm=%d base=%#lx size=%#lx",
+                     (int)k->ki_pid,gai,gai?"?":app.title_id,pvs,pvs?"?":version,mm,
+                     mm?0UL:(unsigned long)game.mapbase,mm?0UL:(unsigned long)game.mapsize);
+            if(!gai&&!strcmp(app.title_id,"PPSA01317")&&!pvs&&!strcmp(version,"01.710.000")&&
+               !mm&&game.mapbase&&game.mapsize>0x066e9650){
                 *pid=k->ki_pid;*base=game.mapbase;result=0;break;
             }
         }
         at+=(size_t)k->ki_structsize;
     }
+    if(result){static unsigned calls;if((calls++&15)==0){engine_log_result("credits procs",procs);engine_log_result("credits eboot",ebs);if(ebs)engine_log(diag);}}
     free(data);return result;
 }
 typedef struct {uint64_t magic,original,map,allocation,heartbeat;uint32_t state,reserved;uint64_t entry;} LiveBoot;
 _Static_assert(sizeof(LiveBoot)==56,"bootstrap ABI");
-_Static_assert(sizeof(LiveMailbox)==400,"mailbox ABI");
+_Static_assert(sizeof(LiveMailbox)==6632,"mailbox ABI");
 _Static_assert(sizeof(live_boot_blob)<=LIVE_BOOT_RESERVED,"live bootstrap exceeds reserved region");
 /* Import jump-table slots (see the module's GOT). The IME slots sit next to
  * one another: sceImeOpen, sceImeUpdate and sceImeClose. */
 enum {LIVE_SLOT_RVA=0x051bee08,LIVE_ORIGINAL_RVA=0x0028bb20,
-      IME_GOT_RVA=0x055df2a8,IME_UPDATE_GOT_RVA=0x055df288,IME_CLOSE_GOT_RVA=0x055df2b8};
+      IME_GOT_RVA=0x055df2a8,IME_UPDATE_GOT_RVA=0x055df288,IME_CLOSE_GOT_RVA=0x055df2b8,
+      /* libSceIme/libSceImeDialog import slots share one stride-8 jump
+       * table, ordered as GT7's import name table lists them: after
+       * sceImeUpdate come DialogGetStatus/Abort/GetResult, then sceImeOpen,
+       * then DialogInit, then sceImeClose, then DialogTerm. */
+      IME_DIALOG_STATUS_GOT_RVA=0x055df290,IME_DIALOG_RESULT_GOT_RVA=0x055df2a0,
+      IME_DIALOG_INIT_GOT_RVA=0x055df2b0,IME_DIALOG_TERM_GOT_RVA=0x055df2c0};
 _Static_assert(LIVE_ALLOCATION>=LIVE_PROMPT_WORK+LIVE_PROMPT_WORK_SIZE,"prompt scratch exceeds the live allocation");
 static uint32_t foreground_user(void){
     uint32_t user=0xffffffffU;
@@ -258,7 +273,6 @@ static int live_resolve(pid_t pid,uintptr_t base,uintptr_t *address,LiveMailbox 
     uintptr_t mailbox=boot.allocation+LIVE_MAILBOX;
     if(slot!=base+LIVE_BOOT_RVA+LIVE_BOOT_ENTRY){engine_log("Resolve: slot != boot entry");return -1;}
     if(boot.state==2){
-        unsigned char blob[sizeof(live_bridge_blob)];memcpy(blob,live_bridge_blob,sizeof(blob));
         LiveMailbox initial={0};initial.magic=LIVE_MAGIC;initial.base=base;initial.original=boot.original;
         uintptr_t ime_target=0;
         if(read_mem(pid,base+IME_GOT_RVA,&ime_target,8)||!ime_target){engine_log("Resolve: ime got read failed");return -1;}
@@ -269,6 +283,13 @@ static int live_resolve(pid_t pid,uintptr_t base,uintptr_t *address,LiveMailbox 
         uintptr_t ime_close=0,ime_update=0;
         if(!read_mem(pid,base+IME_CLOSE_GOT_RVA,&ime_close,8)&&ime_close)initial.ime_close=ime_close;
         if(!read_mem(pid,base+IME_UPDATE_GOT_RVA,&ime_update,8)&&ime_update)initial.ime_update=ime_update;
+        uintptr_t dialog_init=0,dialog_status=0,dialog_result=0,dialog_term=0;
+        if(read_mem(pid,base+IME_DIALOG_INIT_GOT_RVA,&dialog_init,8))dialog_init=0;
+        if(read_mem(pid,base+IME_DIALOG_STATUS_GOT_RVA,&dialog_status,8))dialog_status=0;
+        if(read_mem(pid,base+IME_DIALOG_RESULT_GOT_RVA,&dialog_result,8))dialog_result=0;
+        if(read_mem(pid,base+IME_DIALOG_TERM_GOT_RVA,&dialog_term,8))dialog_term=0;
+        initial.ime_dialog_init=dialog_init;initial.ime_dialog_status=dialog_status;
+        initial.ime_dialog_result=dialog_result;initial.ime_dialog_term=dialog_term;
         initial.make_event=base+0x035db2e0;initial.acquire=base+0x035dbcc0;
         initial.destroy_event=base+0x0097b3c0;initial.set_credits=base+0x0250e420;
         initial.car_ctor=base+0x003f4dc0;initial.get_riding_car=base+0x00447870;
@@ -281,10 +302,20 @@ static int live_resolve(pid_t pid,uintptr_t base,uintptr_t *address,LiveMailbox 
         initial.set_hub_offset=base+0x01aef670;
         initial.get_engine_swap=base+0x02c401b0;initial.add_engine_swap=base+0x02c41800;
         initial.set_engine_swap=base+0x02c41900;initial.reset_engine_swap=base+0x02c421d0;
-        memcpy(blob+LIVE_MAILBOX,&initial,sizeof(initial));
         if(kernel_mprotect(pid,boot.allocation,LIVE_ALLOCATION,PROT_READ|PROT_WRITE|PROT_EXEC)){engine_log("Resolve: mailbox mprotect failed");return -1;}
         if((kernel_get_vmem_protection(pid,boot.allocation,LIVE_ALLOCATION)&7)!=7){engine_log("Resolve: mailbox protection check failed");return -1;}
-        if(verified_write(pid,boot.allocation,blob,sizeof(blob))){engine_log("Resolve: bridge write failed");return -1;}
+        /* Written in three parts straight from the static image. Copying the
+         * whole 62 KB bridge onto the stack first would not fit a 64 KB
+         * worker-thread stack, and live_resolve is reachable from the pad and
+         * patch-service threads. */
+        {
+            size_t head=LIVE_MAILBOX;
+            size_t tail=sizeof(live_bridge_blob)-LIVE_MAILBOX-sizeof(LiveMailbox);
+            if(head+sizeof(LiveMailbox)+tail!=sizeof(live_bridge_blob)){engine_log("Resolve: bridge layout mismatch");return -1;}
+            if(verified_write(pid,boot.allocation,live_bridge_blob,head)){engine_log("Resolve: bridge write failed");return -1;}
+            if(verified_write(pid,boot.allocation+head,&initial,sizeof(initial))){engine_log("Resolve: mailbox write failed");return -1;}
+            if(tail&&verified_write(pid,boot.allocation+head+sizeof(LiveMailbox),live_bridge_blob+head+sizeof(LiveMailbox),tail)){engine_log("Resolve: bridge cache write failed");return -1;}
+        }
         uintptr_t entry=boot.allocation+LIVE_FRAME;
         uintptr_t control=base+LIVE_BOOT_RVA+LIVE_BOOT_CONTROL;
         if(verified_write(pid,control+offsetof(LiveBoot,entry),&entry,8))return -1;
@@ -300,9 +331,15 @@ static int live_resolve(pid_t pid,uintptr_t base,uintptr_t *address,LiveMailbox 
         if(read_mem(pid,base+IME_GOT_RVA,&current,8)||current!=boot.allocation+IME_OPEN_HOOK){engine_log("Resolve: ime hook verify failed");return -1;}
         ime_slot=base+IME_GOT_RVA;ime_original=state->ime_original;ime_hook=current;
     }
-    /* Verify executable bytes too, excluding the mutable mailbox. */
-    unsigned char code[LIVE_MAILBOX];
-    if(read_mem(pid,boot.allocation,code,sizeof(code))||memcmp(code,live_bridge_blob,sizeof(code))){engine_log("Resolve: bridge code verify failed");return -1;}
+    /* Verify executable bytes too, excluding the mutable mailbox. Read in
+     * windows: the whole region does not fit a worker-thread stack. */
+    {
+        unsigned char code[1024];
+        for(size_t at=0;at<LIVE_MAILBOX;at+=sizeof(code)){
+            size_t n=LIVE_MAILBOX-at;if(n>sizeof(code))n=sizeof(code);
+            if(read_mem(pid,boot.allocation+at,code,n)||memcmp(code,live_bridge_blob+at,n)){engine_log("Resolve: bridge code verify failed");return -1;}
+        }
+    }
     *address=mailbox;return 0;
 }
 int gt7_live_arm_credit_input(void){
@@ -322,16 +359,31 @@ int gt7_live_credit_prompt_begin(void){
     if(verified_write(pid,address+offsetof(LiveMailbox,prompt_state),&queued,sizeof(queued)))return -1;
     return 0;
 }
-/* Square-button shortcut. The pad is read in this (payload) process; on a
- * Square press the game is asked to open its own number pad through the same
- * mailbox request the live settings use. The stock status-bar flow is never
- * touched. Square is 0x8000 in OrbisPadButtonDataOffset. */
+/* Consume the bridge's credits-popup request and arm the number pad. The
+ * bridge sets LiveMailbox::credit_request the frame the game's "GTCredit"
+ * widget first appears (the user pressed the status-bar Credits button).
+ * Running here, on the payload's idle tick, reuses
+ * gt7_live_credit_prompt_begin so the user id and the existing prompt guards
+ * still apply. */
+int gt7_live_credit_auto_poll(void){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled)return -1;
+    if(!state.credit_request)return 0;
+    uint32_t clear=0;
+    if(verified_write(pid,address+offsetof(LiveMailbox,credit_request),&clear,sizeof(clear)))return -1;
+    return gt7_live_credit_prompt_begin();
+}
+/* Diagnostic pad reader. An earlier handoff claimed a Square-button shortcut
+ * opened the number pad; that is WRONG - the shortcut never worked on hardware
+ * and is not a usable credit trigger. The thread below only samples pad state
+ * and logs it. Square is 0x8000 in OrbisPadButtonDataOffset. */
 static int pad_shortcut_enabled;
 /* GT7 keeps two UI depth counters (version-locked to 01.710.000) that read
  * 1/1 on the plain world map and rise to 2/3 once a status overlay (GT Menu,
- * credits dialog) opens. The Square shortcut is scoped to the world map by
- * requiring both to be 1. Failing safe: an unreadable counter is not treated
- * as the world map, so the numpad never opens from another screen. */
+ * credits dialog) opens. They are the only deterministic world-map signal found
+ * so far, but they are generic (any overlay raises them) and are NOT a working
+ * credit trigger. Failing safe: an unreadable counter is not treated as the
+ * world map. */
 #define LIVE_WORLD_MAP_DEPTH_A 0x0000000e400de3c78ULL
 #define LIVE_WORLD_MAP_DEPTH_B 0x0000000e400dd58d8ULL
 static int live_world_map_active(pid_t pid){
@@ -341,9 +393,10 @@ static int live_world_map_active(pid_t pid){
     return a==1&&b==1;
 }
 void gt7_live_pad_configure(int enabled){pad_shortcut_enabled=enabled;}
-/* Square-button shortcut, run on a dedicated thread so a blocking pad call can
- * never stall the web UI. The pad handle table is per-process: only the
- * process that called scePadOpen owns a usable handle, so we open our own. */
+/* Diagnostic pad reader, run on a dedicated thread so a blocking pad call can
+ * never stall the web UI. This is NOT a working credit trigger (see above); it
+ * only logs pad state. The pad handle table is per-process: only the process
+ * that called scePadOpen owns a usable handle, so we open our own. */
 static volatile int pad_thread_started;
 static void *live_pad_thread(void *arg){
 #ifdef PS5
@@ -413,7 +466,7 @@ void gt7_live_pad_poll(void){
 int gt7_live_credit_prompt_read(Gt7CreditPrompt *out){
     pid_t pid;uintptr_t base,address;LiveMailbox state;
     if(!out||credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled)return -1;
-    *out=(Gt7CreditPrompt){pid,state.prompt_state,state.prompt_result,state.prompt_amount,state.prompt_chars};
+    *out=(Gt7CreditPrompt){pid,state.prompt_state,state.prompt_result,state.prompt_amount,state.prompt_chars,state.prompt_reserved,state.prompt_dbg_end,state.prompt_dbg_status,state.ime_user_id};
     return 0;
 }
 /* Temporary read-only diagnostics. Remove before release. */
@@ -558,6 +611,84 @@ int gt7_live_probe_read(uintptr_t *words,uint32_t count){
     pid_t pid;uintptr_t base,address;LiveMailbox state;
     if(!words||count<9||credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.allocation)return -1;
     return read_mem(pid,state.allocation+LIVE_PROBE_LOG,words,count*8)?-1:0;
+}
+int gt7_live_car_pointers(uintptr_t *implementation,uintptr_t *expanded,uintptr_t *style,uint32_t *model_code,uint32_t *sequence){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled)return -1;
+    if(implementation)*implementation=(uintptr_t)state.car_implementation;
+    if(expanded)*expanded=(uintptr_t)state.car_expanded;
+    if(style)*style=(uintptr_t)state.car_style;
+    if(model_code)*model_code=state.car_model_code;
+    if(sequence)*sequence=state.car_sequence;
+    return 0;
+}
+#define GT7_SNAPSHOT_MAX 0x20000000u
+static unsigned char *snapshot_data;
+static uintptr_t snapshot_address;
+static unsigned snapshot_length;
+int gt7_live_snapshot(uintptr_t address,unsigned length){
+    pid_t pid;uintptr_t base;
+    if(!length||length>GT7_SNAPSHOT_MAX||credits_game(&pid,&base))return -2;
+    unsigned char *buffer=malloc(length);if(!buffer)return -1;
+    /* The save region is a set of mappings with holes; read in chunks and
+     * zero-fill anything unmapped so the snapshot never spans a fault. */
+    unsigned read_ok=0;
+    for(unsigned off=0;off<length;){
+        unsigned want=length-off;if(want>0x100000)want=0x100000;
+        if(read_mem(pid,address+off,buffer+off,want))memset(buffer+off,0,want);else read_ok+=want;
+        off+=want;
+    }
+    if(!read_ok){free(buffer);return -2;}
+    free(snapshot_data);snapshot_data=buffer;snapshot_address=address;snapshot_length=length;
+    return 0;
+}
+void gt7_live_snapshot_clear(void){free(snapshot_data);snapshot_data=NULL;snapshot_address=0;snapshot_length=0;}
+static int snapshot_emit(pid_t pid,char *out,unsigned *used,unsigned size,uintptr_t base,const unsigned char *old,unsigned start,unsigned end,unsigned *runs,unsigned *bytes){
+    static const char d[]="0123456789abcdef";
+    while(start<end){
+        unsigned len=end-start;if(len>256)len=256;
+        unsigned need=len*4+80;
+        if(*used+need>=size)return -1;
+        unsigned char fresh[256];
+        if(read_mem(pid,base+start,fresh,len))return -1;
+        *used+=(unsigned)snprintf(out+*used,size-*used,"%s{\"off\":\"0x%x\",\"len\":%u,\"old\":\"",(*runs?",":""),start,len);
+        for(unsigned i=0;i<len;i++){out[(*used)++]=d[old[start+i]>>4];out[(*used)++]=d[old[start+i]&15];}
+        memcpy(out+*used,"\",\"new\":\"",9);*used+=9;
+        for(unsigned i=0;i<len;i++){out[(*used)++]=d[fresh[i]>>4];out[(*used)++]=d[fresh[i]&15];}
+        memcpy(out+*used,"\"}",2);*used+=2;
+        (*runs)++;*bytes+=len;start+=len;
+    }
+    return 0;
+}
+int gt7_live_snapshot_diff(char *out,unsigned size,unsigned *changed_bytes,unsigned *changed_runs){
+    pid_t pid;uintptr_t base;
+    if(!out||!size||!snapshot_data||credits_game(&pid,&base))return -2;
+    unsigned used=0,runs=0,bytes=0;int truncated=0;
+    int n=snprintf(out,size,"{\"addr\":\"0x%llx\",\"len\":%u,\"windows\":[",(unsigned long long)snapshot_address,snapshot_length);
+    if(n<0||(unsigned)n>=size)return -2;used=(unsigned)n;
+    unsigned char chunk[65536];const unsigned GAP=8,MAXWINDOWS=2048;
+    unsigned run_start=0,run_end=0;int in_run=0;
+    for(unsigned off=0;off<snapshot_length&&!truncated;){
+        unsigned want=snapshot_length-off;if(want>sizeof(chunk))want=(unsigned)sizeof(chunk);
+        if(read_mem(pid,snapshot_address+off,chunk,want)){
+            if(in_run){if(runs>=MAXWINDOWS||snapshot_emit(pid,out,&used,size,snapshot_address,snapshot_data,run_start,run_end,&runs,&bytes))truncated=1;in_run=0;}
+            off+=want;continue;
+        }
+        for(unsigned i=0;i<want;i++){
+            unsigned p=off+i;
+            if(chunk[i]!=snapshot_data[p]){if(!in_run){run_start=p;in_run=1;}run_end=p+1;}
+            else if(in_run&&p-run_end>=GAP){
+                if(runs>=MAXWINDOWS||snapshot_emit(pid,out,&used,size,snapshot_address,snapshot_data,run_start,run_end,&runs,&bytes)){truncated=1;in_run=0;break;}
+                in_run=0;
+            }
+        }
+        off+=want;
+    }
+    if(!truncated&&in_run&&(runs>=MAXWINDOWS||snapshot_emit(pid,out,&used,size,snapshot_address,snapshot_data,run_start,run_end,&runs,&bytes)))truncated=1;
+    if(changed_runs)*changed_runs=runs;
+    if(changed_bytes)*changed_bytes=bytes;
+    if(used<size)used+=(unsigned)snprintf(out+used,size-used,",\"runs\":%u,\"changed\":%u,\"truncated\":%s}",runs,bytes,truncated?"true":"false");
+    return (int)used;
 }
 int gt7_live_mapinfo(char *out,uint32_t size){
     pid_t pid;uintptr_t base;
@@ -746,6 +877,131 @@ int gt7_engine_swap_set(const Gt7EngineSwap *expected,uint8_t category,int unloc
         if(state.engine_state==ENGINE_INVALID||state.engine_state==ENGINE_UNAVAILABLE)return -1;}
     return -3;
 }
+/* HUD visibility: publish the set of MENU widget keys the bridge should hide.
+ * The keys are written before hud_count is raised so the bridge never reads a
+ * partial list, and hud_sequence is bumped so the caller can confirm the
+ * generation that was applied. */
+int gt7_hud_read(Gt7Hud *out){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(!out||credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.heartbeat)return -1;
+    memset(out,0,sizeof(*out));
+    out->pid=pid;out->count=state.hud_count;out->applied=state.hud_applied;out->sequence=state.hud_sequence;
+    if(out->count>LIVE_HUD_MAX)out->count=LIVE_HUD_MAX;
+    memcpy(out->entries,state.hud_entries,sizeof(out->entries));
+    return 0;
+}
+int gt7_hud_set(const char (*entries)[LIVE_HUD_PATH],uint32_t count){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(count>LIVE_HUD_MAX||(!entries&&count))return -1;
+    if(credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.heartbeat)return -1;
+    /* Write the keys first and raise the count last: the bridge never reads a
+     * half-updated list, and a transient count/key mismatch only delays a
+     * change by one frame. */
+    for(uint32_t i=0;i<count;i++)
+        if(verified_write(pid,address+offsetof(LiveMailbox,hud_entries)+i*LIVE_HUD_PATH,entries[i],LIVE_HUD_PATH))return -1;
+    uint32_t sequence=state.hud_sequence+1;
+    if(verified_write(pid,address+offsetof(LiveMailbox,hud_sequence),&sequence,4))return -1;
+    if(verified_write(pid,address+offsetof(LiveMailbox,hud_count),&count,4))return -1;
+    return 0;
+}
+/* ---------------------------------------------------------------------------
+ * Live widget-tree dump for the web UI. The payload walks the game's MENU tree
+ * through the same offsets the bridge uses (hud_tree.h) and reports every named
+ * widget with its path, depth and current hidden state. Paths are built exactly
+ * as the bridge builds them, so a path selected in the UI matches at runtime.
+ */
+#define HUD_TREE_MAX_NODES 2048
+#define HUD_TREE_MAX_VISITS 20000
+typedef struct {
+    pid_t pid;uintptr_t base;
+    int (*emit)(void *context,const Gt7HudNode *node);
+    void *context;int count,visited;
+} HudTreeWalk;
+static int hud_read_name(pid_t pid,uintptr_t p,char *out){
+    if(!hud_ptr(p))return 0;
+    unsigned char raw[LIVE_HUD_NAME];
+    if(read_mem(pid,p,raw,sizeof(raw)))return 0;
+    unsigned i=0;for(;i<LIVE_HUD_NAME-1;i++){if(!raw[i])break;out[i]=(char)raw[i];}
+    out[i]=0;
+    return hud_name_ok(out,i);
+}
+static void hud_tree_children(HudTreeWalk *w,uintptr_t node,unsigned depth,HudPath *path);
+static void hud_tree_node(HudTreeWalk *w,uintptr_t node,unsigned depth,HudPath *path){
+    if(depth>HUD_MAX_DEPTH||w->count>=HUD_TREE_MAX_NODES||++w->visited>HUD_TREE_MAX_VISITS)return;
+    unsigned char blk[HUD_OFF_RECT+HUD_RECT_LEN];
+    if(read_mem(w->pid,node,blk,sizeof(blk)))return;
+    unsigned save=path->len;
+    char nm[LIVE_HUD_NAME];
+    if(hud_read_name(w->pid,*(uintptr_t *)(blk+HUD_OFF_NAME),nm)){
+        /* The bridge skips a subtree whose path will not fit, so the dump must
+         * skip it too or the UI would offer unselectable paths. */
+        if(!hud_path_push(path,nm)){path->len=save;path->buf[save]=0;return;}
+        Gt7HudNode out;
+        memset(&out,0,sizeof(out));
+        memcpy(out.path,path->buf,LIVE_HUD_PATH);
+        out.depth=depth;out.address=node;
+        int hidden=1;
+        for(unsigned i=0;i<8;i++){float v;memcpy(&v,blk+HUD_OFF_RECT+4*i,4);if(v!=0.0f){hidden=0;break;}}
+        out.hidden=hidden;
+        w->count++;
+        if(w->emit(w->context,&out)){path->len=save;path->buf[save]=0;return;}
+    }
+    hud_tree_children(w,node,depth+1,path);
+    path->len=save;path->buf[save]=0;
+}
+static void hud_tree_children(HudTreeWalk *w,uintptr_t node,unsigned depth,HudPath *path){
+    unsigned char blk[HUD_OFF_CHILDREN+8];
+    if(read_mem(w->pid,node,blk,sizeof(blk)))return;
+    uintptr_t nl=*(uintptr_t *)(blk+HUD_OFF_CHILDREN);
+    if(!hud_ptr(nl))return;
+    unsigned char head[0x48];
+    if(read_mem(w->pid,nl,head,sizeof(head)))return;
+    if(*(uintptr_t *)head!=w->base+HUD_NLW_RVA)return;
+    uintptr_t vb=*(uintptr_t *)(head+0x38),ve=*(uintptr_t *)(head+0x40);
+    if(!hud_ptr(vb)||ve<vb||(ve-vb)>8u*4096u)return;
+    uintptr_t n=(ve-vb)/8;
+    uintptr_t *kids=malloc(n*8);
+    if(!kids)return;
+    if(read_mem(w->pid,vb,kids,n*8)){free(kids);return;}
+    for(uintptr_t i=0;i<n;i++){uintptr_t c=kids[i];if(hud_ptr(c))hud_tree_node(w,c,depth,path);}
+    free(kids);
+}
+int gt7_hud_tree(int (*emit)(void *context,const Gt7HudNode *node),void *context){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(!emit||credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.heartbeat)return -1;
+    uintptr_t ctx=state.context,ctx_vt;
+    if(!hud_ptr(base)||!hud_ptr(ctx))return -1;
+    if(read_mem(pid,ctx,&ctx_vt,8)||ctx_vt!=base+HUD_UPDATE_VT_RVA)return -1;
+    HudTreeWalk w={pid,base,emit,context,0,0};
+    HudPath path;path.len=0;path.buf[0]=0;
+    unsigned char rcs[6*8];
+    if(read_mem(pid,ctx+0x698,rcs,sizeof(rcs)))return -1;
+    for(unsigned i=0;i<6;i++){
+        uintptr_t rc=*(uintptr_t *)(rcs+8*i);
+        if(!hud_ptr(rc))continue;
+        uintptr_t vt;
+        if(read_mem(pid,rc,&vt,8))continue;
+        if(vt!=base+HUD_RENDER_VT_RVA)continue;
+        unsigned char vec[0x10];
+        if(read_mem(pid,rc+0x1e8,vec,sizeof(vec)))continue;
+        uintptr_t rb=*(uintptr_t *)vec,re=*(uintptr_t *)(vec+8);
+        if(!hud_ptr(rb)||re<rb||(re-rb)>8u*64u)continue;
+        uintptr_t n=(re-rb)/8;
+        uintptr_t *rws=malloc(n*8);
+        if(!rws)continue;
+        if(read_mem(pid,rb,rws,n*8)){free(rws);continue;}
+        for(uintptr_t k=0;k<n;k++){
+            uintptr_t rw=rws[k];
+            if(!hud_ptr(rw))continue;
+            uintptr_t rvt;
+            if(read_mem(pid,rw,&rvt,8))continue;
+            if(rvt!=base+HUD_ROOT_VT_RVA)continue;
+            hud_tree_children(&w,rw,0,&path);
+        }
+        free(rws);
+    }
+    return 0;
+}
 static int bridge_prepare(void){
     engine_log("Bridge: locating ShellCore and main module");
     if(bridge)return damaged?-1:0;
@@ -860,6 +1116,9 @@ static int apply_gt7(pid_t pid,int final_attempt){
         }
         if(strstr(line,"<!-- GT7FEATURE country -->")){
             current_name="Player country";continue;
+        }
+        if(strstr(line,"<!-- GT7FEATURE aspect -->")){
+            current_name="Video aspect ratio";continue;
         }
         if(strncmp(line,"<Line ",6))continue;
         if(sscanf(line,"<Line Type=\"bytes\" Address=\"0x%x\" Value=\"%8192[0123456789abcdefABCDEF]\"",&address,hex)!=2||

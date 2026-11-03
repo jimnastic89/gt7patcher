@@ -1,11 +1,18 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #pragma once
 #include <stdint.h>
+#include "live_bridge.h"
 typedef struct {int pid;uint64_t object;uint32_t amount;} Gt7Credits;
 typedef struct {int pid;uint32_t model_code,sequence;int8_t front,rear;} Gt7WheelWidth;
 typedef struct {int pid;uint32_t model_code;int8_t inch_up;int16_t offset_front,offset_rear,hub_front,hub_rear;} Gt7WheelGeometry;
 typedef struct {int pid;uint32_t model_code;uint8_t category;} Gt7EngineSwap;
-typedef struct {int pid;uint32_t state,result,amount,chars;} Gt7CreditPrompt;
+typedef struct {int pid;uint32_t state,result,amount,chars,dbg_got,dbg_end,dbg_status,dbg_user;} Gt7CreditPrompt;
+/* HUD visibility: the set of MENU widget keys (paths, or bare names) the
+ * bridge is hiding. The field order mirrors the mailbox tail. */
+typedef struct {int pid;uint32_t count,sequence,applied,reserved;char entries[LIVE_HUD_MAX][LIVE_HUD_PATH];} Gt7Hud;
+/* One named widget in the live tree, as published to the web UI. `depth` is the
+ * indentation level and `hidden` reports whether its layout rect is zeroed. */
+typedef struct {char path[LIVE_HUD_PATH];unsigned depth;uintptr_t address;int hidden;} Gt7HudNode;
 int gt7_credits_read(Gt7Credits *out);
 int gt7_credits_set(const Gt7Credits *expected,uint32_t amount);
 int gt7_wheel_width_read(Gt7WheelWidth *out);
@@ -13,18 +20,33 @@ int gt7_wheel_width_set(const Gt7WheelWidth *expected,int8_t front,int8_t rear);
 int gt7_wheel_geometry_read(Gt7WheelGeometry *out);
 int gt7_wheel_geometry_set(const Gt7WheelGeometry *expected,int8_t inch_up,int16_t offset_front,int16_t offset_rear,int16_t hub_front,int16_t hub_rear);
 int gt7_engine_swap_read(Gt7EngineSwap *out);
+int gt7_hud_read(Gt7Hud *out);
+int gt7_hud_set(const char (*entries)[LIVE_HUD_PATH],uint32_t count);
+/* Walk the live MENU widget tree and hand every named widget to emit (return
+ * non-zero from emit to stop early). Paths are built exactly as the bridge
+ * builds them, so a path selected in the UI matches at runtime. */
+int gt7_hud_tree(int (*emit)(void *context,const Gt7HudNode *node),void *context);
 int gt7_engine_swap_set(const Gt7EngineSwap *expected,uint8_t category,int unlock);
 int gt7_live_ready(void);
 int gt7_live_arm_credit_input(void);
 int gt7_live_credit_prompt_begin(void);
+int gt7_live_credit_auto_poll(void);
 int gt7_live_credit_prompt_read(Gt7CreditPrompt *out);
-/* Square-button shortcut: opens the credit number pad while the live bridge
- * is enabled. No-op unless the platform pad can be read. */
+/* Diagnostic pad reader. Historic notes wrongly claimed this opened the credit
+ * number pad; it never worked on hardware and is not a credit trigger. It only
+ * logs pad state while the live bridge is enabled. */
 void gt7_live_pad_poll(void);
 void gt7_live_pad_configure(int enabled);
 /* Temporary read-only diagnostic used to map GT7 state from inside the game
  * process (no debugger attach). Remove before release. */
 int gt7_live_peek(uintptr_t address,void *buffer,uint32_t length);
+/* Read-only diagnostic: live object-graph pointers sampled for the riding car. */
+int gt7_live_car_pointers(uintptr_t *implementation,uintptr_t *expanded,uintptr_t *style,uint32_t *model_code,uint32_t *sequence);
+/* Read-only diagnostic: snapshot a memory region in the payload, then report
+ * only the byte runs that changed. Remove before release. */
+int gt7_live_snapshot(uintptr_t address,unsigned length);
+void gt7_live_snapshot_clear(void);
+int gt7_live_snapshot_diff(char *out,unsigned size,unsigned *changed_bytes,unsigned *changed_runs);
 int gt7_live_mapinfo(char *out,uint32_t size);
 int gt7_live_find(uintptr_t address,uint32_t length,const char *needle,uint32_t needle_length,uintptr_t *hits,uint32_t max_hits,uint32_t *out_count);
 int gt7_live_probe_install(uintptr_t target,uint32_t displaced,int mode,uintptr_t watch);

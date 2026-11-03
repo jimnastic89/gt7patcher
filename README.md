@@ -28,7 +28,7 @@ Patches only work on a clean version of `PPSA01317` version `01.710.000`. It has
 
 1. Load `GT7Patcher.elf` with a PS5 ELF loader.
 2. Open the **GT7Patcher** shortcut installed in the media tab, or browse to `http://PS5_IP:7210/`.
-3. Choose the patches and display preferences, then save.
+3. Choose the patches and display preferences; changes are saved automatically.
 4. Start the patch engine from the web interface.
 5. Optional: turn on automatic start to start the engine with the saved settings next time the payload runs.
 6. Launch GT7.

@@ -142,6 +142,24 @@ class SelectorTests(unittest.TestCase):
         self.assertEqual(int(rows[0].get('Address'),16),0x29126f0)
         self.assertEqual(bytes.fromhex(rows[0].get('Value')),b'\x31\xc0\xc3')
 
+    def test_aspect_ratio_patch_is_selectable(self):
+        c=dict(self.c,mask=0,units=0,language=-1,country=-1,aspect=1)
+        self.assertEqual(self.request('/api/config',c)[0],200)
+        rows=self.lines()
+        self.assertEqual(len(rows),3)
+        cave=0x430eaa0
+        self.assertEqual([int(r.get('Address'),16) for r in rows],[0x92190d,0x921915,cave])
+        for row,site,target in ((rows[0],0x92190d,cave),(rows[1],0x921915,cave+4)):
+            disp=struct.unpack('<i',bytes.fromhex(row.get('Value')))[0]
+            self.assertEqual(site+4+disp,target)
+        self.assertEqual(bytes.fromhex(rows[2].get('Value')),struct.pack('<f',21/9)+struct.pack('<f',-21/9))
+        self.assertIsNotNone(local_bytes(self.clean,0x921909,8))
+        # Selecting the game default (index -1) emits nothing, and an
+        # out-of-range index is rejected.
+        self.assertEqual(self.request('/api/config',dict(self.c,mask=0,units=0,language=-1,aspect=-1))[0],200)
+        self.assertEqual(len(self.lines()),0)
+        self.assertEqual(self.request('/api/config',dict(self.c,aspect=9))[0],400)
+
     def test_debug_environment_source_is_retained_but_not_built(self):
         self.assertNotIn('Debug environment',[f['name'] for f in self.status['features']])
         self.assertNotIn('patches/debug_environment.S', json.loads((HERE/'build/assets.json').read_text())['patch_sources'])

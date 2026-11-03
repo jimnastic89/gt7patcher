@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #include "config.h"
+#include "live_bridge.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -27,13 +28,19 @@
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 #endif
-#define VERSION "0.3.2.26-11-01_2250"
+#define VERSION "0.3.14.26-11-04_0125"
 #ifndef PORT
 #define PORT 7210
 #endif
 static const char *root="/data/gt7p/patches";
 static char token[33],message[256]="";
 static Config config;
+#ifndef PS5
+/* Host preview: the live bridge and its pad shortcut exist only on PS5. */
+static void gt7_live_pad_configure(int enabled){(void)enabled;}
+static void gt7_live_pad_poll(void){}
+static int gt7_live_credit_auto_poll(void){return -1;}
+#endif
 
 static int broken;
 static volatile sig_atomic_t stopping;
@@ -70,6 +77,74 @@ static int running_gt7(void){
     return 0;
 #endif
 }
+/* Persisted in-race HUD hide list, one entry per line in <root>/hud.txt. An
+ * entry containing '/' is a widget path (RaceDisplay/Container/.../TCS) and
+ * matches exactly that widget; an entry without one is a bare widget name and
+ * matches every widget with that name. It is re-pushed to the live bridge
+ * whenever the game is running so a selection survives races and game restarts.
+ * Paths are what let a HUD element be hidden without also hiding a pause-menu
+ * row that merely shares its name. */
+static char hud_path[512];
+/* Saved HUD group layout (<root>/hud_layout.json). The page owns the schema and
+ * the payload stores it verbatim, so every browser that connects sees the same
+ * grouping and the same custom item names. */
+static char hud_layout_path[512];
+static char hud_hidden[LIVE_HUD_MAX][LIVE_HUD_PATH];
+static unsigned hud_hidden_count;
+#ifdef PS5
+static Gt7Hud hud_state; /* ~6 KB: kept off the request thread's stack */
+#endif
+static void hud_load(void){
+    hud_hidden_count=0;
+    FILE *f=fopen(hud_path,"rb");if(!f)return;
+    char line[LIVE_HUD_PATH+8];
+    while(hud_hidden_count<LIVE_HUD_MAX&&fgets(line,sizeof(line),f)){
+        size_t n=strlen(line);
+        while(n&&(line[n-1]=='\n'||line[n-1]=='\r'))line[--n]=0;
+        if(!n||n>=LIVE_HUD_PATH)continue;
+        memcpy(hud_hidden[hud_hidden_count],line,n+1);
+        hud_hidden_count++;
+    }
+    fclose(f);
+}
+static int hud_save(void){
+    FILE *f=fopen(hud_path,"wb");if(!f)return -1;
+    for(unsigned i=0;i<hud_hidden_count;i++)fprintf(f,"%s\n",hud_hidden[i]);
+    return fclose(f)?-1:0;
+}
+static void hud_push(void){
+#ifdef PS5
+    gt7_hud_set((const char (*)[LIVE_HUD_PATH])hud_hidden,hud_hidden_count);
+#endif
+}
+static void hud_tick(void){
+#ifdef PS5
+    if(!(config.mask&LIVE_SETTINGS_BIT)||running_gt7()<=0)return;
+    if(gt7_hud_read(&hud_state))return;
+    int same=hud_state.count==hud_hidden_count;
+    if(same)for(unsigned i=0;i<hud_hidden_count;i++)if(strncmp(hud_state.entries[i],hud_hidden[i],LIVE_HUD_PATH)){same=0;break;}
+    if(!same)gt7_hud_set((const char (*)[LIVE_HUD_PATH])hud_hidden,hud_hidden_count);
+#endif
+}
+#ifdef PS5
+/* Serialiser for GET /api/live/hud/tree. Paths hold only printable ASCII, but
+ * a quote or backslash still needs escaping to keep the JSON well formed. */
+typedef struct {char *body;size_t cap,at;int first;} HudTreeJson;
+static int hud_tree_emit(void *context,const Gt7HudNode *node){
+    HudTreeJson *j=context;
+    if(j->at+2u*LIVE_HUD_PATH+64u>j->cap)return 1; /* stop; the page shows what fits */
+    size_t n=j->at;
+    n+=(size_t)snprintf(j->body+n,j->cap-n,"%s{\"p\":\"",j->first?"":",");
+    j->first=0;
+    for(const char *c=node->path;*c;c++){
+        if(*c=='"'||*c=='\\')j->body[n++]='\\';
+        j->body[n++]=*c;
+    }
+    n+=(size_t)snprintf(j->body+n,j->cap-n,"\",\"d\":%u,\"h\":%d,\"a\":\"%#llx\"}",node->depth,node->hidden,(unsigned long long)node->address);
+    j->at=n;
+    return 0;
+}
+#endif
 static int engine_ready(void){
 #ifdef PS5
     if(atomic_load(&startup_pending))return 0;
@@ -134,6 +209,9 @@ static int initialize(void){
         if(access(p,F_OK)==0)return -1;
         if(save_config(root,&config))return -1;
     }
+    snprintf(hud_path,sizeof(hud_path),"%s/hud.txt",root);
+    snprintf(hud_layout_path,sizeof(hud_layout_path),"%s/hud_layout.json",root);
+    hud_load();
     unsigned char random[16];FILE *f=fopen("/dev/urandom","rb");if(!f)return -1;
     size_t n=fread(random,1,sizeof(random),f);fclose(f);if(n!=sizeof(random))return -1;
     for(unsigned i=0;i<16;i++)snprintf(token+i*2,3,"%02x",random[i]);
@@ -162,7 +240,7 @@ static void json_status(int fd){
 #ifdef PS5
     if(atomic_load(&startup_pending))status_message="GT7Patcher is available on port 7210. Preparing the home-screen shortcut and saved startup option.";
 #endif
-    n+=(size_t)snprintf(body+n,sizeof(body)-n,"{\"version\":\"%s\",\"token\":\"%s\",\"engineRunning\":%s,\"engineActive\":%s,\"gameRunning\":%d,\"message\":\"%s\",\"config\":{\"mask\":%u,\"preset\":%d,\"units\":%d,\"language\":%d,\"country\":%d,\"speed\":%d,\"mass\":%d,\"power\":%d,\"torque\":%d,\"temperature\":%d,\"autostart\":%d},\"features\":[",VERSION,token,engine_ready()?"true":"false",engine_active()?"true":"false",running_gt7(),status_message,config.mask,config.preset,config.units,config.language,config.country,config.speed,config.mass,config.power,config.torque,config.temperature,config.autostart);
+    n+=(size_t)snprintf(body+n,sizeof(body)-n,"{\"version\":\"%s\",\"token\":\"%s\",\"engineRunning\":%s,\"engineActive\":%s,\"gameRunning\":%d,\"message\":\"%s\",\"config\":{\"mask\":%u,\"preset\":%d,\"units\":%d,\"language\":%d,\"country\":%d,\"speed\":%d,\"mass\":%d,\"power\":%d,\"torque\":%d,\"temperature\":%d,\"autostart\":%d,\"aspect\":%d},\"features\":[",VERSION,token,engine_ready()?"true":"false",engine_active()?"true":"false",running_gt7(),status_message,config.mask,config.preset,config.units,config.language,config.country,config.speed,config.mass,config.power,config.torque,config.temperature,config.autostart,config.aspect);
     /* Original feature labels and notes contain no JSON quoting characters; verify at generation. */
     for(unsigned i=0;i<PATCH_COUNT;i++)n+=(size_t)snprintf(body+n,sizeof(body)-n,"%s{\"name\":\"%s\",\"note\":\"%s\",\"lines\":%u}",i?",":"",feature_name(i),feature_note(i),feature_count(i));
     n+=(size_t)snprintf(body+n,sizeof(body)-n,"],\"live\":{");
@@ -209,7 +287,10 @@ static void json_status(int fd){
     response(fd,200,"application/json",body);
 }
 static void serve(int fd){
-    char req[4096],method[12],path[128],proto[16];size_t used=0;char *body=NULL;
+    /* Static: the saved HUD layout is a ~21 KB JSON document, far too big to
+     * keep on a request-thread stack. serve() only ever runs on the accept
+     * loop, so one buffer is safe. */
+    static char req[262144+4096];char method[12],path[128],proto[16];size_t used=0;char *body=NULL;
     struct timeval tv={5,0};setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&tv,sizeof(tv));
     while(used+1<sizeof(req)){
         ssize_t r=recv(fd,req+used,sizeof(req)-used-1,0);if(r<=0)return;
@@ -222,7 +303,7 @@ static void serve(int fd){
         h+=2;char *e=strstr(h,"\r\n");if(e)*e=0;
         if(!strncasecmp(h,"Content-Length:",15)){
             char *end;unsigned long l=strtoul(h+15,&end,10);
-            if(has_length||*end||l>511){response(fd,400,"text/plain","Invalid Content-Length");return;}length=(size_t)l;has_length=1;
+            if(has_length||*end||l>262144){response(fd,400,"text/plain","Invalid Content-Length");return;}length=(size_t)l;has_length=1;
         }
         if(!strncasecmp(h,"Transfer-Encoding:",18)){response(fd,400,"text/plain","Unsupported transfer encoding");return;}
         if(!strncasecmp(h,"X-GT7-Token: ",13)&&!strcmp(h+13,token))authorized=1;
@@ -236,11 +317,63 @@ static void serve(int fd){
             Gt7CreditPrompt prompt;
             if(gt7_live_credit_prompt_read(&prompt)){response(fd,409,"text/plain","Live numeric input is unavailable while supported GT7 is not running.");return;}
             char body[160];
-            snprintf(body,sizeof(body),"{\"state\":%u,\"result\":%u,\"amount\":%u,\"chars\":%u}",prompt.state,prompt.result,prompt.amount,prompt.chars);
+            snprintf(body,sizeof(body),"{\"state\":%u,\"result\":%u,\"amount\":%u,\"chars\":%u,\"dbgGot\":%u,\"dbgEnd\":%u,\"dbgStatus\":%u,\"dbgUser\":%u}",prompt.state,prompt.result,prompt.amount,prompt.chars,prompt.dbg_got,prompt.dbg_end,prompt.dbg_status,prompt.dbg_user);
             response(fd,200,"application/json",body);return;
 #else
             response(fd,409,"text/plain","Live numeric input is only available while supported GT7 is running on PS5.");return;
 #endif
+        }
+        else if(!strcmp(path,"/api/live/hud")){
+            /* In-race HUD hide list. Read-only here; the persisted selection is
+             * returned along with whether the live bridge is reachable. */
+            if(!authorized){response(fd,403,"text/plain","Reload this page before reading HUD state.");return;}
+            static char body[LIVE_HUD_MAX*LIVE_HUD_PATH+512];int at;
+#ifdef PS5
+            int live=!gt7_hud_read(&hud_state);
+            at=snprintf(body,sizeof(body),"{\"available\":%s,\"applied\":%u,\"sequence\":%u,\"hidden\":[",live?"true":"false",live?hud_state.applied:0,live?hud_state.sequence:0);
+#else
+            at=snprintf(body,sizeof(body),"{\"available\":false,\"applied\":0,\"sequence\":0,\"hidden\":[");
+#endif
+            for(unsigned i=0;i<hud_hidden_count&&at>0&&at<(int)sizeof(body)-128;i++)
+                at+=snprintf(body+at,sizeof(body)-at,"%s\"%s\"",i?",":"",hud_hidden[i]);
+            if(at>0&&at<(int)sizeof(body)-8)snprintf(body+at,sizeof(body)-at,"]}");
+            response(fd,200,"application/json",body);return;
+        }
+        else if(!strcmp(path,"/api/live/hud/tree")){
+            /* Live MENU widget tree for the UI's expandable groups. Every named
+             * widget is reported with the full path the bridge matches on, its
+             * depth and whether it is currently hidden. The in-car and bumper
+             * root windows carry the same widgets, so duplicates are expected;
+             * the page merges them by path. */
+            if(!authorized){response(fd,403,"text/plain","Reload this page before reading HUD state.");return;}
+#ifdef PS5
+            size_t cap=512u*1024u;char *body=malloc(cap);
+            if(!body){response(fd,500,"text/plain","Out of memory");return;}
+            HudTreeJson j={body,cap,0,1};
+            j.at=(size_t)snprintf(body,cap,"{\"available\":true,\"nodes\":[");
+            if(gt7_hud_tree(hud_tree_emit,&j)){free(body);response(fd,409,"text/plain","The live widget tree is unavailable while supported GT7 is not running.");return;}
+            snprintf(body+j.at,cap-j.at,"]}");
+            response(fd,200,"application/json",body);free(body);return;
+#else
+            response(fd,409,"text/plain","The live widget tree is only available while supported GT7 is running on PS5.");return;
+#endif
+        }
+        else if(!strcmp(path,"/api/live/hud/layout")){
+            /* Saved HUD group layout. Returned verbatim so every browser shows
+             * the same grouping; an empty object means nothing is saved yet and
+             * the page should upload what it has. */
+            if(!authorized){response(fd,403,"text/plain","Reload this page before reading the HUD layout.");return;}
+            const char *empty="{\"groups\":[],\"names\":{}}";
+            FILE *f=fopen(hud_layout_path,"rb");
+            if(!f){response(fd,200,"application/json",empty);return;}
+            long len=0;
+            if(fseek(f,0,SEEK_END)||(len=ftell(f))<0||len>262144){fclose(f);response(fd,200,"application/json",empty);return;}
+            rewind(f);
+            char *body=malloc((size_t)len+1);
+            if(!body){fclose(f);response(fd,500,"text/plain","Out of memory");return;}
+            size_t n=fread(body,1,(size_t)len,f);fclose(f);body[n]=0;
+            if(!n){free(body);response(fd,200,"application/json",empty);return;}
+            response(fd,200,"application/json",body);free(body);return;
         }
         else if(!strncmp(path,"/api/live/dump",14)){
             /* Temporary read-only diagnostic: hex dump of a region (<=1 MiB). Remove before release. */
@@ -311,6 +444,32 @@ static void serve(int fd){
             response(fd,409,"text/plain","Live memory is only available while supported GT7 is running on PS5.");return;
 #endif
         }
+        else if(!strcmp(path,"/api/live/carptr")){
+            /* Temporary read-only diagnostic: riding car object pointers. Remove before release. */
+            if(!authorized){response(fd,403,"text/plain","Reload this page before reading live memory.");return;}
+#ifdef PS5
+            uintptr_t implementation=0,expanded=0,style=0;uint32_t model=0,sequence=0;
+            if(gt7_live_car_pointers(&implementation,&expanded,&style,&model,&sequence)){response(fd,409,"text/plain","Live memory is unavailable while supported GT7 is not running.");return;}
+            char reply[256];
+            snprintf(reply,sizeof(reply),"{\"implementation\":\"0x%llx\",\"expanded\":\"0x%llx\",\"style\":\"0x%llx\",\"modelCode\":%u,\"sequence\":%u}",(unsigned long long)implementation,(unsigned long long)expanded,(unsigned long long)style,model,sequence);
+            response(fd,200,"application/json",reply);return;
+#else
+            response(fd,409,"text/plain","Live memory is only available while supported GT7 is running on PS5.");return;
+#endif
+        }
+        else if(!strncmp(path,"/api/live/diff",14)){
+            /* Temporary read-only diagnostic: byte runs changed since the last snapshot. Remove before release. */
+            if(!authorized){response(fd,403,"text/plain","Reload this page before reading live memory.");return;}
+#ifdef PS5
+            char *buffer=malloc(4194304);
+            if(!buffer){response(fd,500,"text/plain","Out of memory");return;}
+            unsigned bytes=0,runs=0;int n=gt7_live_snapshot_diff(buffer,4194304,&bytes,&runs);
+            if(n<0){free(buffer);response(fd,409,"text/plain","No snapshot is stored, or live memory is unavailable.");return;}
+            response(fd,200,"application/json",buffer);free(buffer);return;
+#else
+            response(fd,409,"text/plain","Live memory is only available while supported GT7 is running on PS5.");return;
+#endif
+        }
         else if(!strncmp(path,"/api/live/peek",14)){
             /* Temporary read-only diagnostic for mapping GT7 state from inside
              * the running game. Token-gated; remove before release. */
@@ -339,7 +498,7 @@ static void serve(int fd){
     size_t received=used-(size_t)(body-req);
     if(received>length){response(fd,400,"text/plain","Invalid body length");return;}
     while(received<length){ssize_t r=recv(fd,body+received,length-received,0);if(r<=0)return;received+=(size_t)r;}body[length]=0;
-    if(strncmp(path,"/api/live/probe",15)&&strcmp(path,"/api/config")&&strcmp(path,"/api/live/credits")&&strcmp(path,"/api/live/credit-input")&&strcmp(path,"/api/live/wheel-width")&&strcmp(path,"/api/live/wheel-geometry")&&strcmp(path,"/api/live/engine-swap")&&strcmp(path,"/api/start")&&strcmp(path,"/api/game/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
+    if(strncmp(path,"/api/live/probe",15)&&strcmp(path,"/api/live/snapshot")&&strcmp(path,"/api/live/snapshot/clear")&&strcmp(path,"/api/config")&&strcmp(path,"/api/live/credits")&&strcmp(path,"/api/live/credit-input")&&strcmp(path,"/api/live/wheel-width")&&strcmp(path,"/api/live/wheel-geometry")&&strcmp(path,"/api/live/engine-swap")&&strncmp(path,"/api/live/hud",13)&&strcmp(path,"/api/start")&&strcmp(path,"/api/game/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
 #ifdef PS5
     if(atomic_load(&startup_pending)){response(fd,409,"text/plain","Startup is still running. Please retry shortly; the browser page remains available.");return;}
 #endif
@@ -360,6 +519,31 @@ static void serve(int fd){
         response(fd,200,"application/json","{\"installed\":true}");return;
 #else
         response(fd,409,"text/plain","Probes are only available while supported GT7 is running on PS5.");return;
+#endif
+    }
+    if(!strcmp(path,"/api/live/snapshot/clear")){
+        /* Temporary diagnostic: drop the stored snapshot. Remove before release. */
+        if(length){response(fd,400,"text/plain","Unexpected request body");return;}
+#ifdef PS5
+        gt7_live_snapshot_clear();
+        response(fd,200,"application/json","{\"cleared\":true}");return;
+#else
+        response(fd,409,"text/plain","Snapshots are only available while supported GT7 is running on PS5.");return;
+#endif
+    }
+    if(!strcmp(path,"/api/live/snapshot")){
+        /* Temporary diagnostic: store a memory snapshot in the payload. Remove before release. */
+        if(length){response(fd,400,"text/plain","Unexpected request body");return;}
+#ifdef PS5
+        char *query=strchr(path,'?');unsigned long long address=0;unsigned len=0;
+        if(!query||sscanf(query,"?addr=%llx&len=%u",&address,&len)!=2){response(fd,400,"text/plain","Use /api/live/snapshot?addr=0xSTART&len=N");return;}
+        int result=gt7_live_snapshot((uintptr_t)address,len);
+        if(result==-1){response(fd,500,"text/plain","Could not allocate the snapshot buffer.");return;}
+        if(result){response(fd,409,"text/plain","Live memory is unavailable, or the length is out of range (max 536870912).");return;}
+        char reply[128];snprintf(reply,sizeof(reply),"{\"stored\":true,\"addr\":\"0x%llx\",\"len\":%u}",address,len);
+        response(fd,200,"application/json",reply);return;
+#else
+        response(fd,409,"text/plain","Snapshots are only available while supported GT7 is running on PS5.");return;
 #endif
     }
     if(!strcmp(path,"/api/live/credits")){
@@ -422,6 +606,40 @@ static void serve(int fd){
 #else
         response(fd,409,"text/plain","Wheel geometry editing is only available while supported GT7 is running on PS5.");return;
 #endif
+    }
+    if(!strcmp(path,"/api/live/hud")){
+        /* Body: newline-separated MENU widget paths or names to hide. An empty
+         * body clears the list. The selection is persisted and pushed live. */
+        static char names[LIVE_HUD_MAX][LIVE_HUD_PATH];unsigned count=0;int too_many=0;
+        for(char *p=body;*p;){
+            char *e=strchr(p,'\n');size_t n=e?(size_t)(e-p):strlen(p);
+            while(n&&(p[n-1]=='\r'||p[n-1]==' '))n--;
+            if(n&&n<LIVE_HUD_PATH){
+                int ok=1;
+                for(size_t i=0;i<n;i++){unsigned char c=(unsigned char)p[i];if(c<0x20||c>0x7e)ok=0;}
+                if(ok){if(count<LIVE_HUD_MAX){memcpy(names[count],p,n);names[count][n]=0;count++;}else too_many=1;}
+            }
+            if(!e)break;
+            p=e+1;
+        }
+        if(too_many){char m[80];snprintf(m,sizeof(m),"Too many HUD entries; at most %u can be hidden.",(unsigned)LIVE_HUD_MAX);response(fd,400,"text/plain",m);return;}
+        memcpy(hud_hidden,names,sizeof(hud_hidden));
+        hud_hidden_count=count;
+        if(hud_save()){response(fd,500,"text/plain","Could not save the HUD selection.");return;}
+        hud_push();
+        response(fd,200,"text/plain","HUD selection saved.");return;
+    }
+    if(!strcmp(path,"/api/live/hud/layout")){
+        /* Body: the JSON group layout the page keeps ({groups,names}). Stored
+         * verbatim; independent of whether GT7 is running. */
+        if(!length){response(fd,400,"text/plain","Expected a layout body");return;}
+        if(body[0]!='{'){response(fd,400,"text/plain","Expected a JSON object");return;}
+        FILE *f=fopen(hud_layout_path,"wb");
+        if(!f){response(fd,500,"text/plain","Could not save the HUD layout.");return;}
+        size_t written=fwrite(body,1,length,f);
+        int failed=fclose(f)!=0||written!=length;
+        if(failed){response(fd,500,"text/plain","Could not save the HUD layout.");return;}
+        response(fd,200,"application/json","{\"saved\":true}");return;
     }
     if(!strcmp(path,"/api/live/engine-swap")){
         unsigned category,expected,unlock,model;int consumed=0;char canonical[96];
@@ -535,8 +753,8 @@ int main(int argc,char **argv){
 #endif
 #endif
     printf("GT7Patcher %s on port %u\n",VERSION,port);fflush(stdout);
-    while(!stopping){gt7_live_pad_configure((config.mask&LIVE_SETTINGS_BIT)!=0);fd_set set;FD_ZERO(&set);FD_SET(s,&set);struct timeval timeout={0,30000};
-        int r=select(s+1,&set,NULL,NULL,&timeout);if(r<0){if(errno==EINTR)continue;break;}if(!r){gt7_live_pad_poll();continue;}
+    while(!stopping){gt7_live_pad_configure((config.mask&LIVE_SETTINGS_BIT)!=0);fd_set set;FD_ZERO(&set);FD_SET(s,&set);struct timeval timeout={1,0};
+        int r=select(s+1,&set,NULL,NULL,&timeout);if(r<0){if(errno==EINTR)continue;break;}if(!r){gt7_live_pad_poll();hud_tick();gt7_live_credit_auto_poll();continue;}
         int c=accept(s,NULL,NULL);if(c<0)continue;serve(c);close(c);
     }
     close(s);

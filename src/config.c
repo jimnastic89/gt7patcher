@@ -13,9 +13,11 @@ static pthread_mutex_t config_io_lock=PTHREAD_MUTEX_INITIALIZER;
 /* The country patch needs a code cave in executable padding. That padding
  * is shared with the payload's live-settings bootstrap, so the cave must
  * sit beyond the reserved bootstrap region. */
-enum {COUNTRY_CAVE=0x430ea10};
+enum {COUNTRY_CAVE=0x430ea10,ASPECT_CAVE=0x430eaa0};
 _Static_assert(COUNTRY_CAVE>=LIVE_IMAGE_BASE+LIVE_BOOT_RVA+LIVE_BOOT_RESERVED,
                "country code cave overlaps the live-settings bootstrap region");
+_Static_assert(ASPECT_CAVE>=COUNTRY_CAVE+56&&ASPECT_CAVE>=LIVE_IMAGE_BASE+LIVE_BOOT_RVA+LIVE_BOOT_RESERVED,
+               "aspect cave must clear the country cave and the live-settings bootstrap");
 
 /* Player-country table. Order MUST match the <select id="country"> options in
  * web/index.html. Each entry drives the in-race flag override. */
@@ -27,27 +29,42 @@ const char *country_code(int i){
     return (i>=0&&i<COUNTRY_COUNT)?country_codes[i]:"";
 }
 
-Config defaults(void){return (Config){1,1,1,2,-1,0,0,2,2,1,0};}
+/* Video-output aspect-ratio overrides. GT7 keeps its design aspect as a
+ * shared 16:9 float literal at RVA 0x04af7478 that feeds the camera
+ * projection, the render-target sizing and many 2D scaling maths, so it
+ * cannot be rewritten globally (that desyncs the output and blanks the
+ * screen). The two symmetric camera-projection operands at
+ * 0x921909/0x921911 are instead redirected to a private cave holding
+ * +/-ratio, leaving the shared literal at 16:9. Order MUST match the
+ * <select id="aspect"> options in web/index.html; index -1 leaves the
+ * game's own value untouched. */
+static const struct {int w,h;} aspect_ratios[]=
+    {{16,10},{21,9},{32,9},{3,2},{4,3},{5,4},{2,1},{235,100},{239,100}};
+_Static_assert(sizeof(aspect_ratios)/sizeof(aspect_ratios[0])==ASPECT_COUNT,
+               "aspect ratio table size must match ASPECT_COUNT");
+static float aspect_value(int i){return (float)aspect_ratios[i].w/(float)aspect_ratios[i].h;}
+
+Config defaults(void){return (Config){1,1,1,2,-1,0,0,2,2,1,0,-1};}
 int valid_config(const Config *c){
     return c->mask<=(1U<<PATCH_COUNT)-1 && (!(c->mask&4)||(c->mask&1)) &&
         c->preset>=0&&c->preset<=5&&c->units>=0&&c->units<=1&&
         c->language>=-1&&c->language<=26&&c->country>=-1&&c->country<COUNTRY_COUNT&&
         c->speed>=0&&c->speed<=1&&
         c->mass>=0&&c->mass<=1&&c->power>=0&&c->power<=2&&
-        c->torque>=0&&c->torque<=2&&c->temperature>=1&&c->temperature<=2&&c->autostart>=0&&c->autostart<=1;
+        c->torque>=0&&c->torque<=2&&c->temperature>=1&&c->temperature<=2&&c->autostart>=0&&c->autostart<=1&&c->aspect>=-1&&c->aspect<ASPECT_COUNT;
 }
 int parse_config(const char *body,Config *c){
     unsigned seen=0; char copy[512];
     if(strlen(body)>=sizeof(copy))return -1;
-    strcpy(copy,body);memset(c,0,sizeof(*c));c->country=-1;
+    strcpy(copy,body);memset(c,0,sizeof(*c));c->country=-1;c->aspect=-1;
     for(char *item=strtok(copy,"&");item;item=strtok(NULL,"&")){
         char *eq=strchr(item,'=');if(!eq)return -1;*eq++=0;
         if(!*eq)return -1;
         char *end;long v=strtol(eq,&end,10);
         if(*end||v < -1||v>255)return -1;
-        const char *keys[]={"mask","preset","units","language","speed","mass","power","torque","temperature","autostart","country"};
-        int k;for(k=0;k<11;k++)if(!strcmp(item,keys[k]))break;
-        if(k==11||(seen&(1U<<k)))return -1;
+        const char *keys[]={"mask","preset","units","language","speed","mass","power","torque","temperature","autostart","country","aspect"};
+        int k;for(k=0;k<12;k++)if(!strcmp(item,keys[k]))break;
+        if(k==12||(seen&(1U<<k)))return -1;
         seen|=1U<<k;
         switch(k){
           case 0:c->mask=(unsigned)v;break;case 1:c->preset=(int)v;break;
@@ -55,13 +72,13 @@ int parse_config(const char *body,Config *c){
           case 4:c->speed=(int)v;break;case 5:c->mass=(int)v;break;
           case 6:c->power=(int)v;break;case 7:c->torque=(int)v;break;
           case 8:c->temperature=(int)v;break;case 9:c->autostart=(int)v;break;
-          case 10:c->country=(int)v;break;
+          case 10:c->country=(int)v;break;case 11:c->aspect=(int)v;break;
         }
     }
-    /* Accept the full 11-key payload, plus the 9/10-key payloads written by
-     * older builds (which simply had no country field). */
-    unsigned full=(1U<<11)-1;
-    return (seen==full||seen==((1U<<10)-1)||seen==((1U<<9)-1))&&valid_config(c)?0:-1;
+    /* Accept the full 12-key payload, plus the 9/10/11-key payloads written by
+     * older builds (which had no country and/or aspect field). */
+    unsigned full=(1U<<12)-1;
+    return (seen==full||seen==((1U<<11)-1)||seen==((1U<<10)-1)||seen==((1U<<9)-1))&&valid_config(c)?0:-1;
 }
 static void line(FILE *f,uint32_t a,const unsigned char *b,size_t n){
     fprintf(f,"<Line Type=\"bytes\" Address=\"0x%08x\" Value=\"",a);
@@ -119,8 +136,22 @@ int emit_xml(FILE *f,const Config *c){
         size_t off=n;s[n++]=0xe9;put32(s+n,(int32_t)(back-(cave+off+5)));n+=4;                              /* jmp 0x0117c0a0 */
         line(f,cave,s,n);
     }
+    if(c->aspect>=0){
+        fputs("<!-- GT7FEATURE aspect -->\n",f);
+        /* Only the 3D projection consumes the +/-16:9 pair symmetrically, at
+         * 0x921909/0x921911. Redirect just those two operands to a private
+         * cave and leave the shared literal at 16:9: that literal also sizes
+         * the render target (0x51bec9) and normalises screen-space scales, so
+         * changing it globally resizes the target and blanks the output. */
+        const uint32_t site_pos=0x92190d,site_neg=0x921915,cave=ASPECT_CAVE;
+        unsigned char d[4];
+        put32(d,(int32_t)(cave-(site_pos+4)));line(f,site_pos,d,4);
+        put32(d,(int32_t)((cave+4)-(site_neg+4)));line(f,site_neg,d,4);
+        float aspect=aspect_value(c->aspect),neg=-aspect;unsigned char cv[8];
+        memcpy(cv,&aspect,4);memcpy(cv+4,&neg,4);line(f,cave,cv,8);
+    }
     fputs("</PatchList></Metadata>\n",f);
-    fprintf(f,"<!-- GT7CONFIG %u %d %d %d %d %d %d %d %d %d %d -->\n",c->mask,c->preset,c->units,c->language,c->speed,c->mass,c->power,c->torque,c->temperature,c->autostart,c->country);
+    fprintf(f,"<!-- GT7CONFIG %u %d %d %d %d %d %d %d %d %d %d %d -->\n",c->mask,c->preset,c->units,c->language,c->speed,c->mass,c->power,c->torque,c->temperature,c->autostart,c->country,c->aspect);
     fputs("</Patch>\n",f);
     return ferror(f)?-1:0;
 }
@@ -146,9 +177,9 @@ static int load_config_unlocked(const char *root,Config *c){
         if(strstr(buf,"<!-- GT7FEATURE 7 -->"))has_opening_movie_skip=1;
         if(strstr(buf,"Name=\"Race Info fifth blank option (experimental)\""))has_race_info=1;
         if(strstr(buf,"Address=\"0x060ec3b0\"")||strstr(buf,"Address=\"0x060e83b0\"")||strstr(buf,"Address=\"0x05ce83b0\""))has_debug_environment=1;
-        unsigned mask;Config x={0};x.country=-1;
-        int fields=sscanf(buf,"<!-- GT7CONFIG %u %d %d %d %d %d %d %d %d %d %d",&mask,&x.preset,&x.units,&x.language,&x.speed,&x.mass,&x.power,&x.torque,&x.temperature,&x.autostart,&x.country);
-        if(fields>=9&&fields<=11){
+        unsigned mask;Config x={0};x.country=-1;x.aspect=-1;
+        int fields=sscanf(buf,"<!-- GT7CONFIG %u %d %d %d %d %d %d %d %d %d %d %d",&mask,&x.preset,&x.units,&x.language,&x.speed,&x.mass,&x.power,&x.torque,&x.temperature,&x.autostart,&x.country,&x.aspect);
+        if(fields>=9&&fields<=12){
             /* HUD builds may save bit 5 for their experimental Race Info
              * option and bit 6 for Wheel Offset. Preserve the supported
              * Wheel Offset choice, discard the unsupported experiment. */

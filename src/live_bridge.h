@@ -19,6 +19,15 @@
 #define LIVE_PROMPT_WORK  0x00011000u
 #define LIVE_PROMPT_WORK_SIZE 0x5000u
 #define LIVE_PROMPT_TEXT_CHARS 32u
+/* In-race HUD visibility control. The payload publishes a list of MENU widget
+ * keys to hide; the bridge walks the live widget tree every frame and zeroes
+ * the layout rect (node+0x238, 32 bytes) of any widget whose path or name
+ * matches, restoring a cached rect when a key leaves the list. Paths are used
+ * rather than addresses because the tree is rebuilt at every race start and
+ * process restart. */
+#define LIVE_HUD_MAX 64
+#define LIVE_HUD_NAME 32
+#define LIVE_HUD_PATH 96
 enum {PROMPT_IDLE,PROMPT_QUEUED,PROMPT_RUNNING,PROMPT_OPEN,PROMPT_ENTERED,PROMPT_APPLIED,PROMPT_CANCELLED,PROMPT_FAILED};
 enum {LIVE_IDLE, LIVE_QUEUED, LIVE_RUNNING, LIVE_DONE, LIVE_STALE, LIVE_INVALID, LIVE_CANCELLED};
 enum {CAR_IDLE, CAR_QUEUED, CAR_RUNNING, CAR_READY, CAR_UNAVAILABLE};
@@ -55,15 +64,50 @@ typedef struct {
     /* The IME hook is installed through GT7's imported sceImeOpen pointer.
      * A non-zero pending flag changes only the next opening to number mode. */
     uint64_t ime_original, ime_close, ime_update;
+    /* sceImeOpen's on-screen panel draws only the keyboard (the game
+     * renders the text itself), so it looks like a bare number pad. The
+     * system dialog opened through sceImeDialogInit carries its own text
+     * entry field; the payload resolves those imports from the game's
+     * jump table. */
+    uint64_t ime_dialog_init, ime_dialog_status, ime_dialog_result, ime_dialog_term;
     uint32_t credit_input_pending, ime_hook_enabled, ime_user_id;
     /* Credit number-input prompt. The payload queues PROMPT_QUEUED; the game
-     * UI thread opens GT7's own sceImeOpen in Number mode, the platform
-     * returns the digits through the bridge handler, and the value is applied
+     * UI thread opens the system number dialog (with a text entry field),
+     * reads the accepted digits from inputTextBuffer, and applies them
      * through the same native credit path as the live settings. */
     uint32_t prompt_state, prompt_result, prompt_open, prompt_chars, prompt_amount, prompt_reserved;
+    /* Read-only diagnostic for the credit prompt: the sceImeDialogGetResult
+     * return value (prompt_reserved) and the dialog end status. */
+    uint32_t prompt_dbg_end;
+    /* Read-only diagnostic: last sceImeDialogGetStatus value observed while the
+     * prompt was open (to confirm the status enum on the console). */
+    uint32_t prompt_dbg_status;
     /* Runtime address of this allocation, written by the payload. The bridge
-     * needs it to pass absolute pointers to sceImeOpen. */
+     * needs it to pass absolute pointers to the dialog parameter. */
     uint64_t allocation;
+    /* Read-only diagnostic: live object-graph pointers sampled for the riding
+     * car so the payload can dump the car's memory for analysis. Zeroed when
+     * no car is available. */
+    uint64_t car_object, car_implementation, car_expanded, car_style;
+    /* HUD visibility: the payload writes hud_entries/hud_count; the bridge
+     * zeroes the layout rect of matching widgets and reports hud_applied (the
+     * number of distinct keys it is currently hiding) and hud_sequence (the
+     * generation of the list it last applied). An entry containing '/' is a
+     * widget path (the chain of named ancestors); an entry without one is a
+     * bare widget name and matches every widget with that name. */
+    uint32_t hud_count, hud_sequence, hud_applied;
+    /* Credits popup auto-trigger (bridge -> payload). The bridge sets this to 1
+     * the frame it first sees the game's "GTCredit" widget appear (the user
+     * pressed the status-bar Credits button). The payload's idle tick consumes
+     * it and arms the credit number pad via gt7_live_credit_prompt_begin(). */
+    uint32_t credit_request;
+    char hud_entries[LIVE_HUD_MAX][LIVE_HUD_PATH];
 } LiveMailbox;
-extern volatile LiveMailbox live_mailbox;
+/* The mailbox is defined file-local in live_bridge.c. It must NOT be a global
+ * symbol: the PS5 clang toolchain marks every global GLOBAL DEFAULT (ignoring
+ * -fvisibility=hidden), which forces a GOT reference; GNU ld's non-PIE
+ * relaxation then rewrites `add sym@GOTPCREL(%rip),%reg` into an *absolute*
+ * address (the link-time VMA), which is garbage once the blob is loaded at a
+ * high address. Static objects get direct PC-relative references instead. The
+ * payload locates the mailbox by its offset within the blob (LIVE_MAILBOX). */
 void live_frame(void *context,float delta_time);

@@ -8,9 +8,14 @@
  * of the ISO alpha-2 table in config.c MUST match the <select> options in
  * web/index.html. Index -1 means "leave the game's own value alone". */
 #define COUNTRY_COUNT 46
+/* Number of selectable video-output aspect ratios. Order MUST match the
+ * <select id="aspect"> options in web/index.html. Index -1 leaves the game's
+ * own 16:9 projection constant untouched. */
+#define ASPECT_COUNT 9
 typedef struct {
     unsigned mask;
     int preset, units, language, country, speed, mass, power, torque, temperature, autostart;
+    int aspect;
 } Config;
 /* ISO alpha-2 code for a country index, or "" when i is out of range. */
 const char *country_code(int i);

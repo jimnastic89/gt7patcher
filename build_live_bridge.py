@@ -8,13 +8,32 @@ import sys
 out=[]
 metadata={}
 for name,required,limit in [('live_boot',['live_boot_entry','live_boot_control'],0xf0),
-                            ('live_bridge',['live_frame','live_mailbox','ime_open_hook','credit_ime_handler'],0x10000)]:
+                            ('live_bridge',['live_frame','live_mailbox','ime_open_hook'],0x10000)]:
     elf=Path(f'build/{name}.elf').read_bytes()
     offset=struct.unpack_from('<Q',elf,40)[0]
     stride,count=struct.unpack_from('<HH',elf,58)
     for i in range(count):
         section=struct.unpack_from('<IIQQQQIIQQ',elf,offset+i*stride)
         assert section[1] not in (4,9) or not section[5], 'runtime relocation'
+    # Position-independence guard. The blob is linked at VMA 0 but mapped at a
+    # high runtime address, so every symbol reference must be PC-relative. The
+    # PS5 toolchain marks globals GLOBAL DEFAULT even under -fvisibility=hidden,
+    # forcing a GOT reference; the linker's non-PIE relaxation then rewrites
+    # `add sym@GOTPCREL(%rip),%reg` into an absolute link-time address, which is
+    # garbage once the blob is loaded elsewhere. This caused a load-time
+    # SIGSEGV in hud_walk (fault address 0x1ba1 = live_mailbox VMA + offset).
+    # Only R_X86_64_PC32 (2) and R_X86_64_PLT32 (4) may appear in the object.
+    obj=Path(f'build/{name}.o').read_bytes()
+    obj_offset=struct.unpack_from('<Q',obj,40)[0]
+    obj_stride,obj_count=struct.unpack_from('<HH',obj,58)
+    for i in range(obj_count):
+        section=struct.unpack_from('<IIQQQQIIQQ',obj,obj_offset+i*obj_stride)
+        if section[1] not in (4,9) or not section[5]:
+            continue
+        entry=24 if section[1]==4 else 16
+        for j in range(section[5]//entry):
+            kind=struct.unpack_from('<Q',obj,section[4]+j*entry+8)[0]&0xffffffff
+            assert kind in (2,4),f'{name}: relocation type {kind} is not PC-relative'
     symbols={}
     for line in subprocess.check_output([sys.argv[1],'-n',f'build/{name}.elf'],text=True).splitlines():
         fields=line.split()
