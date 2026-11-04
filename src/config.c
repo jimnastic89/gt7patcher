@@ -46,7 +46,7 @@ static float aspect_value(int i){return (float)aspect_ratios[i].w/(float)aspect_
 
 Config defaults(void){return (Config){1,1,1,2,-1,0,0,2,2,1,0,-1};}
 int valid_config(const Config *c){
-    return c->mask<=(1U<<PATCH_COUNT)-1 && (!(c->mask&4)||(c->mask&1)) &&
+    return c->mask<=(1U<<PATCH_COUNT)-1 &&
         c->preset>=0&&c->preset<=5&&c->units>=0&&c->units<=1&&
         c->language>=-1&&c->language<=26&&c->country>=-1&&c->country<COUNTRY_COUNT&&
         c->speed>=0&&c->speed<=1&&
@@ -61,7 +61,7 @@ int parse_config(const char *body,Config *c){
         char *eq=strchr(item,'=');if(!eq)return -1;*eq++=0;
         if(!*eq)return -1;
         char *end;long v=strtol(eq,&end,10);
-        if(*end||v < -1||v>255)return -1;
+        if(*end||v < -1||v>0x1ff)return -1;
         const char *keys[]={"mask","preset","units","language","speed","mass","power","torque","temperature","autostart","country","aspect"};
         int k;for(k=0;k<12;k++)if(!strcmp(item,keys[k]))break;
         if(k==12||(seen&(1U<<k)))return -1;
@@ -183,15 +183,15 @@ static int load_config_unlocked(const char *root,Config *c){
             /* HUD builds may save bit 5 for their experimental Race Info
              * option and bit 6 for Wheel Offset. Preserve the supported
              * Wheel Offset choice, discard the unsupported experiment. */
-            if(mask<=0xffU){x.mask=0;if(valid_config(&x)){loaded=x;saved_mask=mask;r=0;}}
+            if(mask<=0x1ffU){x.mask=0;if(valid_config(&x)){loaded=x;saved_mask=mask;r=0;}}
         }
     }
     fclose(f);
     if(r)return r;
-    unsigned normalized=saved_mask&0x1fU;
+    unsigned normalized=(saved_mask&0x1fU)|(saved_mask&DEBUG_ENVIRONMENT_BIT);
     /* Bit 6 is Wheel Offset in HUD snapshots, but was Debug environment in
-     * native snapshots. Debug environment remains in source only, so discard
-     * that saved selection while preserving the independent wheel option. */
+     * native snapshots. Preserve the independent wheel option; the Debug
+     * environment selection round-trips on its own bit above. */
     if((saved_mask&0x40U)&&has_live_hook)normalized|=LIVE_SETTINGS_BIT;
     else if((saved_mask&0x40U)&&!has_live_hook&&!has_debug_environment)normalized|=0x20U;
     if((saved_mask&0x20U)&&(!has_race_info||has_debug_environment))normalized|=0x20U;

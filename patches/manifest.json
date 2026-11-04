@@ -52,6 +52,6 @@
     "name": "Debug environment",
     "note": "Changes the internal build environment to expose additional demo, LAN, B-Spec, and car settings.",
     "source": "debug_environment",
-    "built": false
+    "built": true
   }
 ]

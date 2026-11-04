@@ -108,7 +108,7 @@ class SelectorTests(unittest.TestCase):
         # Includes overlaps: Quick Store Rotation must follow the base offline lines.
         for mask in range(32):
             c = dict(self.c, mask=mask, units=0, language=-1)
-            valid = not (mask & 4) or bool(mask & 1)
+            valid = True  # Quick Store Rotation no longer requires Offline mode
             code, _ = self.request('/api/config', c)
             self.assertEqual(code, 200 if valid else 400)
             if valid:
@@ -116,10 +116,11 @@ class SelectorTests(unittest.TestCase):
                 self.assertEqual([e.attrib for e in self.lines()], expected)
 
     def test_wheel_offset_presets_patch_is_independent_and_guarded(self):
-        self.assertEqual(len(self.status['features']),8)
+        self.assertEqual(len(self.status['features']),9)
         self.assertEqual(self.status['features'][5]['name'],'Wheel Offset Presets')
         self.assertEqual(self.status['features'][6]['name'],'Live Settings')
         self.assertEqual(self.status['features'][7]['name'],'Allow skipping new game intro movie')
+        self.assertEqual(self.status['features'][8]['name'],'Debug environment')
         c=dict(self.c,mask=32,units=0,language=-1)
         self.assertEqual(self.request('/api/config',c)[0],200)
         rows=self.lines();self.assertEqual(len(rows),1)
@@ -160,13 +161,19 @@ class SelectorTests(unittest.TestCase):
         self.assertEqual(len(self.lines()),0)
         self.assertEqual(self.request('/api/config',dict(self.c,aspect=9))[0],400)
 
-    def test_debug_environment_source_is_retained_but_not_built(self):
-        self.assertNotIn('Debug environment',[f['name'] for f in self.status['features']])
-        self.assertNotIn('patches/debug_environment.S', json.loads((HERE/'build/assets.json').read_text())['patch_sources'])
+    def test_debug_environment_patch_is_selectable(self):
+        self.assertIn('Debug environment',[f['name'] for f in self.status['features']])
+        self.assertIn('patches/debug_environment.S', json.loads((HERE/'build/assets.json').read_text())['patch_sources'])
         source=(HERE/'patches/debug_environment.S').read_text()
         self.assertIn('.patch.0000.060e83b0',source)
         self.assertIn('0x64, 0x65, 0x62, 0x75, 0x67, 0x00, 0x00',source)
-        self.assertEqual(self.request('/api/config',dict(self.c,mask=64,units=0,language=-1))[0],200)
+        # The engine locates the live build string itself; the .S address is a
+        # sentinel that just routes the line to apply_debug_environment.
+        self.assertEqual(self.request('/api/config',dict(self.c,mask=256,units=0,language=-1))[0],200)
+        rows=self.lines()
+        self.assertEqual(len(rows),1)
+        self.assertEqual(int(rows[0].get('Address'),16),0x060e83b0)
+        self.assertEqual(bytes.fromhex(rows[0].get('Value')),b'\x64\x65\x62\x75\x67\x00\x00')
 
     def test_all_unit_combinations_decode_to_selected_targets(self):
         for speed,mass,power,torque,temp in itertools.product(range(2),range(2),range(3),range(3),(1,2)):
@@ -210,7 +217,7 @@ class SelectorTests(unittest.TestCase):
     def test_bad_requests_never_replace_xml(self):
         path=self.state/'xml_prospero/PPSA01317.xml'
         before=path.read_bytes()
-        for key,value in [('mask',256),('language',27),('power',3),('mass',-1),('preset',6),('temperature',0),('autostart',2),('autostart',-1)]:
+        for key,value in [('mask',512),('language',27),('power',3),('mass',-1),('preset',6),('temperature',0),('autostart',2),('autostart',-1)]:
             self.assertEqual(self.request('/api/config',dict(self.c,**{key:value}))[0],400)
             self.assertEqual(path.read_bytes(),before)
         self.assertEqual(self.request('/api/config',self.c,token=False)[0],403)

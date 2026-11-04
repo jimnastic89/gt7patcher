@@ -1,9 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #pragma once
 #include <stdio.h>
-#define PATCH_COUNT 8
+#define PATCH_COUNT 9
 #define LIVE_SETTINGS_BIT (1U << 6)
 #define OPENING_MOVIE_SKIP_BIT (1U << 7)
+/* Hidden "Debug environment" build-string patch. Locates the internal
+ * "release" string and rewrites it to "debug"; see apply_debug_environment. */
+#define DEBUG_ENVIRONMENT_BIT (1U << 8)
 /* Number of selectable player countries exposed by the payload UI. The order
  * of the ISO alpha-2 table in config.c MUST match the <select> options in
  * web/index.html. Index -1 means "leave the game's own value alone". */

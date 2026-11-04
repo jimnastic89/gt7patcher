@@ -28,7 +28,7 @@
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 #endif
-#define VERSION "0.3.15.26-11-04_1410"
+#define VERSION "0.3.17.26-11-04_1445"
 #ifndef PORT
 #define PORT 7210
 #endif
@@ -711,7 +711,7 @@ static void serve(int fd){
         int game=running_gt7();if(game){response(fd,409,"text/plain",game>0?"Fully close GT7 before starting the engine.":"Cannot establish that GT7 is closed; engine was not started.");return;}
         if(start_engine()){response(fd,409,"text/plain",message);return;}
     }else{
-        Config next;if(parse_config(body,&next)){response(fd,400,"text/plain","Invalid settings. Quick Store Rotation requires Offline mode.");return;}
+        Config next;if(parse_config(body,&next)){response(fd,400,"text/plain","Invalid settings.");return;}
         if(save_config(root,&next)){response(fd,500,"text/plain","Could not save the patch snapshot; previous settings retained.");return;}
         config=next;
         int game=running_gt7();

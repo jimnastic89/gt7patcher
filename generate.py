@@ -16,6 +16,7 @@ PATCH_SOURCES = [
     ('Wheel Offset Presets', 'wheel_offset_custom'),
     ('Live Settings', 'live_settings'),
     ('Skippable new game intro movie', 'opening_movie_skip'),
+    ('Debug environment', 'debug_environment'),
 ]
 
 def cstring(value):
@@ -50,7 +51,7 @@ def main():
     manifest_path = HERE / 'patches/manifest.json'
     manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
     assert len(manifest) == 9
-    assert any(m['name'] == 'Debug environment' and not m['built'] for m in manifest)
+    assert all(m['built'] for m in manifest)
     metas = [m for m in manifest if m['built']]
     assert [(m['name'], m['source']) for m in metas] == PATCH_SOURCES
     assert all(not any(c in m[k] for c in '\"\\\r\n') for m in metas for k in ['name', 'note'])

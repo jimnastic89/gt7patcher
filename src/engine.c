@@ -1093,23 +1093,34 @@ static int apply_line(pid_t pid,uintptr_t base,unsigned address,const char *hex)
     for(size_t i=0;i<len/2;i++){unsigned v;if(sscanf(hex+i*2,"%2x",&v)!=1)return -1;bytes[i]=(unsigned char)v;}
     return verified_write(pid,base+(address-0x400000),bytes,len/2);
 }
+/* The build-environment string ("release") is not at a fixed address and, on
+ * 01.710.000, is no longer preceded by the 16 zero bytes older builds used.
+ * It lives in the module's string table as an entry {len,strptr} immediately
+ * followed by {entryptr,hash}; the record that owns it therefore
+ * self-references the string pointer at P+0x28, while the string itself sits in
+ * zero padding. Older images instead padded 16 zero bytes directly before the
+ * string. Accept either fingerprint, restricted to the module image, and
+ * require exactly one unambiguous hit before rewriting it to "debug". */
 static int apply_debug_environment(pid_t pid,const Module *game){
-    static const unsigned char pattern[]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,'r','e','l','e','a','s','e',0,0,0,0,0,0,0,0};
     static const unsigned char replacement[]={'d','e','b','u','g',0,0};
-    const size_t chunk=1024*1024,overlap=sizeof(pattern)-1;
-    if(!game->mapsize||game->mapsize>128*1024*1024)return -1;
-    unsigned char *buf=malloc(chunk+overlap);if(!buf)return -1;
-    size_t offset=0,carry=0,matches=0;uintptr_t target=0;
-    while(offset<game->mapsize){
-        size_t n=game->mapsize-offset;if(n>chunk)n=chunk;
-        if(read_mem(pid,game->mapbase+offset,buf+carry,n)){free(buf);return -1;}
-        size_t total=carry+n;
-        for(size_t i=0;i+sizeof(pattern)<=total;i++)if(!memcmp(buf+i,pattern,sizeof(pattern))){
-            target=game->mapbase+offset-carry+i+16;matches++;
-        }
-        carry=total<overlap?total:overlap;memmove(buf,buf+total-carry,carry);offset+=n;
+    if(!game->mapsize||game->mapsize>128u*1024*1024)return -1;
+    unsigned char *image=malloc(game->mapsize);if(!image)return -1;
+    for(size_t off=0;off<game->mapsize;){
+        size_t n=game->mapsize-off;if(n>1024*1024)n=1024*1024;
+        if(read_mem(pid,game->mapbase+off,image+off,n)){free(image);return -1;}
+        off+=n;
     }
-    free(buf);
+    size_t matches=0;uintptr_t target=0;
+    for(size_t i=8;i+0x38<=game->mapsize;i++){
+        if(memcmp(image+i,"release\x00",8))continue;
+        uint64_t owned_by_table=0;memcpy(&owned_by_table,image+i+0x28,8);
+        int owned=owned_by_table==(uint64_t)(game->mapbase+i);
+        int padded=1;
+        for(size_t z=i-8;z<i&&padded;z++)padded=!image[z];
+        for(size_t z=i+8;z<i+0x18&&padded;z++)padded=!image[z];
+        if(owned||padded){target=game->mapbase+i;matches++;}
+    }
+    free(image);
     return matches==1?verified_write(pid,target,replacement,sizeof(replacement)):-1;
 }
 static int apply_gt7(pid_t pid,int final_attempt){
