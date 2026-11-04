@@ -174,15 +174,29 @@ static void apply_hud(void){
  * while the popup stays open; the prompt state is reset to idle once the popup
  * closes so the next press can arm again. */
 static int credit_popup_prev;
-static int credit_find(uintptr_t node,uintptr_t base,unsigned depth){
+/* Only the credits *view* popup may open the numpad - not the purchase
+ * confirmation shown by the tuning shop and GT Auto. The two are the same
+ * template: both render a widget named "GTCredit", so matching that name alone
+ * fired on purchases too. They differ in how the balance row is built:
+ *
+ *   view      GTCreditChargeDialogRoot   .../GTCredit/SBox/HBox      (OK only)
+ *   purchase  GTCreditPurchaseDialogRoot .../GTCredit/SBox/Balance/HBox +
+ *                                          Payment + BodyText + ButtonComposite/Cancel
+ *
+ * The view popup is therefore the one with an HBox directly under GTCredit/SBox;
+ * the purchase popup nests its HBox one level deeper under Balance, so it is
+ * excluded. Track the two enclosing widget names to tell the shapes apart. */
+static int credit_find(uintptr_t node,uintptr_t base,unsigned depth,const char *parent,const char *grand){
     if(depth>HUD_MAX_DEPTH)return 0;
     char nm[LIVE_HUD_NAME];
-    if(hud_name(node,nm)&&hud_same(nm,"GTCredit"))return 1;
+    int named=hud_name(node,nm);
+    const char *name=named?nm:"";
+    if(named&&hud_same(nm,"HBox")&&hud_same(parent,"SBox")&&hud_same(grand,"GTCredit"))return 1;
     uintptr_t nl=*(uintptr_t *)(node+HUD_OFF_CHILDREN);
     if(!hud_ptr(nl)||*(uintptr_t *)nl!=base+HUD_NLW_RVA)return 0;
     uintptr_t vb=*(uintptr_t *)(nl+0x38),ve=*(uintptr_t *)(nl+0x40);
     if(!hud_ptr(vb)||ve<vb||(ve-vb)>8u*4096u)return 0;
-    for(uintptr_t v=vb;v<ve;v+=8){uintptr_t c=*(uintptr_t *)v;if(hud_ptr(c)&&credit_find(c,base,depth+1))return 1;}
+    for(uintptr_t v=vb;v<ve;v+=8){uintptr_t c=*(uintptr_t *)v;if(hud_ptr(c)&&credit_find(c,base,depth+1,name,parent))return 1;}
     return 0;
 }
 static int credit_visible(void){
@@ -194,7 +208,7 @@ static int credit_visible(void){
         if(!hud_ptr(rc)||*(uintptr_t *)rc!=base+HUD_RENDER_VT_RVA)continue;
         uintptr_t rb=*(uintptr_t *)(rc+0x1e8),re=*(uintptr_t *)(rc+0x1f0);
         if(!hud_ptr(rb)||re<rb||(re-rb)>8u*64u)continue;
-        for(uintptr_t v=rb;v<re;v+=8){uintptr_t rw=*(uintptr_t *)v;if(hud_ptr(rw)&&*(uintptr_t *)rw==base+HUD_ROOT_VT_RVA&&credit_find(rw,base,0))return 1;}
+        for(uintptr_t v=rb;v<re;v+=8){uintptr_t rw=*(uintptr_t *)v;if(hud_ptr(rw)&&*(uintptr_t *)rw==base+HUD_ROOT_VT_RVA&&credit_find(rw,base,0,"",""))return 1;}
     }
     return 0;
 }
@@ -383,6 +397,11 @@ static void prompt(void){
         *(uintptr_t *)(param+0x28)=m->allocation+LIVE_PROMPT_TEXT;
         *(float *)(param+0x30)=960.0f;
         *(float *)(param+0x34)=540.0f;
+        /* 0x38 horizontal / 0x3C vertical alignment: leave posx/posy at the
+         * screen centre but ask the system to centre the dialogue on that
+         * point instead of anchoring its top-left corner there. */
+        *(uint32_t *)(param+0x38)=1;
+        *(uint32_t *)(param+0x3C)=1;
         /* Start from an empty field so a stale buffer can never leak in. */
         *(uint16_t *)(uintptr_t)(m->allocation+LIVE_PROMPT_TEXT)=0;
         m->prompt_chars=0;m->prompt_amount=0;

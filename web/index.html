@@ -551,10 +551,9 @@ button:not([role="tab"]) {
         <div class="card">
             <h2>In-race HUD</h2>
             <p id="hud-status" aria-live="polite">HUD control unavailable. Start GT7 with the Live Settings patch selected.</p>
-            <div class="actions" style="margin:6px 0"><input id="hud-search" type="search" placeholder="Filter items\u2026" style="flex:1;min-width:180px"><button type="button" id="hud-edit">Edit groups</button></div>
+            <div class="actions" style="margin:6px 0"><input id="hud-search" type="search" placeholder="Filter items\u2026" style="flex:1;min-width:180px"><button type="button" id="hud-edit">Edit groups</button><button type="button" id="hud-fold-all">Collapse all</button></div>
             <div id="hud-editor" hidden>
-                <div class="actions" style="margin:6px 0"><button type="button" id="hud-new">New group</button><button type="button" id="hud-export-btn">Export layout</button><button type="button" id="hud-import-btn">Import layout</button><button type="button" id="hud-reset">Reset to default</button>
-                <button type="button" id="hud-fold-all">Fold all / unfold all</button></div>
+                <div class="actions" style="margin:6px 0"><button type="button" id="hud-new">New group</button><button type="button" id="hud-export-btn">Export layout</button><button type="button" id="hud-import-btn">Import layout</button><button type="button" id="hud-reset">Reset to default</button></div>
                 <p class="detail">Rename a heading, drag an item between groups, or drag a group onto another group to nest it. Hover an item and click the pencil to give it your own name; the original name is shown as a tooltip. The layout is saved on the console under /data/gt7p/hud_layout.json, so every browser that connects to this payload sees the same grouping.</p>
                 <textarea id="hud-export" hidden spellcheck="false"></textarea>
             </div>
@@ -889,14 +888,16 @@ button:not([role="tab"]) {
     let hudAvailable = false, hudHidden = new Set(), hudDirty = false;
     let hudLive = null, hudTreeAge = 0, hudEdit = false, hudDrag = null, hudDragGroup = null;
     let hudLiveStamp = '', hudSig = '';
+    /* Which headings are folded away, and a guard so the 5s poll cannot
+     * rebuild the list under the pointer or steal focus from a rename box.
+     * These keys are declared before the loaders below run: a const read before
+     * its declaration throws, and the loaders' try/catch would swallow it. */
+    const HUD_COLLAPSED_KEY = 'gt7.hud.groups.collapsed.v1';
+    const HUD_NAMES_KEY = 'gt7.hud.names.v1';
     let hudCollapsed = hudCollapsedLoad();
     let hudGroups = hudGroupsLoad();
     let hudNames = hudNamesLoad();
 
-    /* Which headings are folded away, and a guard so the 5s poll cannot
-     * rebuild the list under the pointer or steal focus from a rename box. */
-    const HUD_COLLAPSED_KEY = 'gt7.hud.groups.collapsed.v1';
-    const HUD_NAMES_KEY = 'gt7.hud.names.v1';
     function hudCollapsedLoad() { try { const a = JSON.parse(localStorage.getItem(HUD_COLLAPSED_KEY));
         if (Array.isArray(a)) return new Set(a.map(String)) } catch (e) { } return new Set() }
     function hudCollapsedSave() { try { localStorage.setItem(HUD_COLLAPSED_KEY, JSON.stringify([...hudCollapsed])) } catch (e) { } }
@@ -917,7 +918,9 @@ button:not([role="tab"]) {
     function hudLayoutPush() { if (!token) return; clearTimeout(hudLayoutTimer);
         hudLayoutTimer = setTimeout(() => { hudLayoutTimer = 0; hudLayoutPost() }, 400) }
     async function hudLayoutPost() {
-        try { const r = await fetch(HUD_LAYOUT_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-GT7-Token': token }, body: hudLayoutBody() });
+        const body = hudLayoutBody();
+        if (body.length > 262144) { hudLayoutRemote = false; hudLayoutNote(); return }
+        try { const r = await fetch(HUD_LAYOUT_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-GT7-Token': token }, body: body });
             hudLayoutRemote = r.ok } catch (e) { hudLayoutRemote = false }
         hudLayoutNote() }
     function hudLayoutEnsure() { if (hudLayoutSynced || !token) return; hudLayoutSynced = true; hudLayoutSync() }
@@ -1189,10 +1192,18 @@ button:not([role="tab"]) {
             if (!folded) for (const k of kids) renderOne(k, depth + 1) };
         for (const g of hudRoots()) renderOne(g, 0);
         hudFeedback();
+        hudFoldAllLabel();
         hudSig = hudSignature();
         hudButtons() }
     function hudFold(g, on) { if (on) hudCollapsed.add(hudGroupId(g)); else hudCollapsed.delete(hudGroupId(g));
         hudCollapsedSave(); renderHud() }
+    /* Every group folded away means the next click expands, and the other way
+     * round, so the button always names what it will do. */
+    function hudAllFolded() { return hudGroups.length > 0 && hudGroups.every(g => hudCollapsed.has(hudGroupId(g))) }
+    function hudFoldAllLabel() { const b = $('hud-fold-all'); if (!b) return;
+        const folded = hudAllFolded();
+        b.textContent = folded ? 'Expand all' : 'Collapse all';
+        b.title = folded ? 'Show every group' : 'Fold every group away' }
     function hudEditorShow() { const e = $('hud-editor'); if (e) e.hidden = !hudEdit;
         const b = $('hud-edit'); if (b) b.textContent = hudEdit ? 'Done editing' : 'Edit groups' }
     function hudExport() { const t = $('hud-export'); if (!t) return;
@@ -1247,7 +1258,7 @@ button:not([role="tab"]) {
     if ($('hud-reset')) $('hud-reset').onclick = () => { try { localStorage.removeItem(HUD_GROUPS_KEY); localStorage.removeItem(HUD_NAMES_KEY) } catch (e) { }
         hudGroups = hudGroupsLoad(); hudNames = hudNamesLoad(); renderHud(); hudLayoutPush() };
     if ($('hud-fold-all')) $('hud-fold-all').onclick = () => {
-        hudCollapsed = new Set(hudCollapsed.size < hudGroups.length ? hudGroups.map(hudGroupId) : []);
+        hudCollapsed = new Set(hudAllFolded() ? [] : hudGroups.map(hudGroupId));
         hudCollapsedSave(); renderHud() };
     read(); readHud().then(() => readHudTree());
     setInterval(() => { if (!busy && !halted) { read(); readHud().then(() => readHudTree()); hudLayoutWatch() } }, 5000);
