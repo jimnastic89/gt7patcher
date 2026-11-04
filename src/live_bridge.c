@@ -57,6 +57,35 @@ static void hud_fill(void *d,unsigned char v,unsigned n){unsigned char *a=d;for(
 static void hud_copy(void *d,const void *s,unsigned n){unsigned char *a=d;const unsigned char *b=s;for(unsigned i=0;i<n;i++)a[i]=b[i];}
 static int hud_same(const char *a,const char *b){for(;;a++,b++){if(*a!=*b)return 0;if(!*a)return 1;}}
 static int hud_is_path(const char *e){for(;*e;e++)if(*e=='/')return 1;return 0;}
+/* The game mounts the race HUD twice, under RaceDisplay/Container/objective and
+ * RaceDisplay/Container/subjective, and both copies carry the same widget
+ * names. The camera decides which copy is drawn: bumper cam draws the
+ * subjective one, every other view the objective one. A selection is saved
+ * against whichever copy the UI happened to list, so matching has to treat the
+ * two container names as the same or an element hidden in one camera stays on
+ * screen in the other. */
+static int hud_seg_is(const char *s,unsigned n,const char *lit,unsigned ln){
+    if(n!=ln)return 0;
+    for(unsigned i=0;i<n;i++)if(s[i]!=lit[i])return 0;
+    return 1;
+}
+static int hud_seg_same(const char *a,unsigned an,const char *b,unsigned bn){
+    if(an==bn){for(unsigned i=0;i<an;i++)if(a[i]!=b[i])return 0;return 1;}
+    if(hud_seg_is(a,an,"objective",9u)&&hud_seg_is(b,bn,"subjective",10u))return 1;
+    if(hud_seg_is(a,an,"subjective",10u)&&hud_seg_is(b,bn,"objective",9u))return 1;
+    return 0;
+}
+static int hud_same_view(const char *a,const char *b){
+    for(;;){
+        unsigned an=0,bn=0;
+        while(a[an]&&a[an]!='/')an++;
+        while(b[bn]&&b[bn]!='/')bn++;
+        if(!hud_seg_same(a,an,b,bn))return 0;
+        if(!a[an]&&!b[bn])return 1;
+        if(!a[an]||!b[bn])return 0;
+        a+=an+1;b+=bn+1;
+    }
+}
 /* Read a widget name: 0 when there is none, 1 for an inline name, 2 for a
  * heap-allocated one. The name object is a small-string-optimised string, so a
  * long name is reached through the pointer the object holds rather than sitting
@@ -79,12 +108,19 @@ static int hud_name(uintptr_t node,char *out){
 }
 /* A widget matches by its path, or - so a selection made before heap-allocated
  * widget names were decoded keeps working - by `alias`, the path the old reader
- * would have built for it. */
+ * would have built for it. A path also matches the same widget in the other
+ * camera's copy of the HUD (see hud_same_view): hiding an element must not
+ * depend on which camera happened to be active when it was selected. A bare
+ * name already matches every widget with that name, in either copy. */
 static int hud_match(volatile LiveMailbox *m,uint32_t count,const char *name,const char *path,const char *alias){
     for(uint32_t i=0;i<count;i++){
         const char *e=(const char *)m->hud_entries[i];
         if(!e[0])continue;
-        if(hud_is_path(e)){if(path[0]&&(hud_same(e,path)||hud_same(e,alias)))return 1;}
+        if(hud_is_path(e)){
+            if(!path[0])continue;
+            if(hud_same(e,path)||hud_same(e,alias))return 1;
+            if(hud_same_view(e,path)||hud_same_view(e,alias))return 1;
+        }
         else if(hud_same(e,name))return 1;
     }
     return 0;

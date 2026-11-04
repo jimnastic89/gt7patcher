@@ -820,6 +820,11 @@ button:not([role="tab"]) {
      * the console, and the editor can export the result to be baked back in. */
     const HUD_GROUPS_DEFAULT = [
       ['Speed / rev-limit / gear / transmission panel','RaceDisplay/Container/objective/RaceIndicator',['','BrakingAlert','Gear','Gear/Suggested_base','Gear/Suggested_blank','Gear/gear','Indicator','Indicator/Indicator','Indicator/Indicator_color','Indicator_base','Indicator_scale','L','L/Active','L/Active/01','L/Active/02','L/Active/03','L/Base','L/Base/01','L/Base/02','L/Base/03','Line','R','R/Active','R/Active/01','R/Active/02','R/Active/03','R/Base','R/Base/01','R/Base/02','R/Base/03','RPMRange','Speed','SuggestSpeed','Transmission','Transmission/AT','Transmission/MT','_Tacho','_speed_unit','bg','unit']],
+      ['Analogue speedometer (bumper cam)','RaceDisplay/Container/subjective/SpeedMeter',['','bg','dial','guage','unit']],
+      ['Analogue tachometer (bumper cam)','RaceDisplay/Container/subjective/TachoMeter',['','bg','dial','Red','guage','TextFace']],
+      ['Battery meter (bumper cam)','RaceDisplay/Container/subjective/BatteryMeter',['']],
+      ['MFD navigation dots (bumper cam)','RaceDisplay/Container/subjective/MfdNavDots',['','Container','hidden']],
+      ['Blind-side indicator (bumper cam)','RaceDisplay/Container/subjective/SideBlindsideIndicator_test2',['','L','L/Arrow','L/Gradation','R','R/Arrow','R/Gradation']],
       ['Accelerator meter','RaceDisplay/Container/objective/AccelIndicator',['','IconObjective','IconSubjective','Scale']],
       ['Throttle position bar','RaceDisplay/Container/objective/AccelIndicator/Throttle',['','ThrottleInput','ThrottleTCS']],
       ['Brake position bar','RaceDisplay/Container/objective/BrakeIndicator',['','Brake','Brake/BrakeABS','Brake/BrakeInput','IconObjective','IconSubjective','Scale']],
@@ -959,6 +964,23 @@ button:not([role="tab"]) {
     function hudStamp(nodes) { let h = 5381;
         for (const n of nodes) for (let i = 0; i < n.p.length; i++) h = ((h * 33) ^ n.p.charCodeAt(i)) >>> 0;
         return nodes.length + ':' + h }
+    /* The HUD is mounted twice, under RaceDisplay/Container/objective and
+     * .../subjective, and the camera decides which copy is drawn (bumper cam
+     * draws the subjective one). A widget is on screen in one camera or the
+     * other, so an item counts as present either way and the list does not
+     * report every objective widget as missing while bumper cam is active. */
+    function hudViewVariant(p) {
+        const a = p.split('/');
+        for (let i = 0; i < a.length; i++) {
+            if (a[i] !== 'objective' && a[i] !== 'subjective') continue;
+            const b = a.slice();
+            b[i] = a[i] === 'objective' ? 'subjective' : 'objective';
+            return b.join('/') }
+        return '' }
+    function hudLivePaths(n) { const out = [n.p];
+        if (n.q) out.push(n.q);
+        for (const p of out.slice()) { const v = hudViewVariant(p); if (v) out.push(v) }
+        return out }
     function hudSignature() { return JSON.stringify([[...hudHidden].sort(), hudLiveStamp,
         ($('hud-search') && $('hud-search').value) || '', hudEdit, [...hudCollapsed].sort(),
         hudAvailable, busy, halted, JSON.stringify(hudGroups), JSON.stringify(hudNames)]) }
@@ -1230,7 +1252,7 @@ button:not([role="tab"]) {
         try { const r = await fetch('/api/live/hud/tree', { cache: 'no-store', headers: { 'X-GT7-Token': token } });
             if (!r.ok) { hudLive = null; hudLiveStamp = ''; hudRefresh(); return }
             const t = await r.json(); const ns = t.nodes || [];
-            hudLive = new Set(ns.flatMap(n => n.q ? [n.p, n.q] : [n.p])); hudLiveStamp = hudStamp(ns); hudTreeAge = Date.now(); hudRefresh() }
+            hudLive = new Set(ns.flatMap(n => hudLivePaths(n))); hudLiveStamp = hudStamp(ns); hudTreeAge = Date.now(); hudRefresh() }
         catch (e) { } }
     let hudApplyTimer = 0, hudApplying = false, hudApplyAgain = false;
     function hudApplySoon() { clearTimeout(hudApplyTimer); hudApplyTimer = setTimeout(applyHud, 250) }

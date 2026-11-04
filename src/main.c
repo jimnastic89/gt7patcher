@@ -28,7 +28,7 @@
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 #endif
-#define VERSION "0.3.17.26-11-04_1445"
+#define VERSION "0.3.18.26-11-04_1645"
 #ifndef PORT
 #define PORT 7210
 #endif
