@@ -816,9 +816,8 @@ button:not([role="tab"]) {
      * one that hides or reveals the whole list at once. Items are stored
      * relative to the group path ('' is the group's own widget); a leading '/'
      * marks an item that lives outside its group. HUD_GROUPS_DEFAULT is the
-     * layout shipped with the payload; rearranging it in the page writes to
-     * localStorage, and the editor can export the result to be baked back in. */
-    const HUD_GROUPS_KEY = 'gt7.hud.groups.v1';
+     * layout shipped with the payload; rearranging it in the page is saved on
+     * the console, and the editor can export the result to be baked back in. */
     const HUD_GROUPS_DEFAULT = [
       ['Speed / rev-limit / gear / transmission panel','RaceDisplay/Container/objective/RaceIndicator',['','BrakingAlert','Gear','Gear/Suggested_base','Gear/Suggested_blank','Gear/gear','Indicator','Indicator/Indicator','Indicator/Indicator_color','Indicator_base','Indicator_scale','L','L/Active','L/Active/01','L/Active/02','L/Active/03','L/Base','L/Base/01','L/Base/02','L/Base/03','Line','R','R/Active','R/Active/01','R/Active/02','R/Active/03','R/Base','R/Base/01','R/Base/02','R/Base/03','RPMRange','Speed','SuggestSpeed','Transmission','Transmission/AT','Transmission/MT','_Tacho','_speed_unit','bg','unit']],
       ['Accelerator meter','RaceDisplay/Container/objective/AccelIndicator',['','IconObjective','IconSubjective','Scale']],
@@ -890,33 +889,29 @@ button:not([role="tab"]) {
     let hudAvailable = false, hudHidden = new Set(), hudDirty = false;
     let hudLive = null, hudTreeAge = 0, hudEdit = false, hudDrag = null, hudDragGroup = null;
     let hudLiveStamp = '', hudSig = '';
-    /* Which headings are folded away, and a guard so the 5s poll cannot
-     * rebuild the list under the pointer or steal focus from a rename box.
-     * These keys are declared before the loaders below run: a const read before
-     * its declaration throws, and the loaders' try/catch would swallow it. */
-    const HUD_COLLAPSED_KEY = 'gt7.hud.groups.collapsed.v1';
-    const HUD_NAMES_KEY = 'gt7.hud.names.v1';
-    let hudCollapsed = hudCollapsedLoad();
-    let hudGroups = hudGroupsLoad();
-    let hudNames = hudNamesLoad();
+    /* The groups, the custom names and the fold state are held in memory and
+     * saved to the console. The browser keeps no copy, so there is nothing that
+     * can fall out of step with the console. Until it answers, the default is
+     * shown. */
+    let hudCollapsed = new Set();
+    let hudGroups = hudGroupsDefault();
+    let hudNames = {};
 
-    function hudCollapsedLoad() { try { const a = JSON.parse(localStorage.getItem(HUD_COLLAPSED_KEY));
-        if (Array.isArray(a)) return new Set(a.map(String)) } catch (e) { } return new Set() }
-    function hudCollapsedSave() { try { localStorage.setItem(HUD_COLLAPSED_KEY, JSON.stringify([...hudCollapsed])) } catch (e) { } }
-    function hudNamesLoad() { try { const o = JSON.parse(localStorage.getItem(HUD_NAMES_KEY));
-        if (o && typeof o === 'object' && !Array.isArray(o)) return o } catch (e) { } return {} }
-    function hudNamesSave() { try { localStorage.setItem(HUD_NAMES_KEY, JSON.stringify(hudNames)) } catch (e) { } hudLayoutPush() }
+    /* Saving always means "push the whole layout to the console". */
+    function hudGroupsSave() { hudLayoutPush() }
+    function hudNamesSave() { hudLayoutPush() }
+    function hudCollapsedSave() { hudLayoutPush() }
 
     /* The group layout is kept on the console so every browser that connects
-     * sees the same grouping and the same custom item names. localStorage stays
-     * as an offline cache for the first paint, and is seeded from the console
-     * copy as soon as the page can reach it. */
+     * sees the same grouping, the same custom item names and the same folds. An
+     * empty or missing layout file means "use the default", which is written
+     * back - so deleting the file on the console resets every browser. */
     const HUD_LAYOUT_URL = '/api/live/hud/layout';
     let hudLayoutTimer = 0, hudLayoutRemote = false, hudLayoutSynced = false;
-    function hudLayoutBody() { return JSON.stringify({ groups: hudGroups, names: hudNames }) }
+    function hudLayoutBody() { return JSON.stringify({ groups: hudGroups, names: hudNames, collapsed: [...hudCollapsed] }) }
     function hudLayoutNote() { const e = $('hud-layout-note'); if (!e) return;
         e.textContent = hudLayoutRemote ? 'Group layout saved on the console; every browser that connects sees it.'
-            : 'The group layout could not be saved on the console; this browser is using its own copy.' }
+            : 'The group layout could not be saved on the console. Check the connection and try again.' }
     function hudLayoutPush() { if (!token) return; clearTimeout(hudLayoutTimer);
         hudLayoutTimer = setTimeout(() => { hudLayoutTimer = 0; hudLayoutPost() }, 400) }
     async function hudLayoutPost() {
@@ -940,18 +935,20 @@ button:not([role="tab"]) {
             const o = await r.json(); const gs = o && o.groups;
             if (!Array.isArray(gs) || !gs.length) return;
             const rg = hudNormalizeGroups(gs), rn = (o.names && typeof o.names === 'object') ? o.names : {};
-            if (hudCanon(rg) === hudCanon(hudGroups) && hudCanon(rn) === hudCanon(hudNames)) { hudLayoutRemote = true; return }
-            try { localStorage.setItem(HUD_GROUPS_KEY, JSON.stringify(gs)); localStorage.setItem(HUD_NAMES_KEY, JSON.stringify(rn)) } catch (e) { }
-            hudGroups = rg; hudNames = rn; hudLayoutRemote = true; hudRefresh(); hudLayoutNote() }
+            const rc = hudCollapsedOf(o);
+            if (hudCanon(rg) === hudCanon(hudGroups) && hudCanon(rn) === hudCanon(hudNames)
+                && hudCanon([...rc].sort()) === hudCanon([...hudCollapsed].sort())) { hudLayoutRemote = true; return }
+            hudGroups = rg; hudNames = rn; hudCollapsed = rc; hudLayoutRemote = true; hudRefresh(); hudLayoutNote() }
         catch (e) { } }
     async function hudLayoutSync() {
         try { const r = await fetch(HUD_LAYOUT_URL, { cache: 'no-store', headers: { 'X-GT7-Token': token } });
             if (!r.ok) { hudLayoutRemote = false; hudLayoutNote(); return }
             const o = await r.json();
             if (o && Array.isArray(o.groups) && o.groups.length) {
-                try { localStorage.setItem(HUD_GROUPS_KEY, JSON.stringify(o.groups)) } catch (e) { }
-                try { localStorage.setItem(HUD_NAMES_KEY, JSON.stringify(o.names && typeof o.names === 'object' ? o.names : {})) } catch (e) { }
-                hudGroups = hudGroupsLoad(); hudNames = hudNamesLoad(); hudLayoutRemote = true; hudRefresh() }
+                hudGroups = hudNormalizeGroups(o.groups);
+                hudNames = (o.names && typeof o.names === 'object') ? o.names : {};
+                hudCollapsed = hudCollapsedOf(o);
+                hudLayoutRemote = true; hudRefresh() }
             else await hudLayoutPost()
         } catch (e) { hudLayoutRemote = false }
         hudLayoutNote() }
@@ -980,16 +977,13 @@ button:not([role="tab"]) {
                 parent: String(g.parent || ''), items: (g.items || []).map(String) } });
         for (const g of out) if (g.parent && !out.some(x => x.id === g.parent)) g.parent = '';
         return out }
-    function hudGroupsLoad() {
-        let a = null;
-        try { const raw = localStorage.getItem(HUD_GROUPS_KEY);
-            if (raw) { const p = JSON.parse(raw);
-                if (Array.isArray(p) && p.length) a = p;
-                else if (p && Array.isArray(p.groups) && p.groups.length) a = p.groups } }
-        catch (e) { }
-        if (!a) a = HUD_GROUPS_DEFAULT.map(g => ({ label: g[0], path: g[1], items: g[2].slice() }));
-        return hudNormalizeGroups(a) }
-    function hudGroupsSave() { try { localStorage.setItem(HUD_GROUPS_KEY, JSON.stringify(hudGroups)) } catch (e) { } hudLayoutPush() }
+    /* The grouping shipped with the payload: shown until the console answers,
+     * and put back by "Reset to default". */
+    function hudGroupsDefault() {
+        return hudNormalizeGroups(HUD_GROUPS_DEFAULT.map(g => ({ label: g[0], path: g[1], items: g[2].slice() }))) }
+    /* The fold state as it arrives from the console. */
+    function hudCollapsedOf(o) { const a = o && o.collapsed;
+        return new Set(Array.isArray(a) ? a.map(String) : []) }
     function hudNewId() { let n = 0; while (hudGroups.some(g => g.id === 'n' + n)) n++; return 'n' + n }
     function hudById(id) { for (const g of hudGroups) if (g.id === id) return g; return null }
     function hudChildren(id) { return hudGroups.filter(g => g.parent === id) }
@@ -1214,9 +1208,10 @@ button:not([role="tab"]) {
         try { const a = JSON.parse(t.value);
             const gs = Array.isArray(a) ? a : (a && a.groups);
             if (!Array.isArray(gs) || !gs.length) throw Error('expected a non-empty array of groups');
-            try { localStorage.setItem(HUD_GROUPS_KEY, JSON.stringify(gs)) } catch (e) { }
-            if (a && a.names && typeof a.names === 'object') { try { localStorage.setItem(HUD_NAMES_KEY, JSON.stringify(a.names)) } catch (e) { } }
-            hudGroups = hudGroupsLoad(); hudNames = hudNamesLoad(); renderHud(); hudLayoutPush(); status('Group layout imported.') }
+            hudGroups = hudNormalizeGroups(gs);
+            hudNames = (a && a.names && typeof a.names === 'object') ? a.names : {};
+            hudCollapsed = hudCollapsedOf(a);
+            renderHud(); hudLayoutPush(); status('Group layout imported.') }
         catch (e) { status('Import failed: ' + e.message, true) } }
     function hudButtons() { if (!$('hud-elements')) return; const dis = !hudAvailable || busy || halted;
         for (const i of $('hud-elements').querySelectorAll('input[type=checkbox]')) i.disabled = dis || i.dataset.blocked === '1';
@@ -1257,8 +1252,8 @@ button:not([role="tab"]) {
     if ($('hud-new')) $('hud-new').onclick = () => { hudGroups.push({ id: hudNewId(), label: 'New group', path: '', parent: '', items: [] }); hudGroupsSave(); renderHud() };
     if ($('hud-export-btn')) $('hud-export-btn').onclick = hudExport;
     if ($('hud-import-btn')) $('hud-import-btn').onclick = hudImport;
-    if ($('hud-reset')) $('hud-reset').onclick = () => { try { localStorage.removeItem(HUD_GROUPS_KEY); localStorage.removeItem(HUD_NAMES_KEY) } catch (e) { }
-        hudGroups = hudGroupsLoad(); hudNames = hudNamesLoad(); renderHud(); hudLayoutPush() };
+    if ($('hud-reset')) $('hud-reset').onclick = () => { hudGroups = hudGroupsDefault(); hudNames = {}; hudCollapsed = new Set();
+        renderHud(); hudLayoutPush(); status('Group layout reset to the default.') };
     if ($('hud-fold-all')) $('hud-fold-all').onclick = () => {
         hudCollapsed = new Set(hudAllFolded() ? [] : hudGroups.map(hudGroupId));
         hudCollapsedSave(); renderHud() };
