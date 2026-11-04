@@ -7,6 +7,16 @@
 #include <stdint.h>
 #include "live_bridge.h"
 #define HUD_OFF_NAME      0x28u
+/* The name object at node+HUD_OFF_NAME is a small-string-optimised string: a
+ * 64-bit length at +0x10 and capacity at +0x18. Names of 15 characters or
+ * fewer are stored inline at the object itself; longer ones are heap-allocated
+ * and the object holds the text pointer instead. Both forms must be decoded
+ * identically here and in the bridge (hud_name), or a selection made in the UI
+ * will never match at runtime. Missing the heap form is what made the
+ * SteerAssist_icon / BrakeAssist_icon widgets look unnamed. */
+#define HUD_OFF_NAME_LEN  0x10u
+#define HUD_OFF_NAME_CAP  0x18u
+#define HUD_NAME_INLINE   15u
 #define HUD_OFF_CHILDREN  0x160u
 #define HUD_OFF_RECT      0x238u
 #define HUD_RECT_LEN      0x20u

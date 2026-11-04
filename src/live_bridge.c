@@ -57,31 +57,48 @@ static void hud_fill(void *d,unsigned char v,unsigned n){unsigned char *a=d;for(
 static void hud_copy(void *d,const void *s,unsigned n){unsigned char *a=d;const unsigned char *b=s;for(unsigned i=0;i<n;i++)a[i]=b[i];}
 static int hud_same(const char *a,const char *b){for(;;a++,b++){if(*a!=*b)return 0;if(!*a)return 1;}}
 static int hud_is_path(const char *e){for(;*e;e++)if(*e=='/')return 1;return 0;}
+/* Read a widget name: 0 when there is none, 1 for an inline name, 2 for a
+ * heap-allocated one. The name object is a small-string-optimised string, so a
+ * long name is reached through the pointer the object holds rather than sitting
+ * at the object itself. The payload's hud_read_name decodes it the same way: a
+ * widget the two disagree about can never be hidden from the UI. */
 static int hud_name(uintptr_t node,char *out){
     uintptr_t p=*(uintptr_t *)(node+HUD_OFF_NAME);
     if(!hud_ptr(p))return 0;
-    const char *s=(const char *)p;unsigned i=0;
-    for(;i<LIVE_HUD_NAME-1;i++){if(!s[i])break;out[i]=s[i];}
+    const unsigned char *raw=(const unsigned char *)p;
+    uint64_t len=*(const uint64_t *)(p+HUD_OFF_NAME_LEN),cap=*(const uint64_t *)(p+HUD_OFF_NAME_CAP);
+    if(len>HUD_NAME_INLINE&&cap>=len&&len<LIVE_HUD_NAME){
+        uintptr_t text=*(const uintptr_t *)p;
+        if(!hud_ptr(text))return 0;
+        raw=(const unsigned char *)text;
+    }
+    unsigned i=0;for(;i<LIVE_HUD_NAME-1;i++){if(!raw[i])break;out[i]=(char)raw[i];}
     out[i]=0;
-    return hud_name_ok(out,i);
+    if(!hud_name_ok(out,i))return 0;
+    return (len>HUD_NAME_INLINE)?2:1;
 }
-static int hud_match(volatile LiveMailbox *m,uint32_t count,const char *name,const char *path){
+/* A widget matches by its path, or - so a selection made before heap-allocated
+ * widget names were decoded keeps working - by `alias`, the path the old reader
+ * would have built for it. */
+static int hud_match(volatile LiveMailbox *m,uint32_t count,const char *name,const char *path,const char *alias){
     for(uint32_t i=0;i<count;i++){
         const char *e=(const char *)m->hud_entries[i];
         if(!e[0])continue;
-        if(hud_is_path(e)){if(path[0]&&hud_same(e,path))return 1;}
+        if(hud_is_path(e)){if(path[0]&&(hud_same(e,path)||hud_same(e,alias)))return 1;}
         else if(hud_same(e,name))return 1;
     }
     return 0;
 }
-static void hud_children(uintptr_t node,volatile LiveMailbox *m,uintptr_t base,unsigned depth,HudPath *path,int hidden);
-static void hud_walk(uintptr_t node,volatile LiveMailbox *m,uintptr_t base,unsigned depth,HudPath *path,int hidden){
+static void hud_children(uintptr_t node,volatile LiveMailbox *m,uintptr_t base,unsigned depth,HudPath *path,HudPath *alias,int hidden);
+static void hud_walk(uintptr_t node,volatile LiveMailbox *m,uintptr_t base,unsigned depth,HudPath *path,HudPath *alias,int hidden){
     if(depth>HUD_MAX_DEPTH)return;
     char nm[LIVE_HUD_NAME];
     int named=hud_name(node,nm);
-    unsigned save=path->len;
+    unsigned save=path->len,asave=alias->len;
     int pushed=named?hud_path_push(path,nm):0;
     if(named&&!pushed)return; /* path limit reached: skip the subtree so no widget is given a path missing an ancestor */
+    /* Only names the old reader could see go into the compatibility path. */
+    if(named==1&&!hud_path_push(alias,nm)){alias->len=asave;alias->buf[asave]=0;}
     if(named){
         uint32_t count=__atomic_load_n(&m->hud_count,__ATOMIC_RELAXED);
         if(count>LIVE_HUD_MAX)count=LIVE_HUD_MAX;
@@ -93,7 +110,7 @@ static void hud_walk(uintptr_t node,volatile LiveMailbox *m,uintptr_t base,unsig
          * background plus its indicator). Selecting a layer on its own still
          * hides only that layer, which is what lets a background be dropped
          * while the indicator stays. */
-        if(!hidden&&hud_match(m,count,nm,pushed?path->buf:""))hidden=1;
+        if(!hidden&&hud_match(m,count,nm,pushed?path->buf:"",alias->buf))hidden=1;
         if(hidden){
             int slot=-1,spare=-1;
             for(unsigned i=0;i<HUD_SAVED_MAX;i++){
@@ -126,15 +143,16 @@ static void hud_walk(uintptr_t node,volatile LiveMailbox *m,uintptr_t base,unsig
             }
         }
     }
-    hud_children(node,m,base,depth+1,path,hidden);
+    hud_children(node,m,base,depth+1,path,alias,hidden);
     path->len=save;path->buf[save]=0;
+    alias->len=asave;alias->buf[asave]=0;
 }
-static void hud_children(uintptr_t node,volatile LiveMailbox *m,uintptr_t base,unsigned depth,HudPath *path,int hidden){
+static void hud_children(uintptr_t node,volatile LiveMailbox *m,uintptr_t base,unsigned depth,HudPath *path,HudPath *alias,int hidden){
     uintptr_t nl=*(uintptr_t *)(node+HUD_OFF_CHILDREN);
     if(!hud_ptr(nl)||*(uintptr_t *)nl!=base+HUD_NLW_RVA)return;
     uintptr_t vb=*(uintptr_t *)(nl+0x38),ve=*(uintptr_t *)(nl+0x40);
     if(!hud_ptr(vb)||ve<vb||(ve-vb)>8u*4096u)return;
-    for(uintptr_t v=vb;v<ve;v+=8){uintptr_t c=*(uintptr_t *)v;if(hud_ptr(c))hud_walk(c,m,base,depth,path,hidden);}
+    for(uintptr_t v=vb;v<ve;v+=8){uintptr_t c=*(uintptr_t *)v;if(hud_ptr(c))hud_walk(c,m,base,depth,path,alias,hidden);}
 }
 static void apply_hud(void){
     volatile LiveMailbox *m=&live_mailbox;
@@ -146,13 +164,14 @@ static void apply_hud(void){
     uintptr_t base=m->base,ctx=m->context;
     if(!hud_ptr(base)||!hud_ptr(ctx)||*(uintptr_t *)ctx!=base+HUD_UPDATE_VT_RVA)return;
     HudPath path;path.len=0;path.buf[0]=0;
+    HudPath alias;alias.len=0;alias.buf[0]=0;
     for(unsigned i=0;i<HUD_SAVED_MAX;i++){hud_saved[i].seen=0;hud_saved[i].used=0;}
     for(unsigned i=0;i<6;i++){
         uintptr_t rc=*(uintptr_t *)(ctx+0x698+8*i);
         if(!hud_ptr(rc)||*(uintptr_t *)rc!=base+HUD_RENDER_VT_RVA)continue;
         uintptr_t rb=*(uintptr_t *)(rc+0x1e8),re=*(uintptr_t *)(rc+0x1f0);
         if(!hud_ptr(rb)||re<rb||(re-rb)>8u*64u)continue;
-        for(uintptr_t v=rb;v<re;v+=8){uintptr_t rw=*(uintptr_t *)v;if(hud_ptr(rw)&&*(uintptr_t *)rw==base+HUD_ROOT_VT_RVA)hud_children(rw,m,base,0,&path,0);}
+        for(uintptr_t v=rb;v<re;v+=8){uintptr_t rw=*(uintptr_t *)v;if(hud_ptr(rw)&&*(uintptr_t *)rw==base+HUD_ROOT_VT_RVA)hud_children(rw,m,base,0,&path,&alias,0);}
     }
     /* Drop caches that were restored this pass: seen in the tree but no longer
      * hidden (their rects have just been put back). A cache whose widget is
@@ -189,7 +208,7 @@ static int credit_popup_prev;
 static int credit_find(uintptr_t node,uintptr_t base,unsigned depth,const char *parent,const char *grand){
     if(depth>HUD_MAX_DEPTH)return 0;
     char nm[LIVE_HUD_NAME];
-    int named=hud_name(node,nm);
+    int named=hud_name(node,nm)==1; /* inline names only: this walk predates heap-name decoding */
     const char *name=named?nm:"";
     if(named&&hud_same(nm,"HBox")&&hud_same(parent,"SBox")&&hud_same(grand,"GTCredit"))return 1;
     uintptr_t nl=*(uintptr_t *)(node+HUD_OFF_CHILDREN);

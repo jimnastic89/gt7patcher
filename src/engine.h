@@ -11,8 +11,11 @@ typedef struct {int pid;uint32_t state,result,amount,chars,dbg_got,dbg_end,dbg_s
  * bridge is hiding. The field order mirrors the mailbox tail. */
 typedef struct {int pid;uint32_t count,sequence,applied,reserved;char entries[LIVE_HUD_MAX][LIVE_HUD_PATH];} Gt7Hud;
 /* One named widget in the live tree, as published to the web UI. `depth` is the
- * indentation level and `hidden` reports whether its layout rect is zeroed. */
-typedef struct {char path[LIVE_HUD_PATH];unsigned depth;uintptr_t address;int hidden;} Gt7HudNode;
+ * indentation level and `hidden` reports whether its layout rect is zeroed.
+ * `alt` is the path an older reader would have built (empty when it matches
+ * `path`): it keeps a group saved before heap-allocated widget names were
+ * decoded from losing sight of its widgets. */
+typedef struct {char path[LIVE_HUD_PATH];char alt[LIVE_HUD_PATH];unsigned depth;uintptr_t address;int hidden;} Gt7HudNode;
 int gt7_credits_read(Gt7Credits *out);
 int gt7_credits_set(const Gt7Credits *expected,uint32_t amount);
 int gt7_wheel_width_read(Gt7WheelWidth *out);

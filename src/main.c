@@ -28,7 +28,7 @@
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 #endif
-#define VERSION "0.3.15.26-11-04_0921"
+#define VERSION "0.3.15.26-11-04_1410"
 #ifndef PORT
 #define PORT 7210
 #endif
@@ -132,7 +132,7 @@ static void hud_tick(void){
 typedef struct {char *body;size_t cap,at;int first;} HudTreeJson;
 static int hud_tree_emit(void *context,const Gt7HudNode *node){
     HudTreeJson *j=context;
-    if(j->at+2u*LIVE_HUD_PATH+64u>j->cap)return 1; /* stop; the page shows what fits */
+    if(j->at+4u*LIVE_HUD_PATH+128u>j->cap)return 1; /* stop; the page shows what fits */
     size_t n=j->at;
     n+=(size_t)snprintf(j->body+n,j->cap-n,"%s{\"p\":\"",j->first?"":",");
     j->first=0;
@@ -140,7 +140,19 @@ static int hud_tree_emit(void *context,const Gt7HudNode *node){
         if(*c=='"'||*c=='\\')j->body[n++]='\\';
         j->body[n++]=*c;
     }
-    n+=(size_t)snprintf(j->body+n,j->cap-n,"\",\"d\":%u,\"h\":%d,\"a\":\"%#llx\"}",node->depth,node->hidden,(unsigned long long)node->address);
+    n+=(size_t)snprintf(j->body+n,j->cap-n,"\",\"d\":%u,\"h\":%d,\"a\":\"%#llx\"",node->depth,node->hidden,(unsigned long long)node->address);
+    /* The pre-heap-name path, when it differs: the page treats it as an alias
+     * so a group saved earlier still shows its widgets as present. */
+    if(node->alt[0]){
+        n+=(size_t)snprintf(j->body+n,j->cap-n,",\"q\":\"");
+        for(const char *c=node->alt;*c;c++){
+            if(*c=='"'||*c=='\\')j->body[n++]='\\';
+            j->body[n++]=*c;
+        }
+        j->body[n++]='"';
+    }
+    j->body[n++]='}';
+    j->body[n]=0;
     j->at=n;
     return 0;
 }
