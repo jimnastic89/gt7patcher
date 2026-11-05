@@ -1,4 +1,5 @@
 """Prepare reproducible, embedded assets for GT7Patcher."""
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -8,16 +9,19 @@ import struct
 HERE = Path(__file__).resolve().parent
 BUILD = HERE / 'build'
 PATCH_SOURCES = [
-    ('Offline mode', 'offline_mode'),
+    ('Offline Mode', 'offline_mode'),
     ('Debug Settings', 'debug_settings'),
     ('Quick Store Rotation', 'quick_store_rotation'),
     ('Unlock Power Pack', 'unlock_power_pack'),
     ('Unlock Vehicle DLC', 'unlock_vehicle_dlcs'),
     ('Wheel Offset Presets', 'wheel_offset_custom'),
     ('Live Settings', 'live_settings'),
-    ('Skippable new game intro movie', 'opening_movie_skip'),
-    ('Debug environment', 'debug_environment'),
+    ('New Game Intro Movie Skip', 'opening_movie_skip'),
+    ('Debug Environment', 'debug_environment'),
 ]
+# Previous release note retained for easy restoration:
+# "Enable the optional live settings bridge for the next game launch."
+LIVE_SETTINGS_ORIGINAL_NOTE = "Enable the optional live settings bridge for the next game launch."
 
 def cstring(value):
     return json.dumps(value, ensure_ascii=True).replace('?', r'\?')
@@ -72,6 +76,8 @@ def main():
         header.append(cstring(xml) + ',')
     header += ['};', 'static const unsigned patch_counts[]={' + ','.join(map(str, counts)) + '};']
     html = (HERE / 'web/index.html').read_text(encoding='utf-8')
+    credits_icon = base64.b64encode((HERE / 'assets/CreditsIcon.png').read_bytes()).decode('ascii')
+    html = html.replace('__CREDITS_ICON_DATA__', credits_icon)
     cleaner = json.loads((HERE / 'data/cleaner.json').read_text())
     assert cleaner['version'] == 1 and len(cleaner['files']) == 14
     scripts = '<script id="clean-manifest" type="application/json">' + json.dumps(cleaner, separators=(',', ':')) + '</script>\n'

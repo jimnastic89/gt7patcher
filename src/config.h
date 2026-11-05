@@ -3,6 +3,7 @@
 #include <stdio.h>
 #define PATCH_COUNT 9
 #define LIVE_SETTINGS_BIT (1U << 6)
+#define LIVE_SETTINGS_RELEASE_ENABLED 1
 #define OPENING_MOVIE_SKIP_BIT (1U << 7)
 /* Hidden "Debug environment" build-string patch. Locates the internal
  * "release" string and rewrites it to "debug"; see apply_debug_environment. */
@@ -17,7 +18,7 @@
 #define ASPECT_COUNT 9
 typedef struct {
     unsigned mask;
-    int preset, units, language, country, speed, mass, power, torque, temperature, autostart;
+    int preset, units, language, country, speed, mass, power, torque, temperature, autostart, important_dismissed;
     int aspect;
 } Config;
 /* ISO alpha-2 code for a country index, or "" when i is out of range. */

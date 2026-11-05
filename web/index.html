@@ -171,6 +171,27 @@ button:not([role="tab"]) {
         margin: 14px 0
     }
 
+    .important-card {
+        background: linear-gradient(to bottom, #403638, #342d2f);
+        border-color: #765e63;
+        color: #f4e9eb
+    }
+
+    .important-card h2 {
+        margin: 0 0 14px;
+        text-align: center;
+        color: #ffecef
+    }
+
+    .important-card .actions {
+        justify-content: center
+    }
+
+    .important-card p,
+    .important-card label {
+        color: #f4e9eb
+    }
+
     .feature {
         display: flex;
         align-items: flex-start;
@@ -199,6 +220,13 @@ button:not([role="tab"]) {
         font-size: 14px;
         margin: 5px 0 0;
         color: #999999
+    }
+
+    .credits-icon {
+        width: 24px;
+        height: 24px;
+        vertical-align: middle;
+        object-fit: contain
     }
 
     .grid {
@@ -407,7 +435,7 @@ button:not([role="tab"]) {
 <div id="toast" role="status" aria-live="polite" hidden></div>
 <nav role="tablist" aria-label="Settings" style="margin-top:24px">
     <button id="patch-tab" role="tab" aria-controls="patches" aria-selected="true">Patches</button>
-    <button id="game-tab" role="tab" aria-controls="game" aria-selected="false">Language, Units &amp; Country</button>
+    <button id="game-tab" role="tab" aria-controls="game" aria-selected="false">Game Settings</button>
     <button id="live-tab" role="tab" aria-controls="live" aria-selected="false" hidden>Live Settings</button>
     <button id="help-tab" role="tab" aria-controls="help" aria-selected="false">Help</button>
 </nav>
@@ -416,6 +444,11 @@ button:not([role="tab"]) {
         <label>Select patches, then start the engine before launching GT7.</label>
     </div>
     <section id="patches" role="tabpanel" aria-labelledby="patch-tab">
+        <div class="card important-card" id="important-warning">
+            <h2>Important</h2>
+            <p>When starting a new game, ensure you only enable <span id="warning-offline"></span> and (optional) <span id="warning-intro"></span>.<br><br>After you've reached the world map for the first time and gain access to Used Cars, you can restart the game with any patches you want.</p>
+            <div class="actions"><button type="button" id="important-dismiss">OK</button></div>
+        </div>
         <div class="card" id="features"></div>
         <p class="detail"></p>
     </section>
@@ -470,7 +503,7 @@ button:not([role="tab"]) {
             <p class="detail">Overrides the flag shown for your car in races. Leave on "Game default" to keep the game's own value. Independent of language and units.</p>
         </div>
         <div class="card">
-            <div class="field"><label for="aspect">Video output aspect ratio</label><select id="aspect">
+                <div class="field"><label for="aspect">Video output aspect ratio (experimental)</label><select id="aspect">
                     <option value="-1">Game default (16:9)</option>
                     <option value="0">16:10</option>
                     <option value="1">21:9 ultrawide</option>
@@ -488,13 +521,6 @@ button:not([role="tab"]) {
     <section id="live" role="tabpanel" aria-labelledby="live-tab" hidden>
         <div class="card">
             <h2>Live Settings</h2>
-            <p id="credit-balance" aria-live="polite">Live credits unavailable. Start GT7 and load your save.</p>
-            <div class="field">
-                <label for="credits">Credit amount</label>
-                <input id="credits" class="text-input" type="text" inputmode="numeric" maxlength="10" aria-describedby="credit-feedback" disabled>
-            </div>
-            <div class="actions"><button type="button" id="apply-credits" class="primary" disabled>Apply</button><button type="button" id="edit-credits" disabled>Edit in game</button></div>
-            <p id="credit-feedback" class="detail" role="status">Enter 0 to 100,000,000 credits. The balance refreshes every five seconds. Apply changes the live amount immediately.</p>
             <p id="credit-input-feedback" class="detail" role="status">Edit in game opens the system number pad with its own text field so you can type the balance on the console.</p>
         </div>
         <div class="card">
@@ -588,7 +614,7 @@ button:not([role="tab"]) {
             <br>
             <h2>Notes & Troubleshooting</h2>
             <ul>
-                <li>Patches will only work on a "clean" backported copy of PPSA01317 version 1.710.000. It won't work on previous releases distributed with offline modified files. Use the converter above if you have the supported older offline-patched dump.</li>
+                <li>Patches will only work on a "clean" backported copy of PPSA01317 version 1.710.000. It won't work on previous releases distributed with offline modified files. Use the converter above if you have the older offline-patched dump.</li>
                 <br>
                 <li>Most problems are fixed by rebooting the console and trying again.</li>
                 <br>
@@ -601,8 +627,6 @@ button:not([role="tab"]) {
                 <li>Automatic start uses your saved patches. Turning this off takes effect next time the payload runs.</li>
                 <br>
                 <li>Disabling a patch omits it on the next game launch.</li>
-                <br>
-                <li>Firmware version is not checked by the payload.</li>
                 <br>
                 <li>Region presets affect display preferences only. They do not change the title ID, save location,
                 DLC region, or internal GameRegionCode.</li>
@@ -620,7 +644,6 @@ button:not([role="tab"]) {
             <div id="status" role="status" aria-live="polite" hidden></div>
             <button type="button" id="start" disabled>Start engine</button>
             <button type="button" id="launch-game" disabled>Start GT7</button>
-            <button type="button" id="edit-credits-control" disabled title="Opens the system number pad with a text field to set the credit balance">Edit credits in game</button>
             <button type="button" id="reinstall-shortcut" disabled>Reinstall home screen shortcut</button>
             <button type="button" id="stop-payload" class="danger" disabled>Stop payload</button>
         </div>
@@ -630,9 +653,9 @@ button:not([role="tab"]) {
     'use strict';
     const $ = id => document.getElementById(id), keys = ['preset', 'aspect', 'units', 'language', 'country', 'speed', 'mass', 'power', 'torque', 'temperature'];
     let token = '', busy = false, dirty = false, loaded = false, engine = false, engineActive = false, halted = false, gameRunning = false, gameClosed = false, saveTimer = 0;
-    let creditAvailable = false, creditAmount = null, creditSession = null, creditDirty = false, wheelWidth = null, wheelDirty = false, wheelGeometry = null, geometryDirty = false, engineSwap = null, refreshing = false, revision = 0, activePanel = 'patches', persistentMessage = '', initialStatusShown = false;
-    function validCredits() { return /^\d{1,10}$/.test($('credits').value) && Number($('credits').value) <= 100000000 }
-    function creditButtons() { if (!$('credits')) return; const disabled = !creditAvailable || busy || halted; $('credits').disabled = disabled; $('apply-credits').disabled = disabled || !validCredits(); $('edit-credits').disabled = disabled; if ($('edit-credits-control')) $('edit-credits-control').disabled = disabled }
+    const creditsIconData = 'data:image/png;base64,__CREDITS_ICON_DATA__';
+    let wheelWidth = null, wheelDirty = false, wheelGeometry = null, geometryDirty = false, engineSwap = null, importantDismissed = false, refreshing = false, revision = 0, activePanel = 'patches', persistentMessage = '', initialStatusShown = false;
+    function importantWarning() { const card = $('important-warning'); if (!card) return; if (importantDismissed) card.hidden = true; $('important-dismiss').onclick = () => { importantDismissed = true; card.hidden = true; dirty = true; scheduleSave() } }
     function validWheelValue(element) { return /^-?\d{1,3}$/.test(element.value) && Number(element.value) >= -128 && Number(element.value) <= 127 }
     const geometryIds = ['wheel-inch', 'wheel-offset-front', 'wheel-offset-rear', 'hub-offset-front', 'hub-offset-rear'];
     function validGeometryValue(id, limit) { const value = $(id).value; return /^-?\d{1,5}$/.test(value) && Number(value) >= -limit && Number(value) <= limit }
@@ -647,15 +670,6 @@ button:not([role="tab"]) {
     function wheelSettingsStatus() { if (!$('wheel-settings-status')) return;
         const available = wheelWidth !== null && wheelGeometry !== null && wheelWidth.modelCode === wheelGeometry.model;
         $('wheel-settings-status').textContent = available ? `Model code ${wheelWidth.modelCode}` : 'Wheel settings unavailable. Select a garage car and wait for the next refresh.';
-    }
-    function renderCredits(live) { if (!$('credits')) return;
-        const available = live?.available === true && Number.isInteger(live.credits) && live.credits >= 0 && live.credits <= 2147483647 && typeof live.session === 'string';
-        const nextSession = available ? live.session : null;
-        if (nextSession !== creditSession) { creditDirty = false; $('credits').value = '' }
-        creditAvailable = available; creditSession = nextSession; creditAmount = available ? live.credits : null;
-        $('credit-balance').textContent = available ? `Current balance: ${creditAmount.toLocaleString()} credits` : 'Live credits unavailable. Save the Live Settings patch, restart GT7, and load your save.';
-        if (available && !creditDirty && document.activeElement !== $('credits')) $('credits').value = String(creditAmount);
-        creditButtons();
     }
     const creditPromptMessages = { 1: 'Opening the number pad...', 2: 'Opening the number pad...', 3: 'Type the amount in the text field, then confirm with the console keyboard.', 4: 'Applying the amount you entered...', 5: 'Credit amount set from the in-game number pad.', 6: 'In-game entry cancelled.' };
     function renderCreditInput(live) { if (!$('credit-input-feedback')) return;
@@ -710,31 +724,6 @@ button:not([role="tab"]) {
         } catch (error) { $('wheel-settings-feedback').textContent = error.message; $('wheel-settings-feedback').classList.add('error'); status(error.message, true) }
         finally { busy = false; buttons() }
     }
-    async function applyCredits() {
-        if (!creditAvailable || busy || halted || !validCredits()) return;
-        const amount = Number($('credits').value), body = `amount=${amount}&expected=${creditAmount}&session=${creditSession}`;
-        busy = true; revision++; buttons();
-        try {
-            const r = await fetch('/api/live/credits', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body });
-            if (!r.ok) throw Error(await r.text());
-            const result = await r.json(); creditDirty = false; $('credits').value = String(amount); render(result);
-            $('credit-feedback').textContent = 'Credit amount applied.'; $('credit-feedback').classList.remove('error'); status('Live credit amount applied.');
-        } catch (e) { $('credit-feedback').textContent = e.message; $('credit-feedback').classList.add('error'); status(e.message, true) }
-        finally { busy = false; buttons() }
-    }
-    if ($('credits')) {
-    $('credits').addEventListener('input', () => { creditDirty = true; creditButtons() });
-    $('credits').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyCredits() } });
-    $('apply-credits').onclick = applyCredits;
-    const editCredits = async () => { if (!creditAvailable || busy || halted) return; busy = true; revision++; buttons();
-        try {
-            const r = await fetch('/api/live/credit-input', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: '' });
-            if (!r.ok) throw Error(await r.text());
-            $('credit-input-feedback').textContent = 'Opening the number pad...'; $('credit-input-feedback').classList.remove('error'); status('Requested the in-game number pad.');
-        } catch (e) { $('credit-input-feedback').textContent = e.message; $('credit-input-feedback').classList.add('error'); status(e.message, true) }
-        finally { busy = false; buttons() } };
-    $('edit-credits').onclick = editCredits;
-    if ($('edit-credits-control')) $('edit-credits-control').onclick = editCredits;
     for (const id of ['wheel-width-front', 'wheel-width-rear']) {
         $(id).addEventListener('input', () => { wheelDirty = true; wheelSettingsButtons() });
         $(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyWheelSettings() } });
@@ -742,7 +731,6 @@ button:not([role="tab"]) {
     for (const id of geometryIds) $(id).addEventListener('input', () => { geometryDirty = true; wheelSettingsButtons() });
     $('apply-wheel-settings').onclick = applyWheelSettings;
     $('apply-engine-swap').onclick = applyEngineSwap;
-    }
     const languages = [['JP', 'Japanese'], ['US', 'English (United States)'], ['GB', 'English (United Kingdom)'], ['FR', 'French'], ['ES', 'Spanish (Spain)'], ['DE', 'German'], ['IT', 'Italian'], ['NL', 'Dutch'], ['PT', 'Portuguese'], ['RU', 'Russian'], ['PL', 'Polish'], ['TR', 'Turkish'], ['EL', 'Greek'], ['KR', 'Korean'], ['TW', 'Chinese (Traditional)'], ['CN', 'Chinese (Simplified)'], ['DK', 'Danish'], ['NO', 'Norwegian'], ['SE', 'Swedish'], ['FI', 'Finnish'], ['CZ', 'Czech'], ['HU', 'Hungarian'], ['BP', 'Portuguese (Brazil)'], ['MS', 'Spanish (Latin America)'], ['AR', 'Arabic'], ['TH', 'Thai'], ['ZH', 'Chinese (ZH)']];
     $('language').append(new Option('System language', -1)); languages.forEach(([code, name], i) => $('language').append(new Option(`${name} · ${code}`, i)));
     const countries = [
@@ -769,20 +757,19 @@ button:not([role="tab"]) {
         $('status').textContent = text; $('status').hidden = !visible;
     }
     function units() { for (const e of $('unit-fields').querySelectorAll('select')) e.disabled = $('units').value === '0' }
-    function buttons() { hudButtons(); const running = engine || engineActive; $('start').textContent = running ? 'Stop engine' : 'Start engine'; $('start').disabled = !loaded || busy || halted; $('launch-game').disabled = !loaded || busy || halted || !engine || !gameClosed; $('reinstall-shortcut').disabled = !loaded || busy || halted; $('stop-payload').disabled = !loaded || busy || halted; creditButtons(); wheelSettingsButtons(); engineSwapButtons() }
+    function buttons() { hudButtons(); const running = engine || engineActive; $('start').textContent = running ? 'Stop engine' : 'Start engine'; $('start').disabled = !loaded || busy || halted; $('launch-game').disabled = !loaded || busy || halted || !engine || !gameClosed; $('reinstall-shortcut').disabled = !loaded || busy || halted; $('stop-payload').disabled = !loaded || busy || halted; wheelSettingsButtons(); engineSwapButtons() }
     function mark() { dirty = true; liveTab(Boolean($('patch-6')?.checked)); buttons(); scheduleSave() }
     function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(saveConfig, 300) }
     async function saveConfig() {
         if (!loaded || halted) return;
         if (busy) { scheduleSave(); return }
         busy = true; revision++; buttons();
-        try { const r = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: configBody() }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); dirty = false; render(result); status(result.message) }
+        try { const r = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: configBody() }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); dirty = false; render(result) }
         catch (e) { status(e.message, true) } finally { busy = false; buttons() }
     }
     function liveTab(selected) { if (!$('live-tab')) return;
-        $('live-tab').hidden = !selected;
+        $('live-tab').hidden = true;
         if (!selected) {
-            renderCredits(null);
             renderWheelWidth(null);
             renderWheelGeometry(null); renderEngineSwap(null);
             if (!$('live').hidden) $('patch-tab').onclick();
@@ -790,21 +777,24 @@ button:not([role="tab"]) {
     }
     function render(s) {
         token = s.token; engine = s.engineRunning; engineActive = s.engineActive === true; gameRunning = s.gameRunning === 1; gameClosed = s.gameRunning === 0; $('version').textContent = `v${s.version}`; document.title = `GT7Patcher v${s.version}`;
-        renderCredits(s.live); renderCreditInput(s.live);
+        renderCreditInput(s.live);
         renderWheelWidth(s.live); renderWheelGeometry(s.live); renderEngineSwap(s.live);
-        if (!loaded) { s.features.forEach((f, i) => { const row = document.createElement('div'); row.className = 'feature'; const input = document.createElement('input'); input.type = 'checkbox'; input.id = `patch-${i}`; input.dataset.bit = i; const box = document.createElement('div'), label = document.createElement('label'), note = document.createElement('p'); label.htmlFor = input.id; label.textContent = f.name; note.className = 'detail'; note.textContent = f.note; box.append(label, note); row.append(input, box); $('features').append(row) }) }
-        if (!dirty) { for (const k of keys) $(k).value = s.config[k]; $('autostart').checked = Boolean(s.config.autostart); s.features.forEach((_, i) => { $(`patch-${i}`).checked = Boolean(s.config.mask & (1 << i)) }); units() }
-        liveTab(dirty ? Boolean($('patch-6')?.checked) : Boolean(s.config.mask & 64));
+        const featureOrder = [0, 1, 8, 2, 3, 4, 5, 6, 7];
+        if (!loaded) { featureOrder.forEach(i => { const f = s.features[i]; const row = document.createElement('div'); row.className = 'feature'; const input = document.createElement('input'); input.type = 'checkbox'; input.id = `patch-${i}`; input.dataset.bit = i; const box = document.createElement('div'), label = document.createElement('label'), note = document.createElement('p'); label.htmlFor = input.id; label.textContent = f.name; note.className = 'detail'; note.innerHTML = i === 6 ? f.note.replace('credits icon', `credits icon <img class="credits-icon" src="${creditsIconData}" alt="Credits icon">`) : f.note; box.append(label, note); row.append(input, box); $('features').append(row) }) }
+        if (!loaded) { $('warning-offline').textContent = s.features[0].name; $('warning-intro').textContent = s.features[7].name }
+        if (!dirty) { for (const k of keys) $(k).value = s.config[k]; $('autostart').checked = Boolean(s.config.autostart); importantDismissed = Boolean(s.config.important); $('important-warning').hidden = importantDismissed; featureOrder.forEach(i => { $(`patch-${i}`).checked = Boolean(s.config.mask & (1 << i)) }); units() }
+        liveTab(false);
         loaded = true; buttons(); readHud(); if (!dirty) pageStatus(s.gameRunning === 1 ? 'GT7 is running. Saved changes will apply the next time it starts.' : '');
     }
-    async function read() { if (refreshing) return; refreshing = true; const before = revision; try { const r = await fetch('/api/status', { cache: 'no-store' }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (!busy && !halted && before === revision) { render(result); if (!initialStatusShown) { initialStatusShown = true; if (result.message) status(result.message) } } } catch (e) { if (!busy && !halted && before === revision) { renderCredits(null); renderWheelWidth(null); renderWheelGeometry(null); renderEngineSwap(null); status(e.message, true) } } finally { refreshing = false } }
+    async function read() { if (refreshing) return; refreshing = true; const before = revision; try { const r = await fetch('/api/status', { cache: 'no-store' }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (!busy && !halted && before === revision) { render(result); if (!initialStatusShown) { initialStatusShown = true; if (result.message) status(result.message) } } } catch (e) { if (!busy && !halted && before === revision) { renderWheelWidth(null); renderWheelGeometry(null); renderEngineSwap(null); status(e.message, true) } } finally { refreshing = false } }
     async function post(path, body, savesSettings = false) { busy = true; revision++; buttons(); try { const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (savesSettings) dirty = false; render(result); status(result.message) } catch (e) { status(e.message, true) } finally { busy = false; buttons() } }
-    function configBody() { const c = { mask: 0, autostart: Number($('autostart').checked) }; document.querySelectorAll('#features input[data-bit]').forEach(input => { if (input.checked) c.mask |= 1 << Number(input.dataset.bit) }); for (const k of keys) c[k] = Number($(k).value); return new URLSearchParams(c).toString() }
+    function configBody() { const c = { mask: 0, autostart: Number($('autostart').checked), important: Number(importantDismissed) }; document.querySelectorAll('#features input[data-bit]').forEach(input => { if (input.checked) c.mask |= 1 << Number(input.dataset.bit) }); for (const k of keys) c[k] = Number($(k).value); return new URLSearchParams(c).toString() }
     $('form').addEventListener('submit', e => { e.preventDefault(); clearTimeout(saveTimer); saveConfig() });
     $('start').onclick = async () => { if (busy || !loaded || halted) return; if (engine || engineActive) { await read(); if (gameRunning && !confirm('GT7 is running. Stopping the engine now leaves the current game unpatched and may prevent automatic restoration. Continue?')) return; post('/api/engine/stop', ''); return; } clearTimeout(saveTimer); busy = true; revision++; buttons(); try { if (dirty) { const saved = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: configBody() }); if (!saved.ok) throw Error(await saved.text()); dirty = false; render(await saved.json()) } const started = await fetch('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: '' }); if (!started.ok) throw Error(await started.text()); const result = await started.json(); render(result); status(result.message) } catch (e) { status(e.message, true) } finally { busy = false; buttons() } };
     $('launch-game').onclick = () => post('/api/game/start', '');
     $('reinstall-shortcut').onclick = () => post('/api/shortcut/reinstall', '');
     $('stop-payload').onclick = async () => { const warning = gameRunning ? 'GT7 is running. Stopping GT7Patcher now stops its engine and closes the web interface. Continue?' : 'Stop GT7Patcher? Port 7210 will close until the payload is run again.'; if (!confirm(warning)) return; busy = true; buttons(); try { const r = await fetch('/api/payload/stop', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body: '' }); if (!r.ok) throw Error(await r.text()); halted = true; engine = false; status('GT7Patcher has stopped. Run the payload again to reconnect.') } catch (e) { status(e.message, true) } finally { busy = false; buttons() } };
+    importantWarning();
     $('form').addEventListener('change', e => { if (e.target.id === 'credits' || e.target.id.startsWith('clean-')) return; if (e.target.id === 'patch-2' && e.target.checked) $('patch-0').checked = true; if (e.target.id === 'patch-0' && !e.target.checked) $('patch-2').checked = false; if (e.target.id === 'units') units(); if (['speed', 'mass', 'power', 'torque', 'temperature', 'language'].includes(e.target.id)) $('preset').value = 0; mark() });
     const presets = { 1: { language: 2, speed: 0, mass: 0, power: 2, torque: 2, temperature: 1 }, 2: { language: 2, speed: 0, mass: 0, power: 1, torque: 2, temperature: 1 }, 3: { language: 1, speed: 1, mass: 1, power: 1, torque: 1, temperature: 2 }, 4: { language: 0, speed: 0, mass: 0, power: 0, torque: 0, temperature: 1 }, 5: { language: 2, speed: 1, mass: 0, power: 1, torque: 2, temperature: 1 } };
     $('preset').addEventListener('change', () => { const p = presets[$('preset').value]; if (p) { for (const [k, v] of Object.entries(p)) $(k).value = v; $('units').value = 1; units() } });

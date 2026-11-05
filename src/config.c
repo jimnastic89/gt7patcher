@@ -44,14 +44,14 @@ _Static_assert(sizeof(aspect_ratios)/sizeof(aspect_ratios[0])==ASPECT_COUNT,
                "aspect ratio table size must match ASPECT_COUNT");
 static float aspect_value(int i){return (float)aspect_ratios[i].w/(float)aspect_ratios[i].h;}
 
-Config defaults(void){return (Config){1,1,1,2,-1,0,0,2,2,1,0,-1};}
+Config defaults(void){return (Config){1,1,1,2,-1,0,0,2,2,1,0,0,-1};}
 int valid_config(const Config *c){
     return c->mask<=(1U<<PATCH_COUNT)-1 &&
         c->preset>=0&&c->preset<=5&&c->units>=0&&c->units<=1&&
         c->language>=-1&&c->language<=26&&c->country>=-1&&c->country<COUNTRY_COUNT&&
         c->speed>=0&&c->speed<=1&&
         c->mass>=0&&c->mass<=1&&c->power>=0&&c->power<=2&&
-        c->torque>=0&&c->torque<=2&&c->temperature>=1&&c->temperature<=2&&c->autostart>=0&&c->autostart<=1&&c->aspect>=-1&&c->aspect<ASPECT_COUNT;
+        c->torque>=0&&c->torque<=2&&c->temperature>=1&&c->temperature<=2&&c->autostart>=0&&c->autostart<=1&&c->important_dismissed>=0&&c->important_dismissed<=1&&c->aspect>=-1&&c->aspect<ASPECT_COUNT;
 }
 int parse_config(const char *body,Config *c){
     unsigned seen=0; char copy[512];
@@ -62,9 +62,9 @@ int parse_config(const char *body,Config *c){
         if(!*eq)return -1;
         char *end;long v=strtol(eq,&end,10);
         if(*end||v < -1||v>0x1ff)return -1;
-        const char *keys[]={"mask","preset","units","language","speed","mass","power","torque","temperature","autostart","country","aspect"};
-        int k;for(k=0;k<12;k++)if(!strcmp(item,keys[k]))break;
-        if(k==12||(seen&(1U<<k)))return -1;
+        const char *keys[]={"mask","preset","units","language","speed","mass","power","torque","temperature","autostart","country","aspect","important"};
+        int k;for(k=0;k<13;k++)if(!strcmp(item,keys[k]))break;
+        if(k==13||(seen&(1U<<k)))return -1;
         seen|=1U<<k;
         switch(k){
           case 0:c->mask=(unsigned)v;break;case 1:c->preset=(int)v;break;
@@ -72,13 +72,14 @@ int parse_config(const char *body,Config *c){
           case 4:c->speed=(int)v;break;case 5:c->mass=(int)v;break;
           case 6:c->power=(int)v;break;case 7:c->torque=(int)v;break;
           case 8:c->temperature=(int)v;break;case 9:c->autostart=(int)v;break;
-          case 10:c->country=(int)v;break;case 11:c->aspect=(int)v;break;
+          case 10:c->country=(int)v;break;case 11:c->aspect=(int)v;break;case 12:c->important_dismissed=(int)v;break;
         }
     }
     /* Accept the full 12-key payload, plus the 9/10/11-key payloads written by
      * older builds (which had no country and/or aspect field). */
-    unsigned full=(1U<<12)-1;
-    return (seen==full||seen==((1U<<11)-1)||seen==((1U<<10)-1)||seen==((1U<<9)-1))&&valid_config(c)?0:-1;
+    unsigned full=(1U<<13)-1;
+    if(!(LIVE_SETTINGS_RELEASE_ENABLED))c->mask&=~LIVE_SETTINGS_BIT;
+    return (seen==full||seen==((1U<<12)-1)||seen==((1U<<11)-1)||seen==((1U<<10)-1)||seen==((1U<<9)-1))&&valid_config(c)?0:-1;
 }
 static void line(FILE *f,uint32_t a,const unsigned char *b,size_t n){
     fprintf(f,"<Line Type=\"bytes\" Address=\"0x%08x\" Value=\"",a);
@@ -151,7 +152,7 @@ int emit_xml(FILE *f,const Config *c){
         memcpy(cv,&aspect,4);memcpy(cv+4,&neg,4);line(f,cave,cv,8);
     }
     fputs("</PatchList></Metadata>\n",f);
-    fprintf(f,"<!-- GT7CONFIG %u %d %d %d %d %d %d %d %d %d %d %d -->\n",c->mask,c->preset,c->units,c->language,c->speed,c->mass,c->power,c->torque,c->temperature,c->autostart,c->country,c->aspect);
+    fprintf(f,"<!-- GT7CONFIG %u %d %d %d %d %d %d %d %d %d %d %d %d -->\n",c->mask,c->preset,c->units,c->language,c->speed,c->mass,c->power,c->torque,c->temperature,c->autostart,c->country,c->aspect,c->important_dismissed);
     fputs("</Patch>\n",f);
     return ferror(f)?-1:0;
 }
@@ -178,8 +179,8 @@ static int load_config_unlocked(const char *root,Config *c){
         if(strstr(buf,"Name=\"Race Info fifth blank option (experimental)\""))has_race_info=1;
         if(strstr(buf,"Address=\"0x060ec3b0\"")||strstr(buf,"Address=\"0x060e83b0\"")||strstr(buf,"Address=\"0x05ce83b0\""))has_debug_environment=1;
         unsigned mask;Config x={0};x.country=-1;x.aspect=-1;
-        int fields=sscanf(buf,"<!-- GT7CONFIG %u %d %d %d %d %d %d %d %d %d %d %d",&mask,&x.preset,&x.units,&x.language,&x.speed,&x.mass,&x.power,&x.torque,&x.temperature,&x.autostart,&x.country,&x.aspect);
-        if(fields>=9&&fields<=12){
+        int fields=sscanf(buf,"<!-- GT7CONFIG %u %d %d %d %d %d %d %d %d %d %d %d %d",&mask,&x.preset,&x.units,&x.language,&x.speed,&x.mass,&x.power,&x.torque,&x.temperature,&x.autostart,&x.country,&x.aspect,&x.important_dismissed);
+        if(fields>=9&&fields<=13){
             /* HUD builds may save bit 5 for their experimental Race Info
              * option and bit 6 for Wheel Offset. Preserve the supported
              * Wheel Offset choice, discard the unsupported experiment. */
@@ -197,6 +198,9 @@ static int load_config_unlocked(const char *root,Config *c){
     if((saved_mask&0x20U)&&(!has_race_info||has_debug_environment))normalized|=0x20U;
     if((saved_mask&OPENING_MOVIE_SKIP_BIT)&&has_opening_movie_skip)normalized|=OPENING_MOVIE_SKIP_BIT;
     loaded.mask=normalized;
+#if !LIVE_SETTINGS_RELEASE_ENABLED
+    loaded.mask&=~LIVE_SETTINGS_BIT;
+#endif
     if(!valid_config(&loaded))return -1;
     *c=loaded;return 0;
 }

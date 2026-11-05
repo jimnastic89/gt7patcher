@@ -28,7 +28,7 @@
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 #endif
-#define VERSION "0.3.18.26-11-04_1645"
+#define VERSION "0.31"
 #ifndef PORT
 #define PORT 7210
 #endif
@@ -252,18 +252,10 @@ static void json_status(int fd){
 #ifdef PS5
     if(atomic_load(&startup_pending))status_message="GT7Patcher is available on port 7210. Preparing the home-screen shortcut and saved startup option.";
 #endif
-    n+=(size_t)snprintf(body+n,sizeof(body)-n,"{\"version\":\"%s\",\"token\":\"%s\",\"engineRunning\":%s,\"engineActive\":%s,\"gameRunning\":%d,\"message\":\"%s\",\"config\":{\"mask\":%u,\"preset\":%d,\"units\":%d,\"language\":%d,\"country\":%d,\"speed\":%d,\"mass\":%d,\"power\":%d,\"torque\":%d,\"temperature\":%d,\"autostart\":%d,\"aspect\":%d},\"features\":[",VERSION,token,engine_ready()?"true":"false",engine_active()?"true":"false",running_gt7(),status_message,config.mask,config.preset,config.units,config.language,config.country,config.speed,config.mass,config.power,config.torque,config.temperature,config.autostart,config.aspect);
+    n+=(size_t)snprintf(body+n,sizeof(body)-n,"{\"version\":\"%s\",\"token\":\"%s\",\"engineRunning\":%s,\"engineActive\":%s,\"gameRunning\":%d,\"message\":\"%s\",\"config\":{\"mask\":%u,\"preset\":%d,\"units\":%d,\"language\":%d,\"country\":%d,\"speed\":%d,\"mass\":%d,\"power\":%d,\"torque\":%d,\"temperature\":%d,\"autostart\":%d,\"aspect\":%d,\"important\":%d},\"features\":[",VERSION,token,engine_ready()?"true":"false",engine_active()?"true":"false",running_gt7(),status_message,config.mask,config.preset,config.units,config.language,config.country,config.speed,config.mass,config.power,config.torque,config.temperature,config.autostart,config.aspect,config.important_dismissed);
     /* Original feature labels and notes contain no JSON quoting characters; verify at generation. */
     for(unsigned i=0;i<PATCH_COUNT;i++)n+=(size_t)snprintf(body+n,sizeof(body)-n,"%s{\"name\":\"%s\",\"note\":\"%s\",\"lines\":%u}",i?",":"",feature_name(i),feature_note(i),feature_count(i));
-    n+=(size_t)snprintf(body+n,sizeof(body)-n,"],\"live\":{");
-#ifdef PS5
-    Gt7Credits credits;
-    if((config.mask&LIVE_SETTINGS_BIT)&&!atomic_load(&startup_pending)&&gt7_live_ready()&&!gt7_credits_read(&credits))
-        n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":true,\"credits\":%u,\"session\":\"%d:%llx\"",credits.amount,credits.pid,(unsigned long long)credits.object);
-    else
-#endif
-        n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":false,\"credits\":null,\"session\":null");
-    n+=(size_t)snprintf(body+n,sizeof(body)-n,",\"creditPrompt\":{");
+    n+=(size_t)snprintf(body+n,sizeof(body)-n,"],\"live\":{\"creditPrompt\":{");
 #ifdef PS5
     Gt7CreditPrompt credit_prompt;
     if((config.mask&LIVE_SETTINGS_BIT)&&!atomic_load(&startup_pending)&&!gt7_live_credit_prompt_read(&credit_prompt))
@@ -510,7 +502,7 @@ static void serve(int fd){
     size_t received=used-(size_t)(body-req);
     if(received>length){response(fd,400,"text/plain","Invalid body length");return;}
     while(received<length){ssize_t r=recv(fd,body+received,length-received,0);if(r<=0)return;received+=(size_t)r;}body[length]=0;
-    if(strncmp(path,"/api/live/probe",15)&&strcmp(path,"/api/live/snapshot")&&strcmp(path,"/api/live/snapshot/clear")&&strcmp(path,"/api/config")&&strcmp(path,"/api/live/credits")&&strcmp(path,"/api/live/credit-input")&&strcmp(path,"/api/live/wheel-width")&&strcmp(path,"/api/live/wheel-geometry")&&strcmp(path,"/api/live/engine-swap")&&strncmp(path,"/api/live/hud",13)&&strcmp(path,"/api/start")&&strcmp(path,"/api/game/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
+    if(strncmp(path,"/api/live/probe",15)&&strcmp(path,"/api/live/snapshot")&&strcmp(path,"/api/live/snapshot/clear")&&strcmp(path,"/api/config")&&strcmp(path,"/api/live/credit-input")&&strcmp(path,"/api/live/wheel-width")&&strcmp(path,"/api/live/wheel-geometry")&&strcmp(path,"/api/live/engine-swap")&&strncmp(path,"/api/live/hud",13)&&strcmp(path,"/api/start")&&strcmp(path,"/api/game/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
 #ifdef PS5
     if(atomic_load(&startup_pending)){response(fd,409,"text/plain","Startup is still running. Please retry shortly; the browser page remains available.");return;}
 #endif
@@ -556,24 +548,6 @@ static void serve(int fd){
         response(fd,200,"application/json",reply);return;
 #else
         response(fd,409,"text/plain","Snapshots are only available while supported GT7 is running on PS5.");return;
-#endif
-    }
-    if(!strcmp(path,"/api/live/credits")){
-        /* Fixed field order and canonical decimal values, with bounded input
-         * before scanf, prevent signs, overflow, duplicate or extra fields. */
-        int consumed=0;unsigned long long amount,expected,pid,object;
-        char canonical[128];
-        if(length>=sizeof(canonical)||sscanf(body,"amount=%10llu&expected=%10llu&session=%10llu:%16llx%n",&amount,&expected,&pid,&object,&consumed)!=4||consumed!=(int)length||
-           amount>100000000U||expected>INT32_MAX||!pid||pid>INT32_MAX){response(fd,400,"text/plain","Use a whole credit amount from 0 to 100000000 and a valid game session.");return;}
-        snprintf(canonical,sizeof(canonical),"amount=%llu&expected=%llu&session=%llu:%llx",amount,expected,pid,object);
-        if(strcmp(body,canonical)){response(fd,400,"text/plain","Invalid credit amount or session.");return;}
-        if(!(config.mask&LIVE_SETTINGS_BIT)){response(fd,409,"text/plain","Select and save the Live Settings patch first.");return;}
-#ifdef PS5
-        Gt7Credits before={(int)pid,object,(uint32_t)expected};int result=gt7_credits_set(&before,(uint32_t)amount);
-        if(result){response(fd,409,"text/plain",result==-3?"The game has not acknowledged the credit request yet. Do not resubmit; wait for the live balance to refresh.":result==-2?"Credits changed since the last refresh. Refresh the balance and apply again.":"Live bridge is unavailable or the native credit update could not be verified. Start GT7 with the Live Settings patch selected.");return;}
-        strcpy(message,"Live credit amount applied.");json_status(fd);return;
-#else
-        response(fd,409,"text/plain","Live credits are only available while supported GT7 is running on PS5.");return;
 #endif
     }
     if(!strcmp(path,"/api/live/credit-input")){
@@ -714,9 +688,7 @@ static void serve(int fd){
         Config next;if(parse_config(body,&next)){response(fd,400,"text/plain","Invalid settings.");return;}
         if(save_config(root,&next)){response(fd,500,"text/plain","Could not save the patch snapshot; previous settings retained.");return;}
         config=next;
-        int game=running_gt7();
-        if(game>0)strcpy(message,"Choices saved. They will apply the next time GT7 starts.");
-        else strcpy(message,engine_ready()?"Choices saved. Launch GT7 to apply them.":"Choices saved. Start the engine, then launch GT7.");
+        message[0]=0;
     }
     json_status(fd);
 }
