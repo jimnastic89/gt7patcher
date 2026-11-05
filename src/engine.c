@@ -67,8 +67,8 @@ static unsigned firmware_version(void);
 /* The public TitleDir registration entry point is available before firmware
  * 12.  On 12+ AppInstallAll must be bridged to ShellCore's internal TitleDir
  * handler.  These verified RVAs are from ShadowMountPlus's generated
- * per-firmware table.  Keep the firmware exact: similar ShellCore revisions
- * can move the cave or dispatcher by a few hundred bytes. */
+ * per-firmware table through 13.60. Keep the firmware exact: similar
+ * ShellCore revisions can move the cave or dispatcher by a few hundred bytes. */
 typedef struct {unsigned firmware;uintptr_t title_dir,install_all,smp_cave;} IconProfile;
 static const IconProfile icon_profiles[]={
     {0x1200,0x2e0050,0x2dd100,0x1886360}, /* 12.00 */
@@ -77,6 +77,11 @@ static const IconProfile icon_profiles[]={
     {0x1240,0x2e0050,0x2dd100,0x1887200}, /* 12.40 */
     {0x1260,0x2e0320,0x2dd3d0,0x188dfa0}, /* 12.60 */
     {0x1270,0x2e0320,0x2dd3d0,0x188dfa0}, /* 12.70 */
+    {0x1300,0x31f6e0,0x31c790,0x1958090}, /* 13.00 */
+    {0x1320,0x31ff20,0x31cfd0,0x19619f0}, /* 13.20 */
+    {0x1340,0x3200a0,0x31d150,0x1961b70}, /* 13.40 */
+    {0x1342,0x3200a0,0x31d150,0x1961b70}, /* 13.42 */
+    {0x1360,0x320c40,0x31dcf0,0x1962700}, /* 13.60 */
 };
 static const IconProfile *icon_profile(void){
     unsigned firmware=firmware_version();
@@ -1071,8 +1076,8 @@ static int bridge_prepare(void){
     static const unsigned char new_signature[]={0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56,0x41,0x55,0x41,0x54,0x53,0x48,0x83,0xec,0x18,0x49,0x89,0xfd,0xbf,0x18,0,0,0,0x49,0x89,0xd6,0x49,0x89,0xf4,0xe8,0,0,0,0};
     const unsigned char *signature=old_signature;size_t signature_size=sizeof(old_signature),wildcard_start=19,wildcard_size=1;
     unsigned fw=firmware_version();
-    if(fw>=0x0b00&&fw<0x0c00){signature=mid_signature;signature_size=sizeof(mid_signature);wildcard_start=29;wildcard_size=4;engine_log("Bridge: using 11.xx signature");}
-    else if(fw>=0x0c00){signature=new_signature;signature_size=sizeof(new_signature);wildcard_start=32;wildcard_size=4;engine_log("Bridge: using 12.xx signature");}
+    if(fw>=0x1100&&fw<0x1200){signature=mid_signature;signature_size=sizeof(mid_signature);wildcard_start=29;wildcard_size=4;engine_log("Bridge: using 11.xx signature");}
+    else if(fw>=0x1200){signature=new_signature;signature_size=sizeof(new_signature);wildcard_start=32;wildcard_size=4;engine_log("Bridge: using 12.00+ signature");}
     else engine_log("Bridge: using 4.00-10.00 signature");
     unsigned matches=0,pointers=0;
     for(size_t i=0;i+signature_size<=module.mapsize;i++){

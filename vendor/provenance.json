@@ -17,10 +17,10 @@
   "icon_offsets_reference": {
     "repository": "https://github.com/drakmor/ShadowMountPlus",
     "file": "src/sm_shellcore_offsets.inc",
-    "firmware": "12.40",
+    "firmware": "12.00-13.60",
     "local_reference_sha256": "5c5c608afba9b147317cd41e051c0fe9a027e28a9cbebc319d9cbbe8fe78be2d",
     "license": "GPL-3.0",
-    "commit": "98c524890176c7b474fcb03387bec88c4a559861"
+    "commit": "c08e20775528a309be078f600ff9e2dff3014403"
   },
   "notify": {
     "repository": "https://github.com/ps5-payload-dev/elfldr",

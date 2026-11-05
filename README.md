@@ -64,6 +64,7 @@ make host
 python3 tests/test_selector.py
 python3 tests/test_hook.py
 python3 tests/test_memory.py
+python3 tools/verify_icon_profiles.py
 python3 package.py
 ```
 
