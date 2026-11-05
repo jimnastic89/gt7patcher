@@ -2,6 +2,12 @@
 /build/
 /dist/
 /work/
+
+# Test and legacy patch sources are not inputs to the payload build
+/tests/
+/xmlpatches/
+/data/PPSA01317-original.xml
+
 __pycache__/
 *.py[cod]
 *.o
