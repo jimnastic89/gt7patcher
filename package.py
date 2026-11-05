@@ -8,7 +8,7 @@ import zipfile
 HERE=Path(__file__).resolve().parent
 DIST=HERE/'dist'
 DIST.mkdir(exist_ok=True)
-VERSION='0.31'
+VERSION='0.31.26-11-06_0809'
 name=f'GT7Patcher-v{VERSION}'
 elf=DIST/f'{name}.elf'
 shutil.copyfile(HERE/'build/gt7patcher.elf',elf)

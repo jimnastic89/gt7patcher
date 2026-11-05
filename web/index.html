@@ -768,7 +768,7 @@ button:not([role="tab"]) {
         catch (e) { status(e.message, true) } finally { busy = false; buttons() }
     }
     function liveTab(selected) { if (!$('live-tab')) return;
-        $('live-tab').hidden = true;
+        $('live-tab').hidden = !selected;
         if (!selected) {
             renderWheelWidth(null);
             renderWheelGeometry(null); renderEngineSwap(null);
@@ -783,7 +783,7 @@ button:not([role="tab"]) {
         if (!loaded) { featureOrder.forEach(i => { const f = s.features[i]; const row = document.createElement('div'); row.className = 'feature'; const input = document.createElement('input'); input.type = 'checkbox'; input.id = `patch-${i}`; input.dataset.bit = i; const box = document.createElement('div'), label = document.createElement('label'), note = document.createElement('p'); label.htmlFor = input.id; label.textContent = f.name; note.className = 'detail'; note.innerHTML = i === 6 ? f.note.replace('credits icon', `credits icon <img class="credits-icon" src="${creditsIconData}" alt="Credits icon">`) : f.note; box.append(label, note); row.append(input, box); $('features').append(row) }) }
         if (!loaded) { $('warning-offline').textContent = s.features[0].name; $('warning-intro').textContent = s.features[7].name }
         if (!dirty) { for (const k of keys) $(k).value = s.config[k]; $('autostart').checked = Boolean(s.config.autostart); importantDismissed = Boolean(s.config.important); $('important-warning').hidden = importantDismissed; featureOrder.forEach(i => { $(`patch-${i}`).checked = Boolean(s.config.mask & (1 << i)) }); units() }
-        liveTab(false);
+        liveTab(dirty ? Boolean($('patch-6')?.checked) : Boolean(s.config.mask & 64));
         loaded = true; buttons(); readHud(); if (!dirty) pageStatus(s.gameRunning === 1 ? 'GT7 is running. Saved changes will apply the next time it starts.' : '');
     }
     async function read() { if (refreshing) return; refreshing = true; const before = revision; try { const r = await fetch('/api/status', { cache: 'no-store' }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (!busy && !halted && before === revision) { render(result); if (!initialStatusShown) { initialStatusShown = true; if (result.message) status(result.message) } } } catch (e) { if (!busy && !halted && before === revision) { renderWheelWidth(null); renderWheelGeometry(null); renderEngineSwap(null); status(e.message, true) } } finally { refreshing = false } }

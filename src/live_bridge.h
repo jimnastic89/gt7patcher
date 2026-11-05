@@ -28,6 +28,12 @@
 #define LIVE_HUD_MAX 64
 #define LIVE_HUD_NAME 32
 #define LIVE_HUD_PATH 96
+/* One-shot UI diagnostic: the payload calls a single engine routine on the
+ * game's UI thread as a VM native, following the engine's binding convention:
+ * rsi = receiver object, edx = argument count, rcx = argument vector pointer
+ * (arg[i] = *(uint64_t *)(rcx + 8*i)); rdi is unused. argc must equal the
+ * routine's own expected count or the routine rejects the call. */
+#define LIVE_MENU_CALL_MAX 6
 enum {PROMPT_IDLE,PROMPT_QUEUED,PROMPT_RUNNING,PROMPT_OPEN,PROMPT_ENTERED,PROMPT_APPLIED,PROMPT_CANCELLED,PROMPT_FAILED};
 enum {LIVE_IDLE, LIVE_QUEUED, LIVE_RUNNING, LIVE_DONE, LIVE_STALE, LIVE_INVALID, LIVE_CANCELLED};
 enum {CAR_IDLE, CAR_QUEUED, CAR_RUNNING, CAR_READY, CAR_UNAVAILABLE};
@@ -102,6 +108,12 @@ typedef struct {
      * it and arms the credit number pad via gt7_live_credit_prompt_begin(). */
     uint32_t credit_request;
     char hud_entries[LIVE_HUD_MAX][LIVE_HUD_PATH];
+    /* One-shot UI diagnostic (engine -> payload). */
+    uint32_t menu_call_state, menu_call_result, menu_call_argc, menu_call_reserved;
+    /* menu_call_result holds MENU_CALL_ENTERED while the routine runs, so a
+     * fault inside it can be told apart from a call never dispatched. */
+    uint64_t menu_call_target, menu_call_receiver;
+    uint64_t menu_call_argv[LIVE_MENU_CALL_MAX];
 } LiveMailbox;
 /* The mailbox is defined file-local in live_bridge.c. It must NOT be a global
  * symbol: the PS5 clang toolchain marks every global GLOBAL DEFAULT (ignoring

@@ -421,6 +421,39 @@ static void pump(void){
 finish:
     __atomic_store_n(&m->state,result,__ATOMIC_RELEASE);
 }
+
+enum {MENU_CALL_IDLE, MENU_CALL_QUEUED, MENU_CALL_RUNNING, MENU_CALL_DONE,
+      MENU_CALL_REJECTED, MENU_CALL_FAILED};
+/* Written into menu_call_result for the duration of the call, so a fault inside
+ * the routine is distinguishable from a call that was never dispatched. */
+#define MENU_CALL_ENTERED 0x0000ca11u
+/* Coarse upper bound for the main image. The engine checks the exact bound
+ * against the module's mapped size; this is the payload's second line of
+ * defence so a stale mailbox can never make it jump outside the game. */
+#define MENU_CALL_IMAGE_LIMIT 0x08000000u
+static int menu_call_ptr(uintptr_t p){return p>=0x10000u&&p<=UINT64_C(0x7fffffffffff);}
+static void menu_call(void){
+    volatile LiveMailbox *m=&live_mailbox;
+    uint32_t queued=MENU_CALL_QUEUED;
+    if(!__atomic_compare_exchange_n(&m->menu_call_state,&queued,MENU_CALL_RUNNING,0,__ATOMIC_ACQ_REL,__ATOMIC_RELAXED))return;
+    uint32_t result=MENU_CALL_REJECTED;
+    uintptr_t target=(uintptr_t)m->menu_call_target;
+    if(!m->base||!menu_call_ptr(target)||target<m->base||target-m->base>=MENU_CALL_IMAGE_LIMIT||
+       m->menu_call_argc>LIVE_MENU_CALL_MAX||!menu_call_ptr((uintptr_t)m->menu_call_receiver))goto finish;
+    /* Publish ENTERED before the call: if the routine faults, the engine's poll
+     * still sees it and reports that the call was dispatched but never returned,
+     * rather than a bare timeout. */
+    m->menu_call_result=MENU_CALL_ENTERED;
+    {
+        typedef void (*MenuCallNative)(uint64_t,uint64_t,uint64_t,uint64_t);
+        ((MenuCallNative)target)(0,(uint64_t)m->menu_call_receiver,(uint64_t)m->menu_call_argc,
+                                 (uint64_t)(uintptr_t)&m->menu_call_argv[0]);
+    }
+    result=MENU_CALL_DONE;
+finish:
+    m->menu_call_result=result;
+    __atomic_store_n(&m->menu_call_state,result,__ATOMIC_RELEASE);
+}
 /* ------------------------------------------------------------------------
  * Credit number-input prompt.
  * sceImeOpen opens only the on-screen keyboard panel (the game is expected to
@@ -530,5 +563,6 @@ __attribute__((visibility("hidden"))) void live_frame(void *context,float delta_
     credit_watch();
     prompt();
     pump();
+    menu_call();
     ((void (*)(void *,float))(uintptr_t)live_mailbox.original)(context,delta_time);
 }

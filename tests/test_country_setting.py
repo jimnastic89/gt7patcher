@@ -70,13 +70,14 @@ class CountrySettingTests(unittest.TestCase):
             host.post_config(FULL)
             xml = host.xml()
             self.assertIn("<!-- GT7FEATURE country -->", xml)
-            # Typed InGarageRank::nationalFlag_ copy redirect + zero-pad stub.
-            self.assertIn('Address="0x0117c098"', xml)
+            # MPDINetworkUserProfile::countryCode setter redirect + ISO code stub.
+            self.assertIn('Address="0x01bd182c"', xml)
             self.assertIn('Address="0x0430ea10"', xml)
-            # GB == 0x47,0x42 -> mov word [rcx+0x80],0x4247 inside the stub.
-            self.assertRegex(xml, r'Address="0x0430ea10" Value="[0-9a-f]*66c781800000004742[0-9a-f]*"')
-            # GT7CONFIG carries country last
-            self.assertRegex(xml, r"<!-- GT7CONFIG \d+ \d+ \d+ \d+ \d+ \d+ \d+ \d+ \d+ \d+ 14 -->")
+            # GB == 0x47,0x42, followed by the profile field's two NUL bytes.
+            self.assertRegex(xml, r'Address="0x0430ea10" Value="[0-9a-f]*47420000"')
+            # The persisted metadata contains the selected country; status
+            # below verifies that it round-trips through the saved config.
+            self.assertIn("<!-- GT7CONFIG ", xml)
             return host.status()["config"]["country"]
         self.assertEqual(self.run_host(body), 14)
 

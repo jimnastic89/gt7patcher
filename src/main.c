@@ -28,7 +28,7 @@
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 #endif
-#define VERSION "0.31"
+#define VERSION "0.31.26-11-06_0809"
 #ifndef PORT
 #define PORT 7210
 #endif
@@ -50,6 +50,22 @@ static pthread_t startup_thread;
 static int startup_thread_created;
 #endif
 static void stop(int sig){(void)sig;stopping=1;}
+/* Rest mode can invalidate an existing listening socket while the payload
+ * process itself survives.  Keep socket creation in one place so the main
+ * loop can recover the web endpoint instead of exiting on the first EBADF or
+ * ENOTSOCK returned by select/accept after wake. */
+static int open_listener(unsigned port){
+    int s=socket(AF_INET,SOCK_STREAM,0);if(s<0)return -1;
+    int opt=1;setsockopt(s,SOL_SOCKET,SO_REUSEADDR,&opt,sizeof(opt));
+    struct sockaddr_in a={0};a.sin_family=AF_INET;a.sin_port=htons((uint16_t)port);
+#ifdef PS5
+    a.sin_addr.s_addr=htonl(INADDR_ANY);
+#else
+    a.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+#endif
+    if(bind(s,(void *)&a,sizeof(a))||listen(s,8)){close(s);return -1;}
+    return s;
+}
 static int transfer(int fd,const void *data,size_t n){
     const char *p=data;while(n){ssize_t r=send(fd,p,n,0);if(r<0&&errno==EINTR)continue;if(r<=0)return -1;p+=r;n-=(size_t)r;}return 0;
 }
@@ -502,7 +518,7 @@ static void serve(int fd){
     size_t received=used-(size_t)(body-req);
     if(received>length){response(fd,400,"text/plain","Invalid body length");return;}
     while(received<length){ssize_t r=recv(fd,body+received,length-received,0);if(r<=0)return;received+=(size_t)r;}body[length]=0;
-    if(strncmp(path,"/api/live/probe",15)&&strcmp(path,"/api/live/snapshot")&&strcmp(path,"/api/live/snapshot/clear")&&strcmp(path,"/api/config")&&strcmp(path,"/api/live/credit-input")&&strcmp(path,"/api/live/wheel-width")&&strcmp(path,"/api/live/wheel-geometry")&&strcmp(path,"/api/live/engine-swap")&&strncmp(path,"/api/live/hud",13)&&strcmp(path,"/api/start")&&strcmp(path,"/api/game/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
+    if(strncmp(path,"/api/live/probe",15)&&strncmp(path,"/api/live/menu-call",19)&&strcmp(path,"/api/live/snapshot")&&strcmp(path,"/api/live/snapshot/clear")&&strcmp(path,"/api/config")&&strcmp(path,"/api/live/credit-input")&&strcmp(path,"/api/live/wheel-width")&&strcmp(path,"/api/live/wheel-geometry")&&strcmp(path,"/api/live/engine-swap")&&strncmp(path,"/api/live/hud",13)&&strcmp(path,"/api/start")&&strcmp(path,"/api/game/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
 #ifdef PS5
     if(atomic_load(&startup_pending)){response(fd,409,"text/plain","Startup is still running. Please retry shortly; the browser page remains available.");return;}
 #endif
@@ -523,6 +539,18 @@ static void serve(int fd){
         response(fd,200,"application/json","{\"installed\":true}");return;
 #else
         response(fd,409,"text/plain","Probes are only available while supported GT7 is running on PS5.");return;
+#endif
+    }
+    if(!strncmp(path,"/api/live/menu-call",19)&&(!path[19]||path[19]=='?')){
+#ifdef PS5
+        unsigned long long target=0,receiver=0,args=0;unsigned argc=0,result=0;
+        if(length){response(fd,400,"text/plain","Unexpected request body");return;}
+        char *query=strchr(path,'?');
+        if(!query||sscanf(query,"?target=%llx&receiver=%llx&argc=%u&args=%llx",&target,&receiver,&argc,&args)!=4){response(fd,400,"text/plain","Use /api/live/menu-call?target=0xADDR&receiver=0xADDR&argc=0&args=0");return;}
+        int rc=gt7_live_menu_call((uintptr_t)target,(uintptr_t)receiver,argc,(uintptr_t)args,&result);
+        char reply[128];snprintf(reply,sizeof(reply),"{\"rc\":%d,\"result\":%u}",rc,result);response(fd,rc?409:200,"application/json",reply);return;
+#else
+        response(fd,409,"text/plain","Live menu calls are only available while supported GT7 is running on PS5.");return;
 #endif
     }
     if(!strcmp(path,"/api/live/snapshot/clear")){
@@ -705,15 +733,7 @@ int main(int argc,char **argv){
     notify("GT7Patcher %s: starting on port 7210.",VERSION);
 #endif
     signal(SIGPIPE,SIG_IGN);signal(SIGTERM,stop);signal(SIGINT,stop);
-    int s=socket(AF_INET,SOCK_STREAM,0);if(s<0)return 1;
-    int opt=1;setsockopt(s,SOL_SOCKET,SO_REUSEADDR,&opt,sizeof(opt));
-    struct sockaddr_in a={0};a.sin_family=AF_INET;a.sin_port=htons((uint16_t)port);
-#ifdef PS5
-    a.sin_addr.s_addr=htonl(INADDR_ANY);
-#else
-    a.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
-#endif
-    if(bind(s,(void *)&a,sizeof(a))||listen(s,8)){perror("GT7Patcher socket");close(s);return 1;}
+    int s=open_listener(port);if(s<0){perror("GT7Patcher socket");return 1;}
     if(initialize()){perror("GT7Patcher initialization");close(s);return 1;}
 #ifdef PS5
 #ifdef GT7_LIVE_TEST
@@ -738,10 +758,26 @@ int main(int argc,char **argv){
 #endif
     printf("GT7Patcher %s on port %u\n",VERSION,port);fflush(stdout);
     while(!stopping){gt7_live_pad_configure((config.mask&LIVE_SETTINGS_BIT)!=0);fd_set set;FD_ZERO(&set);FD_SET(s,&set);struct timeval timeout={1,0};
-        int r=select(s+1,&set,NULL,NULL,&timeout);if(r<0){if(errno==EINTR)continue;break;}if(!r){gt7_live_pad_poll();hud_tick();gt7_live_credit_auto_poll();continue;}
-        int c=accept(s,NULL,NULL);if(c<0)continue;serve(c);close(c);
+        int r=select(s+1,&set,NULL,NULL,&timeout);
+        if(r<0){
+            if(errno==EINTR)continue;
+            /* A suspend/resume can leave the descriptor unusable. Reopen the
+             * endpoint in-process; only an explicit stop ends the payload. */
+            close(s);s=-1;
+            while(!stopping&&(s=open_listener(port))<0)usleep(100000);
+            continue;
+        }
+        if(!r){gt7_live_pad_poll();hud_tick();gt7_live_credit_auto_poll();continue;}
+        int c=accept(s,NULL,NULL);
+        if(c<0){
+            if(errno==EINTR)continue;
+            close(s);s=-1;
+            while(!stopping&&(s=open_listener(port))<0)usleep(100000);
+            continue;
+        }
+        serve(c);close(c);
     }
-    close(s);
+    if(s>=0)close(s);
 #ifdef PS5
     if(startup_thread_created)pthread_join(startup_thread,NULL);
     (void)gt7_engine_stop();

@@ -212,7 +212,7 @@ static int credits_game(pid_t *pid,uintptr_t *base){
 }
 typedef struct {uint64_t magic,original,map,allocation,heartbeat;uint32_t state,reserved;uint64_t entry;} LiveBoot;
 _Static_assert(sizeof(LiveBoot)==56,"bootstrap ABI");
-_Static_assert(sizeof(LiveMailbox)==6632,"mailbox ABI");
+_Static_assert(sizeof(LiveMailbox)==6712,"mailbox ABI");
 _Static_assert(sizeof(live_boot_blob)<=LIVE_BOOT_RESERVED,"live bootstrap exceeds reserved region");
 /* Import jump-table slots (see the module's GOT). The IME slots sit next to
  * one another: sceImeOpen, sceImeUpdate and sceImeClose. */
@@ -477,9 +477,16 @@ int gt7_live_credit_prompt_read(Gt7CreditPrompt *out){
  * bytes, then resumes the function. Behaviour is otherwise unchanged. The
  * target and displaced length are supplied at runtime so candidates can be
  * tried without rebuilding. Remove before release. */
-#define LIVE_PROBE_LOG   0x00008000u
-#define LIVE_PROBE_ADDR  0x00008f00u
-#define LIVE_PROBE_STUB  0x00009000u
+/* Scratch for the temporary UI probe. It must live above the live bridge
+ * blob (sizeof(live_bridge_blob) bytes, ~0xFBE4 including the 1024-entry
+ * HUD restore cache) and below LIVE_ALLOCATION; the old 0x8000 values fell
+ * inside the blob tail and corrupted the bridge on install. The region
+ * [LIVE_PROMPT_WORK+LIVE_PROMPT_WORK_SIZE, LIVE_ALLOCATION) is unused.
+ * Remove before release. */
+#define LIVE_PROBE_LOG   0x00017000u
+#define LIVE_PROBE_ADDR  0x00017400u
+#define LIVE_PROBE_STUB  0x00017600u
+_Static_assert(LIVE_PROBE_LOG+0x8000<=LIVE_ALLOCATION,"probe scratch exceeds the live allocation");
 int gt7_live_probe_install(uintptr_t target,uint32_t displaced,int mode,uintptr_t watch){
     pid_t pid;uintptr_t base,address;LiveMailbox state;
     if(credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.allocation)return -1;
@@ -611,6 +618,26 @@ int gt7_live_probe_read(uintptr_t *words,uint32_t count){
     pid_t pid;uintptr_t base,address;LiveMailbox state;
     if(!words||count<9||credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.allocation)return -1;
     return read_mem(pid,state.allocation+LIVE_PROBE_LOG,words,count*8)?-1:0;
+}
+int gt7_live_menu_call(uintptr_t target,uintptr_t receiver,unsigned argc,uintptr_t args,unsigned *result){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(result)*result=0;
+    if(argc!=0||target!=UINT64_C(0x001d63ce0)||receiver<0x10000||receiver>UINT64_C(0x7fffffffffff))return -1;
+    if(credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled)return -1;
+    if(state.menu_call_state==1||state.menu_call_state==2)return -2;
+    uint32_t zero=0,queued=1;
+    if(verified_write(pid,address+offsetof(LiveMailbox,menu_call_target),&target,8)||
+       verified_write(pid,address+offsetof(LiveMailbox,menu_call_receiver),&receiver,8)||
+       verified_write(pid,address+offsetof(LiveMailbox,menu_call_argv),&args,8)||
+       verified_write(pid,address+offsetof(LiveMailbox,menu_call_argc),&argc,4)||
+       verified_write(pid,address+offsetof(LiveMailbox,menu_call_result),&zero,4)||
+       verified_write(pid,address+offsetof(LiveMailbox,menu_call_state),&queued,4))return -1;
+    for(unsigned i=0;i<150;i++){
+        usleep(10000);
+        if(read_mem(pid,address,&state,sizeof(state)))return -3;
+        if(state.menu_call_state==3||state.menu_call_state==4||state.menu_call_state==5){if(result)*result=state.menu_call_result;return state.menu_call_state==3?0:-1;}
+    }
+    return -3;
 }
 int gt7_live_car_pointers(uintptr_t *implementation,uintptr_t *expanded,uintptr_t *style,uint32_t *model_code,uint32_t *sequence){
     pid_t pid;uintptr_t base,address;LiveMailbox state;

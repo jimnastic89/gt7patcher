@@ -91,6 +91,7 @@ static void store(unsigned char *b,uint32_t a,uint32_t target,uint32_t value){
     memcpy(b+2,&displacement,4);memcpy(b+6,&value,4);
 }
 static void put32(unsigned char *b,int32_t v){memcpy(b,&v,4);}
+static void put64(unsigned char *b,uint64_t v){memcpy(b,&v,8);}
 int emit_xml(FILE *f,const Config *c){
     if(!valid_config(c))return -1;
     fputs("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Patch><TitleID><ID>PPSA01317</ID></TitleID>\n"
@@ -117,24 +118,23 @@ int emit_xml(FILE *f,const Config *c){
     if(c->country>=0){
         const char *cc=country_code(c->country);
         fputs("<!-- GT7FEATURE country -->\n",f);
-        /* Offline the local row's nationalFlag_ is "UN" (little-endian
-         * 0x4e55): there is no service-account country. The typed
-         * Dashboard::InGarageRank move assignment at 0x0117bfd0 copies that
-         * 0x20-byte field from its source to the HUD row. Redirect the
-         * instruction immediately after the nationalFlag_ copy, substitute
-         * only the "UN" fallback in the destination, then execute the
-         * displaced manufLogo_ copy. This is the race-entry leaderboard sink;
-         * real AI country keys remain untouched. */
-        const uint32_t site=0x117c098,cave=COUNTRY_CAVE,back=0x117c0a0;
-        unsigned char jump[8];jump[0]=0xe9;put32(jump+1,(int32_t)(cave-(site+5)));
+        /* MPDINetworkUserProfile owns the account country code. Its generated
+         * countryCode setter resolves the real profile then assigns its
+         * four-byte field at +0x70. Redirect only that assignment and retain
+         * the game's profile lookup and normal field-write path. This is
+         * upstream of Dashboard::InGarageRank, not a leaderboard UI patch.
+         * Language and display units remain independent overrides. */
+        const uint32_t site=0x1bd182c,cave=COUNTRY_CAVE,back=0x1bd1839;
+        unsigned char jump[13];jump[0]=0xe9;put32(jump+1,(int32_t)(cave-(site+5)));
         memset(jump+5,0x90,sizeof(jump)-5);line(f,site,jump,sizeof(jump));
-        unsigned char s[48];size_t n=0;
-        s[n++]=0x66;s[n++]=0x81;s[n++]=0xb9;s[n++]=0x80;s[n++]=0;s[n++]=0;s[n++]=0;s[n++]=0x55;s[n++]=0x4e; /* cmp word [rcx+0x80],0x4e55 */
-        s[n++]=0x75;s[n++]=0x09;                                                                             /* jne +9 (keep real code) */
-        s[n++]=0x66;s[n++]=0xc7;s[n++]=0x81;s[n++]=0x80;s[n++]=0;s[n++]=0;s[n++]=0;                         /* mov word [rcx+0x80],imm16 */
-        s[n++]=(unsigned char)cc[0];s[n++]=(unsigned char)cc[1];
-        s[n++]=0xc5;s[n++]=0xfc;s[n++]=0x11;s[n++]=0x81;s[n++]=0xa0;s[n++]=0;s[n++]=0;s[n++]=0;             /* vmovups ymmword [rcx+0xa0],ymm0 */
-        size_t off=n;s[n++]=0xe9;put32(s+n,(int32_t)(back-(cave+off+5)));n+=4;                              /* jmp 0x0117c0a0 */
+        unsigned char s[40];size_t n=0;
+        /* The displaced sequence has already resolved rdi to +0x70. */
+        s[n++]=0x48;s[n++]=0xbe;put64(s+n,(uint64_t)(cave+32));n+=8;/* mov rsi,cave+32 */
+        s[n++]=0xba;s[n++]=4;s[n++]=0;s[n++]=0;s[n++]=0;            /* mov edx,4 */
+        s[n++]=0xe8;put32(s+n,(int32_t)(0x430a320-(cave+n+4)));n+=4;/* call assign */
+        s[n++]=0xe9;put32(s+n,(int32_t)(back-(cave+n+4)));n+=4;
+        while(n<32)s[n++]=0x90;
+        s[n++]=(unsigned char)cc[0];s[n++]=(unsigned char)cc[1];s[n++]=0;s[n++]=0;
         line(f,cave,s,n);
     }
     if(c->aspect>=0){

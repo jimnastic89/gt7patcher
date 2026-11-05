@@ -55,6 +55,7 @@ int gt7_live_find(uintptr_t address,uint32_t length,const char *needle,uint32_t 
 int gt7_live_probe_install(uintptr_t target,uint32_t displaced,int mode,uintptr_t watch);
 int gt7_live_probe_remove(void);
 int gt7_live_probe_read(uintptr_t *words,uint32_t count);
+int gt7_live_menu_call(uintptr_t target,uintptr_t receiver,unsigned argc,uintptr_t args,unsigned *result);
 void gt7_live_configure(int enabled);
 int gt7_engine_start(void);
 int gt7_engine_active(void);

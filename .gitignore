@@ -27,6 +27,8 @@ Thumbs.db
 .vscode/
 *.log
 *.tmp
+/$null
+tree_live_*.json
 CustomOffset.png
 StandardOffset.png
 WideOffset.png
