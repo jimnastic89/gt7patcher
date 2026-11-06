@@ -183,6 +183,20 @@ static int main_module(pid_t pid,Module *out){
         if(!out->handle)return 0;
     }return -1;
 }
+/* Same module list as main_module, matched by path substring. Used to reach a
+ * system library (libSceRtc) rather than the game executable. */
+static int find_module(pid_t pid,const char *needle,Module *out){
+    uintptr_t proc=kernel_get_proc(pid),node=0;if(!proc)return -1;
+    if(kernel_copyout(proc+0x3e8,&node,sizeof(node)))return -1;
+    for(unsigned i=0;i<512&&node;i++){
+        if(kernel_copyout(node,&node,sizeof(node))||!node)return -1;
+        if(kernel_copyout(node,out,sizeof(*out)))return -1;
+        if(out->path){
+            char path[256]={0};
+            if(!kernel_copyout(out->path,path,sizeof(path)-1)&&strstr(path,needle))return 0;
+        }
+    }return -1;
+}
 /* 01.710.000 ProgressData singleton. Always resolve the object afresh: heap
  * addresses change between sessions. RTTI and three live balances confirmed
  * this member's identity; native copy methods access it as a separate dword. */
@@ -1155,6 +1169,35 @@ static int apply_debug_environment(pid_t pid,const Module *game){
     free(image);
     return matches==1?verified_write(pid,target,replacement,sizeof(replacement)):-1;
 }
+/* GT7 draws the world-map clock from sceRtcGetCurrentTick, which libSceRtc
+ * implements with clock_gettime(clock id 0x10). On this console that clock runs
+ * ahead of the realtime clock the OS, gettimeofday and libSceRtc's own other
+ * time getters use (+8m37s observed), so the in-game clock -- and every other
+ * consumer of the tick -- reads the wrong time. The sibling getters pass clock
+ * id 0 (CLOCK_REALTIME); retarget this one to match. The instruction
+ * `bf 10 00 00 00` (mov edi,0x10) is at libSceRtc+0x5b5; a signature around it
+ * is verified so an unexpected firmware layout is skipped, never corrupted.
+ * The syscall itself is fine, so no import or GOT surgery is needed. */
+static int apply_clock_fix(pid_t pid){
+    static const unsigned char signature[]={
+        0x48,0x89,0x45,0xe8,0x48,0x85,0xff,0x74,0x35,0x48,0x89,0xfb,0x48,0x8d,0x75,0xd8,
+        0xbf,0x10,0x00,0x00,0x00,0xe8};
+    const unsigned clock_id=0x5b5; /* mov edi,0x10 at signature[16] */
+    /* The library may still be loading when the launch request arrives. */
+    for(unsigned attempt=0;attempt<40;attempt++){
+        Module rtc;
+        if(!find_module(pid,"libSceRtc",&rtc)&&rtc.mapbase){
+            unsigned char bytes[sizeof(signature)];
+            if(!read_mem(pid,rtc.mapbase+0x5a5,bytes,sizeof(bytes))){
+                if(memcmp(bytes,signature,sizeof(signature)))return -1;
+                unsigned char insn[5]={0xbf,0x00,0x00,0x00,0x00}; /* mov edi,0 */
+                return verified_write(pid,rtc.mapbase+clock_id,insn,sizeof(insn));
+            }
+        }
+        usleep(50000);
+    }
+    return -1;
+}
 static int apply_gt7(pid_t pid,int final_attempt){
     AppInfo app={0};char version[32]={0};Module game;
     if(sceKernelGetAppInfo(pid,&app)||strcmp(app.title_id,"PPSA01317"))return 0;
@@ -1189,8 +1232,15 @@ static int apply_gt7(pid_t pid,int final_attempt){
             current_name="Video aspect ratio";continue;
         }
         if(strncmp(line,"<Line ",6))continue;
-        if(sscanf(line,"<Line Type=\"bytes\" Address=\"0x%x\" Value=\"%8192[0123456789abcdefABCDEF]\"",&address,hex)!=2||
-           (address==0x060e83b0?apply_debug_environment(pid,&game):apply_line(pid,game.mapbase,address,hex))){failed=1;break;}
+        if(sscanf(line,"<Line Type=\"bytes\" Address=\"0x%x\" Value=\"%8192[0123456789abcdefABCDEF]\"",&address,hex)!=2){failed=1;break;}
+        if(address==0x060e83b0){
+            if(apply_debug_environment(pid,&game)){failed=1;break;}
+        }else if(address==0x060e83c0){
+            /* Not a byte patch: resolve libSceRtc and retarget its clock source.
+             * Its failure is non-fatal so a firmware with an unexpected layout
+             * cannot stop the byte patches from applying. */
+            engine_log_result("Clock fix result",apply_clock_fix(pid));
+        }else if(apply_line(pid,game.mapbase,address,hex)){failed=1;break;}
         patched=1;
     }
     fclose(f);

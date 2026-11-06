@@ -61,7 +61,7 @@ int parse_config(const char *body,Config *c){
         char *eq=strchr(item,'=');if(!eq)return -1;*eq++=0;
         if(!*eq)return -1;
         char *end;long v=strtol(eq,&end,10);
-        if(*end||v < -1||v>0x1ff)return -1;
+        if(*end||v < -1||v>0x3ff)return -1;
         const char *keys[]={"mask","preset","units","language","speed","mass","power","torque","temperature","autostart","country","aspect","important"};
         int k;for(k=0;k<13;k++)if(!strcmp(item,keys[k]))break;
         if(k==13||(seen&(1U<<k)))return -1;
@@ -184,12 +184,12 @@ static int load_config_unlocked(const char *root,Config *c){
             /* HUD builds may save bit 5 for their experimental Race Info
              * option and bit 6 for Wheel Offset. Preserve the supported
              * Wheel Offset choice, discard the unsupported experiment. */
-            if(mask<=0x1ffU){x.mask=0;if(valid_config(&x)){loaded=x;saved_mask=mask;r=0;}}
+            if(mask<=0x3ffU){x.mask=0;if(valid_config(&x)){loaded=x;saved_mask=mask;r=0;}}
         }
     }
     fclose(f);
     if(r)return r;
-    unsigned normalized=(saved_mask&0x1fU)|(saved_mask&DEBUG_ENVIRONMENT_BIT);
+    unsigned normalized=(saved_mask&0x1fU)|(saved_mask&DEBUG_ENVIRONMENT_BIT)|(saved_mask&CLOCK_FIX_BIT);
     /* Bit 6 is Wheel Offset in HUD snapshots, but was Debug environment in
      * native snapshots. Preserve the independent wheel option; the Debug
      * environment selection round-trips on its own bit above. */

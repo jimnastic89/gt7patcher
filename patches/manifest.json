@@ -53,5 +53,11 @@
     "note": "Changes the internal build environment to expose additional demo, LAN, B-Spec, and car settings.",
     "source": "debug_environment",
     "built": true
+  },
+  {
+    "name": "Sync Game Clock to System",
+    "note": "Corrects the in-game clock by pointing libSceRtc at the system clock.",
+    "source": "clock_fix",
+    "built": true
   }
 ]

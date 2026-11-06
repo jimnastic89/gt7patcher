@@ -1,13 +1,17 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #pragma once
 #include <stdio.h>
-#define PATCH_COUNT 9
+#define PATCH_COUNT 10
 #define LIVE_SETTINGS_BIT (1U << 6)
 #define LIVE_SETTINGS_RELEASE_ENABLED 1
 #define OPENING_MOVIE_SKIP_BIT (1U << 7)
 /* Hidden "Debug environment" build-string patch. Locates the internal
  * "release" string and rewrites it to "debug"; see apply_debug_environment. */
 #define DEBUG_ENVIRONMENT_BIT (1U << 8)
+/* Sync Game Clock to System. Not a byte patch: the engine resolves libSceRtc in the
+ * live game at launch and retargets the clock source of sceRtcGetCurrentTick
+ * (see apply_clock_fix). It is applied only when the user selects it. */
+#define CLOCK_FIX_BIT (1U << 9)
 /* Number of selectable player countries exposed by the payload UI. The order
  * of the ISO alpha-2 table in config.c MUST match the <select> options in
  * web/index.html. Index -1 means "leave the game's own value alone". */
