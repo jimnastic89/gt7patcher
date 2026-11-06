@@ -779,7 +779,7 @@ button:not([role="tab"]) {
         token = s.token; engine = s.engineRunning; engineActive = s.engineActive === true; gameRunning = s.gameRunning === 1; gameClosed = s.gameRunning === 0; $('version').textContent = `v${s.version}`; document.title = `GT7Patcher v${s.version}`;
         renderCreditInput(s.live);
         renderWheelWidth(s.live); renderWheelGeometry(s.live); renderEngineSwap(s.live);
-        const featureOrder = [0, 1, 8, 2, 3, 4, 5, 6, 7, 9];
+        const featureOrder = [0, 1, 8, 2, 3, 4, 5, 6, 7, 9, 10];
         if (!loaded) { featureOrder.forEach(i => { const f = s.features[i]; const row = document.createElement('div'); row.className = 'feature'; const input = document.createElement('input'); input.type = 'checkbox'; input.id = `patch-${i}`; input.dataset.bit = i; const box = document.createElement('div'), label = document.createElement('label'), note = document.createElement('p'); label.htmlFor = input.id; label.textContent = f.name; note.className = 'detail'; note.innerHTML = i === 6 ? f.note.replace('credits icon', `credits icon <img class="credits-icon" src="${creditsIconData}" alt="Credits icon">`) : f.note; box.append(label, note); row.append(input, box); $('features').append(row) }) }
         if (!loaded) { $('warning-offline').textContent = s.features[0].name; $('warning-intro').textContent = s.features[7].name }
         if (!dirty) { for (const k of keys) $(k).value = s.config[k]; $('autostart').checked = Boolean(s.config.autostart); importantDismissed = Boolean(s.config.important); $('important-warning').hidden = importantDismissed; featureOrder.forEach(i => { $(`patch-${i}`).checked = Boolean(s.config.mask & (1 << i)) }); units() }

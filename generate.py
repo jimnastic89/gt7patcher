@@ -19,6 +19,7 @@ PATCH_SOURCES = [
     ('New Game Intro Movie Skip', 'opening_movie_skip'),
     ('Debug Environment', 'debug_environment'),
     ('Sync Game Clock to System', 'clock_fix'),
+    ('Silence Short Music Jingles', 'music_jingle_filter'),
 ]
 # Previous release note retained for easy restoration:
 # "Enable the optional live settings bridge for the next game launch."
@@ -55,7 +56,7 @@ def main():
     BUILD.mkdir(exist_ok=True)
     manifest_path = HERE / 'patches/manifest.json'
     manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-    assert len(manifest) == 10
+    assert len(manifest) == 11
     assert all(m['built'] for m in manifest)
     metas = [m for m in manifest if m['built']]
     assert [(m['name'], m['source']) for m in metas] == PATCH_SOURCES

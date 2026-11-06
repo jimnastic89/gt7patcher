@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #pragma once
 #include <stdio.h>
-#define PATCH_COUNT 10
+#define PATCH_COUNT 11
 #define LIVE_SETTINGS_BIT (1U << 6)
 #define LIVE_SETTINGS_RELEASE_ENABLED 1
 #define OPENING_MOVIE_SKIP_BIT (1U << 7)
@@ -12,6 +12,8 @@
  * live game at launch and retargets the clock source of sceRtcGetCurrentTick
  * (see apply_clock_fix). It is applied only when the user selects it. */
 #define CLOCK_FIX_BIT (1U << 9)
+/* Silence Short Music Jingles. Byte patch; see patches/music_jingle_filter.S. */
+#define MUSIC_JINGLE_FILTER_BIT (1U << 10)
 /* Number of selectable player countries exposed by the payload UI. The order
  * of the ISO alpha-2 table in config.c MUST match the <select> options in
  * web/index.html. Index -1 means "leave the game's own value alone". */

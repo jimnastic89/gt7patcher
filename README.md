@@ -1,7 +1,7 @@
 # GT7Patcher
 
-[![](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86&style=for-the-badge)](https://github.com/sponsors/jimnastic89)
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/C7F829U518)
+[![](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=fe8e86&style=for-the-badge)](https://github.com/sponsors/jimnastic89)
+[![ko-fi](https://img.shields.io/badge/ko--fi-%E2%9D%A4-fe8e86?logo=ko-fi&style=for-the-badge)](https://ko-fi.com/C7F829U518)
 
 GT7Patcher is a payload for applying patches to the PS5 version of Gran Turismo 7 at runtime without modifying the game files. It provides a web interface for selecting patches, and can be configured to apply saved patches automatically when the payload starts.
 
@@ -14,6 +14,7 @@ Included patches as of version 0.31:
 - Language and unit preferences
 - Additional wheel offset options in GT Auto
 - In-game credit editor
+- Silence short music jingles (race start, race finish, car purchase)
 - File cleaner to remove old offline patches from game files
 
 Configuration is via the web interface on port `7210`, which can be access via a shortcut installed to the PS5's Media tab, or from any device on the same LAN.

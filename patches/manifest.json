@@ -59,5 +59,11 @@
     "note": "Corrects the in-game clock by pointing libSceRtc at the system clock.",
     "source": "clock_fix",
     "built": true
+  },
+  {
+    "name": "Disable Short Music Tracks",
+    "note": "Removes the music that plays at the start of a race, after a race, when a car is bought, etc.",
+    "source": "music_jingle_filter",
+    "built": true
   }
 ]
