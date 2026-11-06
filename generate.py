@@ -19,7 +19,7 @@ PATCH_SOURCES = [
     ('New Game Intro Movie Skip', 'opening_movie_skip'),
     ('Debug Environment', 'debug_environment'),
     ('Sync Game Clock to System', 'clock_fix'),
-    ('Silence Short Music Jingles', 'music_jingle_filter'),
+    ('Disable Short Music Tracks', 'music_jingle_filter'),
 ]
 # Previous release note retained for easy restoration:
 # "Enable the optional live settings bridge for the next game launch."

@@ -497,11 +497,7 @@ button:not([role="tab"]) {
                     </select></div>
             </div>
         </div>
-        <div class="card">
-            <div class="field"><label for="country">Player country (in-race flag)</label><select
-                    id="country"></select></div>
-            <p class="detail">Overrides the flag shown for your car in races. Leave on "Game default" to keep the game's own value. Independent of language and units.</p>
-        </div>
+        <input id="country" type="hidden" value="-1">
         <div class="card">
                 <div class="field"><label for="aspect">Video output aspect ratio (experimental)</label><select id="aspect">
                     <option value="-1">Game default (16:9)</option>
@@ -519,10 +515,6 @@ button:not([role="tab"]) {
         </div>
     </section>
     <section id="live" role="tabpanel" aria-labelledby="live-tab" hidden>
-        <div class="card">
-            <h2>Live Settings</h2>
-            <p id="credit-input-feedback" class="detail" role="status">Edit in game opens the system number pad with its own text field so you can type the balance on the console.</p>
-        </div>
         <div class="card">
             <h2>Wheel settings</h2>
             <p id="wheel-settings-status" aria-live="polite">Wheel settings unavailable. Select a garage car and wait for the next refresh.</p>
@@ -733,19 +725,6 @@ button:not([role="tab"]) {
     $('apply-engine-swap').onclick = applyEngineSwap;
     const languages = [['JP', 'Japanese'], ['US', 'English (United States)'], ['GB', 'English (United Kingdom)'], ['FR', 'French'], ['ES', 'Spanish (Spain)'], ['DE', 'German'], ['IT', 'Italian'], ['NL', 'Dutch'], ['PT', 'Portuguese'], ['RU', 'Russian'], ['PL', 'Polish'], ['TR', 'Turkish'], ['EL', 'Greek'], ['KR', 'Korean'], ['TW', 'Chinese (Traditional)'], ['CN', 'Chinese (Simplified)'], ['DK', 'Danish'], ['NO', 'Norwegian'], ['SE', 'Swedish'], ['FI', 'Finnish'], ['CZ', 'Czech'], ['HU', 'Hungarian'], ['BP', 'Portuguese (Brazil)'], ['MS', 'Spanish (Latin America)'], ['AR', 'Arabic'], ['TH', 'Thai'], ['ZH', 'Chinese (ZH)']];
     $('language').append(new Option('System language', -1)); languages.forEach(([code, name], i) => $('language').append(new Option(`${name} · ${code}`, i)));
-    const countries = [
-        ['AU','Australia'],['AT','Austria'],['BE','Belgium'],['BR','Brazil'],['CA','Canada'],
-        ['CH','Switzerland'],['CL','Chile'],['CN','China'],['CZ','Czechia'],['DE','Germany'],
-        ['DK','Denmark'],['ES','Spain'],['FI','Finland'],['FR','France'],['GB','United Kingdom'],
-        ['GR','Greece'],['HK','Hong Kong'],['HR','Croatia'],['HU','Hungary'],['ID','Indonesia'],
-        ['IE','Ireland'],['IL','Israel'],['IN','India'],['IT','Italy'],['JP','Japan'],
-        ['KR','Korea'],['MX','Mexico'],['MY','Malaysia'],['NL','Netherlands'],['NO','Norway'],
-        ['NZ','New Zealand'],['PH','Philippines'],['PL','Poland'],['PT','Portugal'],['RO','Romania'],
-        ['RU','Russia'],['SE','Sweden'],['SG','Singapore'],['SK','Slovakia'],['TH','Thailand'],
-        ['TR','Turkey'],['TW','Taiwan'],['UA','Ukraine'],['US','United States'],['ZA','South Africa'],
-        ['AR','Argentina'],
-    ];
-    $('country').append(new Option('Game default', -1)); countries.forEach(([code, name], i) => $('country').append(new Option(name + ' (' + code + ')', i)));
     let toastTimer = 0;
     function status(text, error = false) {
         const toast = $('toast');
@@ -768,7 +747,7 @@ button:not([role="tab"]) {
         catch (e) { status(e.message, true) } finally { busy = false; buttons() }
     }
     function liveTab(selected) { if (!$('live-tab')) return;
-        $('live-tab').hidden = !selected;
+        $('live-tab').hidden = true;
         if (!selected) {
             renderWheelWidth(null);
             renderWheelGeometry(null); renderEngineSwap(null);
@@ -786,7 +765,7 @@ button:not([role="tab"]) {
         liveTab(dirty ? Boolean($('patch-6')?.checked) : Boolean(s.config.mask & 64));
         loaded = true; buttons(); readHud(); if (!dirty) pageStatus(s.gameRunning === 1 ? 'GT7 is running. Saved changes will apply the next time it starts.' : '');
     }
-    async function read() { if (refreshing) return; refreshing = true; const before = revision; try { const r = await fetch('/api/status', { cache: 'no-store' }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (!busy && !halted && before === revision) { render(result); if (!initialStatusShown) { initialStatusShown = true; if (result.message) status(result.message) } } } catch (e) { if (!busy && !halted && before === revision) { renderWheelWidth(null); renderWheelGeometry(null); renderEngineSwap(null); status(e.message, true) } } finally { refreshing = false } }
+    async function read() { if (refreshing) return; refreshing = true; const before = revision; try { const r = await fetch('/api/status', { cache: 'no-store' }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (!busy && !halted && before === revision) { render(result); if (!initialStatusShown) { initialStatusShown = true; if (result.message && result.message !== 'GT7 launch requested. The patch engine will apply saved patches as the game starts.') status(result.message) } } } catch (e) { if (!busy && !halted && before === revision) { renderWheelWidth(null); renderWheelGeometry(null); renderEngineSwap(null); status(e.message, true) } } finally { refreshing = false } }
     async function post(path, body, savesSettings = false) { busy = true; revision++; buttons(); try { const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (savesSettings) dirty = false; render(result); status(result.message) } catch (e) { status(e.message, true) } finally { busy = false; buttons() } }
     function configBody() { const c = { mask: 0, autostart: Number($('autostart').checked), important: Number(importantDismissed) }; document.querySelectorAll('#features input[data-bit]').forEach(input => { if (input.checked) c.mask |= 1 << Number(input.dataset.bit) }); for (const k of keys) c[k] = Number($(k).value); return new URLSearchParams(c).toString() }
     $('form').addEventListener('submit', e => { e.preventDefault(); clearTimeout(saveTimer); saveConfig() });

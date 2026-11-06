@@ -28,7 +28,7 @@
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 #endif
-#define VERSION "0.31.26-11-07_0130"
+#define VERSION "0.32"
 #ifndef PORT
 #define PORT 7210
 #endif
@@ -670,6 +670,14 @@ static void serve(int fd){
     }
     if(!strcmp(path,"/api/payload/stop")){
         if(length){response(fd,400,"text/plain","Unexpected request body");return;}
+#ifdef PS5
+        if(gt7_engine_stop()){
+            broken=1;
+            strcpy(message,"Could not safely stop the engine. Reboot before retrying.");
+            response(fd,409,"text/plain",message);
+            return;
+        }
+#endif
         strcpy(message,"GT7Patcher has stopped. Run the payload again to reconnect.");
         json_status(fd);stopping=1;return;
     }
