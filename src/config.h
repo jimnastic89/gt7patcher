@@ -27,7 +27,7 @@ typedef struct {
     int preset, units, language, country, speed, mass, power, torque, temperature, autostart, important_dismissed;
     int aspect;
 } Config;
-/* ISO alpha-2 code for a country index, or "" when i is out of range. */
+/* Internal ISO alpha-3 code for a country index, or "" when i is out of range. */
 const char *country_code(int i);
 Config defaults(void);
 int valid_config(const Config *c);
