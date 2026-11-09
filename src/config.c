@@ -20,11 +20,12 @@ _Static_assert(ASPECT_CAVE>=COUNTRY_CAVE+56&&ASPECT_CAVE>=LIVE_IMAGE_BASE+LIVE_B
                "aspect cave must clear the country cave and the live-settings bootstrap");
 
 /* Player-country table. Order MUST match the <select id="country"> options in
- * web/index.html. Each entry drives the in-race flag override. */
+ * web/index.html. GT7's profile/flag dependency uses ISO alpha-3 identifiers;
+ * the UI continues to display the corresponding alpha-2 labels. */
 static const char *const country_codes[COUNTRY_COUNT]={
-    "AU","AT","BE","BR","CA","CH","CL","CN","CZ","DE","DK","ES","FI","FR","GB",
-    "GR","HK","HR","HU","ID","IE","IL","IN","IT","JP","KR","MX","MY","NL","NO",
-    "NZ","PH","PL","PT","RO","RU","SE","SG","SK","TH","TR","TW","UA","US","ZA","AR"};
+    "AUS","AUT","BEL","BRA","CAN","CHE","CHL","CHN","CZE","DEU","DNK","ESP","FIN","FRA","GBR",
+    "GRC","HKG","HRV","HUN","IDN","IRL","ISR","IND","ITA","JPN","KOR","MEX","MYS","NLD","NOR",
+    "NZL","PHL","POL","PRT","ROU","RUS","SWE","SGP","SVK","THA","TUR","TWN","UKR","USA","ZAF","ARG"};
 const char *country_code(int i){
     return (i>=0&&i<COUNTRY_COUNT)?country_codes[i]:"";
 }
@@ -120,7 +121,7 @@ int emit_xml(FILE *f,const Config *c){
         fputs("<!-- GT7FEATURE country -->\n",f);
         /* MPDINetworkUserProfile owns the account country code. Its generated
          * countryCode setter resolves the real profile then assigns its
-         * four-byte field at +0x70. Redirect only that assignment and retain
+         * std::string field at +0x70. Redirect only that assignment and retain
          * the game's profile lookup and normal field-write path. This is
          * upstream of Dashboard::InGarageRank, not a leaderboard UI patch.
          * Language and display units remain independent overrides. */
@@ -130,11 +131,14 @@ int emit_xml(FILE *f,const Config *c){
         unsigned char s[40];size_t n=0;
         /* The displaced sequence has already resolved rdi to +0x70. */
         s[n++]=0x48;s[n++]=0xbe;put64(s+n,(uint64_t)(cave+32));n+=8;/* mov rsi,cave+32 */
-        s[n++]=0xba;s[n++]=4;s[n++]=0;s[n++]=0;s[n++]=0;            /* mov edx,4 */
+        s[n++]=0xba;s[n++]=4;s[n++]=0;s[n++]=0;s[n++]=0;            /* mov edx,4: three ISO alpha-3 bytes plus terminator */
         s[n++]=0xe8;put32(s+n,(int32_t)(0x430a320-(cave+n+4)));n+=4;/* call assign */
         s[n++]=0xe9;put32(s+n,(int32_t)(back-(cave+n+4)));n+=4;
         while(n<32)s[n++]=0x90;
-        s[n++]=(unsigned char)cc[0];s[n++]=(unsigned char)cc[1];s[n++]=0;s[n++]=0;
+        /* The assignment length above includes all three alpha-3 characters
+         * and the trailing NUL.  Omitting cc[2] produced an invalid "AU"
+         * profile value for Australia, which can abort initialization. */
+        s[n++]=(unsigned char)cc[0];s[n++]=(unsigned char)cc[1];s[n++]=(unsigned char)cc[2];s[n++]=0;
         line(f,cave,s,n);
     }
     if(c->aspect>=0){
