@@ -45,3 +45,6 @@ TODO.md
 AGENTS.md
 .goosehints
 Offsets.gif
+tools/monitor_race_values.ps1
+tools/inspect_screen.ps1
+tools/monitor_is_clean.ps1
