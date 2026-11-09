@@ -28,7 +28,7 @@
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 #endif
-#define VERSION "0.32.26-11-07_1058"
+#define VERSION "0.32.26-11-09_2337"
 #ifndef PORT
 #define PORT 7210
 #endif
@@ -73,6 +73,130 @@ static void response(int fd,int code,const char *type,const char *body){
     char h[512];size_t n=strlen(body);
     int z=snprintf(h,sizeof(h),"HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: frame-ancestors 'none'\r\nConnection: close\r\n\r\n",code,code==200?"OK":"Error",type,n);
     if(z>0&&(size_t)z<sizeof(h)&&!transfer(fd,h,(size_t)z))transfer(fd,body,n);
+}
+/* Convert the JSON-like property maps embedded in resolved VM binding objects
+ * into a small, read-only feed for the PowerShell inspector.  The objects are
+ * not assumed to have a fixed C layout: only quoted keys followed by a colon
+ * and scalar JSON values are emitted.  Binary metadata and unresolved values
+ * are deliberately skipped. */
+static int binding_json_escape(char *out,size_t cap,size_t *at,const unsigned char *s,size_t n){
+    for(size_t i=0;i<n;i++){
+        unsigned char c=s[i];
+        if(c=='"'||c=='\\'){if(*at+2>=cap)return -1;out[(*at)++]='\\';out[(*at)++]=(char)c;}
+        else if(c>=0x20&&c<0x7f){if(*at+1>=cap)return -1;out[(*at)++]=(char)c;}
+    }
+    return 0;
+}
+#define LIVE_BINDING_MAX_ROWS 1200u
+static int binding_emit_rows(char *out,size_t cap,size_t *at,const unsigned char *raw,size_t len,uintptr_t source,unsigned *rows){
+    for(size_t i=1;i+4<len;i++){
+        if(*rows>=LIVE_BINDING_MAX_ROWS)return 0;
+        /* Serialized property maps are frequently embedded after a binary
+         * header, so the opening quote need not be immediately preceded by
+         * '{' or ','. The key/colon/scalar grammar below is the validation. */
+        if(raw[i]!='"')continue;
+        size_t ks=i+1;while(i+1<len&&raw[i+1]!='"'&&raw[i+1]>=0x20&&raw[i+1]<0x7f)i++;
+        if(i+1>=len||raw[i+1]!='"'||i==ks||i+1-ks>96||i+2>=len||raw[i+2]!=':')continue;
+        size_t vs=i+3;while(vs<len&&(raw[vs]==' '||raw[vs]=='\t'||raw[vs]=='\r'||raw[vs]=='\n'))vs++;
+        if(vs>=len)continue;
+        if(raw[vs]=='{'||raw[vs]=='[')continue; /* nested object/array: not scalar */
+        size_t ve=vs;
+        if(raw[vs]=='"'){
+            ve=vs+1;int esc=0;
+            for(;ve<len;ve++){
+                if(!esc&&raw[ve]=='"')break;
+                esc=!esc&&raw[ve]=='\\';if(raw[ve]!='\\')esc=0;
+            }
+            if(ve>=len)continue;ve++;
+        }else{
+            if(raw[vs]!='-'&&(raw[vs]<'0'||raw[vs]>'9')&&raw[vs]!='t'&&raw[vs]!='f'&&raw[vs]!='n')continue;
+            while(ve<len&&raw[ve]!=','&&raw[ve]!='}'&&raw[ve]!='\r'&&raw[ve]!='\n'&&raw[ve]>=0x20&&raw[ve]<0x7f)ve++;
+            while(ve>vs&&(raw[ve-1]==' '||raw[ve-1]=='\t'))ve--;
+            if(ve==vs)continue;
+        }
+        if(*at+256+(i-ks)+(ve-vs)>=cap-1)return -1;
+        if(*rows)out[(*at)++]=',';
+        int n=snprintf(out+*at,cap-*at,"{\"name\":\"");if(n<0)return -1;*at+=(size_t)n;
+        if(binding_json_escape(out,cap,at,raw+ks,i+1-ks))return -1;
+        n=snprintf(out+*at,cap-*at,"\",\"value\":");if(n<0)return -1;*at+=(size_t)n;
+        if(raw[vs]=='"'){
+            out[(*at)++]='"';
+            if(binding_json_escape(out,cap,at,raw+vs+1,(ve-vs)-2))return -1;
+            out[(*at)++]='"';
+        }else{memcpy(out+*at,raw+vs,ve-vs);*at+=ve-vs;}
+        n=snprintf(out+*at,cap-*at,",\"source\":\"0x%llx\"}",(unsigned long long)source);if(n<0)return -1;*at+=(size_t)n;(*rows)++;
+        i=ve;
+    }
+    return 0;
+}
+static int binding_emit_names(char *out,size_t cap,size_t *at,const unsigned char *raw,size_t len,uintptr_t source,unsigned *rows){
+    for(size_t i=0;i<len;){
+        if(*rows>=LIVE_BINDING_MAX_ROWS)return 0;
+        while(i<len&&(raw[i]<0x20||raw[i]>=0x7f))i++;
+        size_t start=i;while(i<len&&raw[i]>=0x20&&raw[i]<0x7f)i++;
+        size_t n=i-start;if(n<5||n>96)continue;
+        char name[97];memcpy(name,raw+start,n);name[n]=0;
+        if(!strchr(name,'_')||strchr(name,'/')||strchr(name,'.')||strchr(name,':')||strchr(name,'?'))continue;
+        if(!strncmp(name,"pdx",3)&&name[3]){memmove(name,name+3,n-2);n-=3;}
+        else if(!strncmp(name,"pd",2)&&name[2]){memmove(name,name+2,n-1);n-=2;}
+        if(n<5||!name[0])continue;
+        if(*at+256+n>=cap-1)return -1;
+        if(*rows)out[(*at)++]=',';
+        int z=snprintf(out+*at,cap-*at,"{\"name\":\"");if(z<0)return -1;*at+=(size_t)z;
+        if(binding_json_escape(out,cap,at,(const unsigned char *)name,n))return -1;
+        z=snprintf(out+*at,cap-*at,"\",\"value\":\"<unresolved>\",\"source\":\"0x%llx\"}",(unsigned long long)source);if(z<0)return -1;*at+=(size_t)z;(*rows)++;
+    }
+    return 0;
+}
+static int binding_emit_flag_assets(char *out,size_t cap,size_t *at,const unsigned char *raw,size_t len,uintptr_t source,unsigned *rows){
+    static const char prefix[]="pd/image/piece/4k/flag_S/";
+    for(size_t i=0;i+sizeof(prefix)-1+6<len;i++){
+        if(memcmp(raw+i,prefix,sizeof(prefix)-1))continue;
+        size_t end=i+sizeof(prefix)-1;
+        while(end<len&&raw[end]>='A'&&raw[end]<='Z'&&end-i<64)end++;
+        if(end==i+sizeof(prefix)-1||end+4>len||memcmp(raw+end,".png",4))continue;
+        size_t n=end+4-i;if(*at+256+n>=cap-1)return -1;
+        if(*rows)out[(*at)++]=',';
+        int z=snprintf(out+*at,cap-*at,"{\"name\":\"asset_path\",\"value\":\"");if(z<0)return -1;*at+=(size_t)z;
+        if(binding_json_escape(out,cap,at,raw+i,n))return -1;
+        z=snprintf(out+*at,cap-*at,"\",\"source\":\"0x%llx\"}",(unsigned long long)source);if(z<0)return -1;*at+=(size_t)z;(*rows)++;i=end+3;
+    }
+    return 0;
+}
+static int live_binding_feed(char *out,size_t cap,unsigned *rows,unsigned *objects){
+#ifdef PS5
+    uintptr_t words[64*32];uint32_t next=0;unsigned char raw[8192];uintptr_t seen[32];unsigned seen_count=0;
+    if(gt7_live_probe_history(words,64*32,&next))return -1;
+    size_t at=0;*rows=0;*objects=0;int n=snprintf(out,cap,"{\"available\":true,\"next\":%u,\"bindings\":[",next);if(n<0||(size_t)n>=cap)return -1;at=(size_t)n;
+    for(unsigned r=0;r<64;r++){
+        /* The image-binding dispatcher receives the useful binding object in
+         * rdi, but its VM receiver/table/argument objects are in the other
+         * argument registers. Inspect all six registers: race participant
+         * country data can live in the receiver or argument table rather than
+         * in the image object itself. */
+        for(unsigned k=0;k<6;k++){
+            uintptr_t source=words[r*32+k];if(!source)continue;int duplicate=0;for(unsigned j=0;j<seen_count;j++)if(seen[j]==source)duplicate=1;if(duplicate)continue;
+            if(seen_count<32)seen[seen_count++]=source;else continue;
+            if(gt7_live_peek(source,raw,sizeof(raw)))continue;(*objects)++;if(binding_emit_rows(out,cap,&at,raw,sizeof(raw),source,rows))return -1;if(binding_emit_names(out,cap,&at,raw,sizeof(raw),source,rows))return -1;if(binding_emit_flag_assets(out,cap,&at,raw,sizeof(raw),source,rows))return -1;
+        }
+    }
+    if(at+32>=cap)return -1;snprintf(out+at,cap-at,"] ,\"objects\":%u,\"rows\":%u}",*objects,*rows);return 0;
+#else
+    (void)out;(void)cap;(void)rows;(void)objects;return -1;
+#endif
+}
+/* Decode the text parameter used by the reusable notification endpoint. */
+static size_t decode_query_text(const char *src,char *dst,size_t cap){
+    size_t n=0;
+    while(*src&&n+1<cap){
+        if(*src=='+'){dst[n++]=' ';src++;continue;}
+        if(*src=='%'&&src[1]&&src[2]){
+            unsigned hi,lo;
+            if(sscanf(src+1,"%1x%1x",&hi,&lo)==2){dst[n++]=(char)((hi<<4)|lo);src+=3;continue;}
+        }
+        dst[n++]=*src++;
+    }
+    dst[n]=0;return n;
 }
 static int running_gt7(void){
 #ifdef PS5
@@ -143,7 +267,7 @@ static void hud_tick(void){
 #endif
 }
 #ifdef PS5
-/* Serialiser for GET /api/live/hud/tree. Paths hold only printable ASCII, but
+/* Serialiser for GET /api/live/screen and /api/live/hud/tree. Paths hold only printable ASCII, but
  * a quote or backslash still needs escaping to keep the JSON well formed. */
 typedef struct {char *body;size_t cap,at;int first;} HudTreeJson;
 static int hud_tree_emit(void *context,const Gt7HudNode *node){
@@ -156,7 +280,9 @@ static int hud_tree_emit(void *context,const Gt7HudNode *node){
         if(*c=='"'||*c=='\\')j->body[n++]='\\';
         j->body[n++]=*c;
     }
-    n+=(size_t)snprintf(j->body+n,j->cap-n,"\",\"d\":%u,\"h\":%d,\"a\":\"%#llx\"",node->depth,node->hidden,(unsigned long long)node->address);
+    n+=(size_t)snprintf(j->body+n,j->cap-n,"\",\"d\":%u,\"h\":%d,\"a\":\"%#llx\",\"v\":\"%#llx\",\"c\":\"%#llx\",\"r\":[",node->depth,node->hidden,(unsigned long long)node->address,(unsigned long long)node->vtable,(unsigned long long)node->children);
+    for(unsigned i=0;i<8;i++)n+=(size_t)snprintf(j->body+n,j->cap-n,"%s%.6g",i?",":"",node->rect[i]);
+    n+=(size_t)snprintf(j->body+n,j->cap-n,"]");
     /* The pre-heap-name path, when it differs: the page treats it as an alias
      * so a group saved earlier still shows its widgets as present. */
     if(node->alt[0]){
@@ -266,15 +392,29 @@ static void json_status(int fd){
     char body[4096];size_t n=0;
     const char *status_message=message;
 #ifdef PS5
+    /* A crashed/exited GT7 process can leave stale bridge addresses briefly
+     * visible to the kernel. Do not probe live memory while the game is not
+     * confirmed running; status must remain a safe recovery endpoint. */
+    int game_running=running_gt7();
     if(atomic_load(&startup_pending))status_message="GT7Patcher is available on port 7210. Preparing the home-screen shortcut and saved startup option.";
 #endif
-    n+=(size_t)snprintf(body+n,sizeof(body)-n,"{\"version\":\"%s\",\"token\":\"%s\",\"engineRunning\":%s,\"engineActive\":%s,\"gameRunning\":%d,\"message\":\"%s\",\"config\":{\"mask\":%u,\"preset\":%d,\"units\":%d,\"language\":%d,\"country\":%d,\"speed\":%d,\"mass\":%d,\"power\":%d,\"torque\":%d,\"temperature\":%d,\"autostart\":%d,\"aspect\":%d,\"important\":%d},\"features\":[",VERSION,token,engine_ready()?"true":"false",engine_active()?"true":"false",running_gt7(),status_message,config.mask,config.preset,config.units,config.language,config.country,config.speed,config.mass,config.power,config.torque,config.temperature,config.autostart,config.aspect,config.important_dismissed);
+    n+=(size_t)snprintf(body+n,sizeof(body)-n,"{\"version\":\"%s\",\"token\":\"%s\",\"engineRunning\":%s,\"engineActive\":%s,\"gameRunning\":%d,\"message\":\"%s\"",VERSION,token,engine_ready()?"true":"false",engine_active()?"true":"false",
+#ifdef PS5
+        game_running,
+#else
+        0,
+#endif
+        status_message);
+#ifdef PS5
+    {unsigned requests=0;int pid=0;const char *stage="";gt7_engine_launch_status(&requests,&pid,&stage);n+=(size_t)snprintf(body+n,sizeof(body)-n,",\"launch\":{\"requests\":%u,\"pid\":%d,\"stage\":\"%s\"}",requests,pid,stage);}
+#endif
+    n+=(size_t)snprintf(body+n,sizeof(body)-n,",\"config\":{\"mask\":%u,\"preset\":%d,\"units\":%d,\"language\":%d,\"country\":%d,\"speed\":%d,\"mass\":%d,\"power\":%d,\"torque\":%d,\"temperature\":%d,\"autostart\":%d,\"aspect\":%d,\"important\":%d},\"features\":[",config.mask,config.preset,config.units,config.language,config.country,config.speed,config.mass,config.power,config.torque,config.temperature,config.autostart,config.aspect,config.important_dismissed);
     /* Original feature labels and notes contain no JSON quoting characters; verify at generation. */
     for(unsigned i=0;i<PATCH_COUNT;i++)n+=(size_t)snprintf(body+n,sizeof(body)-n,"%s{\"name\":\"%s\",\"note\":\"%s\",\"lines\":%u}",i?",":"",feature_name(i),feature_note(i),feature_count(i));
     n+=(size_t)snprintf(body+n,sizeof(body)-n,"],\"live\":{\"creditPrompt\":{");
 #ifdef PS5
     Gt7CreditPrompt credit_prompt;
-    if((config.mask&LIVE_SETTINGS_BIT)&&!atomic_load(&startup_pending)&&!gt7_live_credit_prompt_read(&credit_prompt))
+    if((config.mask&LIVE_SETTINGS_BIT)&&!atomic_load(&startup_pending)&&game_running>0&&!gt7_live_credit_prompt_read(&credit_prompt))
         n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":true,\"state\":%u,\"result\":%u,\"amount\":%u,\"chars\":%u",credit_prompt.state,credit_prompt.result,credit_prompt.amount,credit_prompt.chars);
     else
 #endif
@@ -283,7 +423,7 @@ static void json_status(int fd){
     n+=(size_t)snprintf(body+n,sizeof(body)-n,",\"wheelWidth\":{");
 #ifdef PS5
     Gt7WheelWidth width;
-    if((config.mask&LIVE_SETTINGS_BIT)&&!atomic_load(&startup_pending)&&!gt7_wheel_width_read(&width))
+    if((config.mask&LIVE_SETTINGS_BIT)&&!atomic_load(&startup_pending)&&game_running>0&&!gt7_wheel_width_read(&width))
         n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":true,\"front\":%d,\"rear\":%d,\"modelCode\":%u,\"sequence\":%u",width.front,width.rear,width.model_code,width.sequence);
     else
 #endif
@@ -291,7 +431,7 @@ static void json_status(int fd){
     n+=(size_t)snprintf(body+n,sizeof(body)-n,"},\"wheelGeometry\":{");
 #ifdef PS5
     Gt7WheelGeometry geometry;
-    if((config.mask&LIVE_SETTINGS_BIT)&&!atomic_load(&startup_pending)&&!gt7_wheel_geometry_read(&geometry))
+    if((config.mask&LIVE_SETTINGS_BIT)&&!atomic_load(&startup_pending)&&game_running>0&&!gt7_wheel_geometry_read(&geometry))
         n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":true,\"inchUp\":%d,\"offsetFront\":%d,\"offsetRear\":%d,\"hubFront\":%d,\"hubRear\":%d,\"modelCode\":%u",geometry.inch_up,geometry.offset_front,geometry.offset_rear,geometry.hub_front,geometry.hub_rear,geometry.model_code);
     else
 #endif
@@ -299,7 +439,7 @@ static void json_status(int fd){
     n+=(size_t)snprintf(body+n,sizeof(body)-n,"},\"engineSwap\":{");
 #ifdef PS5
     Gt7EngineSwap swap;
-    if((config.mask&LIVE_SETTINGS_BIT)&&!atomic_load(&startup_pending)&&!gt7_engine_swap_read(&swap))n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":true,\"category\":%u,\"modelCode\":%u",swap.category,swap.model_code);
+    if((config.mask&LIVE_SETTINGS_BIT)&&!atomic_load(&startup_pending)&&game_running>0&&!gt7_engine_swap_read(&swap))n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":true,\"category\":%u,\"modelCode\":%u",swap.category,swap.model_code);
     else
 #endif
         n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":false,\"category\":null,\"modelCode\":null");
@@ -332,6 +472,16 @@ static void serve(int fd){
     if(!strcmp(method,"GET")){
         if(!strcmp(path,"/"))response(fd,200,"text/html; charset=utf-8",page_html());
         else if(!strcmp(path,"/api/status"))json_status(fd);
+        else if(!strncmp(path,"/api/notify",11)&&(!path[11]||path[11]=='?')){
+#ifdef PS5
+            if(!authorized){response(fd,403,"text/plain","Reload this page before sending a notification.");return;}
+            char *query=strchr(path,'?');char text[192];
+            if(!query||strncmp(query+1,"text=",5)||!decode_query_text(query+6,text,sizeof(text))){response(fd,400,"text/plain","Use /api/notify?text=MESSAGE");return;}
+            notify("%s",text);response(fd,200,"application/json","{\"sent\":true}");return;
+#else
+            response(fd,409,"text/plain","Notifications are only available on PS5.");return;
+#endif
+        }
         else if(!strcmp(path,"/api/live/credit-input")){
 #ifdef PS5
             Gt7CreditPrompt prompt;
@@ -349,7 +499,7 @@ static void serve(int fd){
             if(!authorized){response(fd,403,"text/plain","Reload this page before reading HUD state.");return;}
             static char body[LIVE_HUD_MAX*LIVE_HUD_PATH+512];int at;
 #ifdef PS5
-            int live=!gt7_hud_read(&hud_state);
+            int live=running_gt7()>0&&!gt7_hud_read(&hud_state);
             at=snprintf(body,sizeof(body),"{\"available\":%s,\"applied\":%u,\"sequence\":%u,\"hidden\":[",live?"true":"false",live?hud_state.applied:0,live?hud_state.sequence:0);
 #else
             at=snprintf(body,sizeof(body),"{\"available\":false,\"applied\":0,\"sequence\":0,\"hidden\":[");
@@ -359,14 +509,15 @@ static void serve(int fd){
             if(at>0&&at<(int)sizeof(body)-8)snprintf(body+at,sizeof(body)-at,"]}");
             response(fd,200,"application/json",body);return;
         }
-        else if(!strcmp(path,"/api/live/hud/tree")){
+        else if(!strcmp(path,"/api/live/hud/tree")||!strcmp(path,"/api/live/screen")){
             /* Live MENU widget tree for the UI's expandable groups. Every named
              * widget is reported with the full path the bridge matches on, its
              * depth and whether it is currently hidden. The in-car and bumper
              * root windows carry the same widgets, so duplicates are expected;
              * the page merges them by path. */
-            if(!authorized){response(fd,403,"text/plain","Reload this page before reading HUD state.");return;}
+            if(!authorized){response(fd,403,"text/plain","Reload this page before reading screen state.");return;}
 #ifdef PS5
+            if(running_gt7()<=0){response(fd,409,"text/plain","The live widget tree is unavailable while supported GT7 is not running.");return;}
             size_t cap=512u*1024u;char *body=malloc(cap);
             if(!body){response(fd,500,"text/plain","Out of memory");return;}
             HudTreeJson j={body,cap,0,1};
@@ -411,14 +562,72 @@ static void serve(int fd){
             response(fd,409,"text/plain","Live memory is only available while supported GT7 is running on PS5.");return;
 #endif
         }
+        else if(!strcmp(path,"/api/live/bindings")){
+            /* Read-only normalized feed for the binding inspector. It is
+             * populated from resolved objects captured by the live probe;
+             * non-scalar binary fields remain absent rather than guessed. */
+            if(!authorized){response(fd,403,"text/plain","Reload this page before reading live bindings.");return;}
+#ifdef PS5
+            char *body=malloc(512u*1024u);unsigned rows=0,objects=0;
+            if(!body){response(fd,500,"text/plain","Out of memory");return;}
+            if(live_binding_feed(body,512u*1024u,&rows,&objects)){free(body);response(fd,409,"text/plain","Live bindings are unavailable while supported GT7 is not running.");return;}
+            response(fd,200,"application/json",body);free(body);return;
+#else
+            response(fd,409,"text/plain","Live bindings are only available while supported GT7 is running on PS5.");return;
+#endif
+        }
+        else if(!strncmp(path,"/api/live/hooks",15)){
+            if(!authorized){response(fd,403,"text/plain","Reload this page before reading live trace state.");return;}
+#ifdef PS5
+            if(strstr(path,"?install=1")!=NULL){
+                if(gt7_live_hooks_auto()){response(fd,409,"text/plain","Could not install the live trace hooks.");return;}
+            }
+            char body[4096];
+            if(gt7_live_hooks_list(body,sizeof(body))){response(fd,409,"text/plain","Live trace state is unavailable while supported GT7 is not running.");return;}
+            response(fd,200,"application/json",body);return;
+#else
+            response(fd,409,"text/plain","Live trace hooks are only available while supported GT7 is running on PS5.");return;
+#endif
+        }
+        else if(!strncmp(path,"/api/live/trace",15)){
+            if(!authorized){response(fd,403,"text/plain","Reload this page before reading live trace data.");return;}
+#ifdef PS5
+            char *query=strchr(path,'?');unsigned long long since=0;unsigned max=256;
+            if(query){
+                char *p=strstr(query,"since=");if(p)since=strtoull(p+6,NULL,0);
+                p=strstr(query,"max=");if(p)max=(unsigned)strtoul(p+4,NULL,0);
+            }
+            if(max>LIVE_TRACE_MAX)max=LIVE_TRACE_MAX;
+            size_t cap=1024u*1024u;char *body=malloc(cap);
+            if(!body){response(fd,500,"text/plain","Out of memory");return;}
+            uint64_t cursor=(uint64_t)since;
+            if(gt7_live_trace_report(body,(uint32_t)cap,&cursor,max)){free(body);response(fd,409,"text/plain","Live trace data is unavailable while supported GT7 is not running.");return;}
+            response(fd,200,"application/json",body);free(body);return;
+#else
+            response(fd,409,"text/plain","Live trace data is only available while supported GT7 is running on PS5.");return;
+#endif
+        }
         else if(!strncmp(path,"/api/live/probe",15)){
             /* Temporary read-only diagnostic: last logged hook registers. Remove before release. */
             if(!authorized){response(fd,403,"text/plain","Reload this page before reading live memory.");return;}
 #ifdef PS5
+            if(!strcmp(path,"/api/live/probe/history")){
+                uintptr_t words[64*32];uint32_t next=0;char *history=malloc(65536);int at;
+                if(!history){response(fd,500,"text/plain","Out of memory");return;}
+                if(gt7_live_probe_history(words,64*32,&next)){free(history);response(fd,409,"text/plain","Live memory is unavailable while supported GT7 is not running.");return;}
+                at=snprintf(history,65536,"{\"next\":%u,\"records\":[",next);
+                for(unsigned i=0;i<64&&at>0&&at<65536-512;i++){
+                    at+=snprintf(history+at,65536-at,"%s[",i?",":"");
+                    for(unsigned j=0;j<26;j++)at+=snprintf(history+at,65536-at,"%s\"0x%llx\"",j?",":"",(unsigned long long)words[i*32+j]);
+                    at+=snprintf(history+at,65536-at,"]");
+                }
+                if(at>0&&at<65536)snprintf(history+at,65536-at,"]}");
+                response(fd,200,"application/json",history);free(history);return;
+            }
             uintptr_t words[128];char body[4096];int at;
             if(gt7_live_probe_read(words,128)){response(fd,409,"text/plain","Live memory is unavailable while supported GT7 is not running.");return;}
-            at=snprintf(body,sizeof(body),"{\"rdi\":\"0x%llx\",\"rsi\":\"0x%llx\",\"rdx\":\"0x%llx\",\"rcx\":\"0x%llx\",\"r8\":\"0x%llx\",\"r9\":\"0x%llx\",\"rsp\":\"0x%llx\",\"count\":%llu,\"ret\":\"0x%llx\",\"rbp\":\"0x%llx\",\"stack\":[",
-                (unsigned long long)words[0],(unsigned long long)words[1],(unsigned long long)words[2],(unsigned long long)words[3],(unsigned long long)words[4],(unsigned long long)words[5],(unsigned long long)words[6],(unsigned long long)words[7],(unsigned long long)words[8],(unsigned long long)words[9]);
+            at=snprintf(body,sizeof(body),"{\"rdi\":\"0x%llx\",\"rsi\":\"0x%llx\",\"rdx\":\"0x%llx\",\"rcx\":\"0x%llx\",\"r8\":\"0x%llx\",\"r9\":\"0x%llx\",\"rsp\":\"0x%llx\",\"count\":%llu,\"ret\":\"0x%llx\",\"rbp\":\"0x%llx\",\"result\":\"0x%llx\",\"resultCount\":%llu,\"bindingObject\":\"0x%llx\",\"getter\":\"0x%llx\",\"stack\":[",
+                (unsigned long long)words[0],(unsigned long long)words[1],(unsigned long long)words[2],(unsigned long long)words[3],(unsigned long long)words[4],(unsigned long long)words[5],(unsigned long long)words[6],(unsigned long long)words[7],(unsigned long long)words[8],(unsigned long long)words[9],(unsigned long long)words[10],(unsigned long long)words[11],(unsigned long long)words[12],(unsigned long long)words[13]);
             for(int i=0;i<48&&at>0&&at<(int)sizeof(body)-40;i++)at+=snprintf(body+at,sizeof(body)-at,"%s\"0x%llx\"",i?",":"",(unsigned long long)words[64+i]);
             if(at>0&&at<(int)sizeof(body)-40)at+=snprintf(body+at,sizeof(body)-at,"],\"snap\":[");
             for(int i=0;i<24&&at>0&&at<(int)sizeof(body)-40;i++)at+=snprintf(body+at,sizeof(body)-at,"%s\"0x%llx\"",i?",":"",(unsigned long long)words[32+i]);
@@ -775,7 +984,17 @@ int main(int argc,char **argv){
             while(!stopping&&(s=open_listener(port))<0)usleep(100000);
             continue;
         }
-        if(!r){gt7_live_pad_poll();hud_tick();gt7_live_credit_auto_poll();continue;}
+        if(!r){
+#ifdef PS5
+            /* Never touch the game bridge after GT7 has exited. In
+             * particular, a crash can leave an eboot entry present long
+             * enough for stale mdbg reads to stall the payload's main loop. */
+            if(running_gt7()>0){gt7_live_pad_poll();hud_tick();gt7_live_credit_auto_poll();}
+#else
+            gt7_live_pad_poll();hud_tick();gt7_live_credit_auto_poll();
+#endif
+            continue;
+        }
         int c=accept(s,NULL,NULL);
         if(c<0){
             if(errno==EINTR)continue;
