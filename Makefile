@@ -23,11 +23,17 @@ build/live_boot.o: src/live_boot.S
 	$(CC) -c $< -o $@
 build/live_bridge.o: src/live_bridge.c src/live_bridge.h
 	$(CC) -c -Os -fPIC -ffreestanding -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tables -fvisibility=hidden $< -o $@
+build/live_trace.o: src/live_trace.c src/live_bridge.h
+	$(CC) -c -Os -fPIC -ffreestanding -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tables -fvisibility=hidden -mgeneral-regs-only $< -o $@
+build/live_boot.elf: build/live_boot.o src/live_bridge.ld
+	$(LD) --static -e live_boot_entry -T src/live_bridge.ld $< -o $@
+build/live_bridge.elf: build/live_bridge.o build/live_trace.o src/live_bridge.ld
+	$(LD) --static -e live_frame -T src/live_bridge.ld $^ -o $@
 build/live_%.elf: build/live_%.o src/live_bridge.ld
-	$(LD) --static -e $(if $(findstring boot,$@),live_boot_entry,live_frame) -T src/live_bridge.ld $< -o $@
+	$(LD) --static -e live_frame -T src/live_bridge.ld $< -o $@
 build/live_%.bin: build/live_%.elf
 	$(OBJCOPY) -O binary --only-section=.blob $< $@
-build/live_blob.h: build/live_boot.bin build/live_bridge.bin build/live_boot.elf build/live_bridge.elf build_live_bridge.py
+build/live_blob.h: build/live_boot.bin build/live_bridge.bin build/live_boot.elf build/live_bridge.elf build_live_bridge.py src/live_trace.c
 	python3 build_live_bridge.py $(NM)
 build/gt7patcher.elf: src/main.c src/config.c src/config.h src/engine.c src/engine.h src/live_bridge.h build/assets.h build/hook_blob.h build/live_blob.h build/notify.o
 	$(CC) $(CFLAGS) -DPS5 src/main.c src/config.c src/engine.c build/notify.o -lSceSystemService -lSceUserService -o $@

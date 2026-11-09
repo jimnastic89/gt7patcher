@@ -1,3 +1,4 @@
+<!--# <img src="assets/icon0.png" width="64" align="absmiddle"> GT7Patcher-->
 # GT7Patcher
 
 [![](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=fe8e86&style=for-the-badge)](https://github.com/sponsors/jimnastic89)
