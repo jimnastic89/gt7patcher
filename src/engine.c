@@ -60,9 +60,21 @@ static unsigned char *saved_frame;
 static int service=-1,active,damaged;
 static int user_service_ready;
 static atomic_int live;
+static atomic_uint launch_requests;
+static atomic_int launch_pid;
+static atomic_int launch_stage;
 static pthread_t thread;
 static unsigned char expected_bridge[sizeof(hook_blob)];
 static const char *state_root="/data/gt7p/patches";
+enum {LAUNCH_NONE,LAUNCH_REQUESTED,LAUNCH_NOT_GT7,LAUNCH_VERSION,LAUNCH_MODULE,
+      LAUNCH_CONFIG,LAUNCH_PREPARE,LAUNCH_PATCH,LAUNCH_LIVE,LAUNCH_APPLIED,
+      LAUNCH_UNCHANGED};
+static const char *const launch_stages[]={
+    "waiting for a launch request","launch request received","not GT7",
+    "unsupported game version","game module unavailable","saved configuration unavailable",
+    "patch generation failed","patch write failed","live bridge install failed",
+    "saved patches applied","all patches disabled"
+};
 static unsigned firmware_version(void);
 /* The public TitleDir registration entry point is available before firmware
  * 12.  On 12+ AppInstallAll must be bridged to ShellCore's internal TitleDir
@@ -489,32 +501,101 @@ int gt7_live_credit_prompt_read(Gt7CreditPrompt *out){
     return 0;
 }
 /* Temporary read-only diagnostics. Remove before release. */
-/* Temporary logging hook used to map GT7's UI event path from inside the
- * game. It installs a jump at a target function entry to a stub inside the
- * live allocation. The stub records the integer argument registers, the stack
- * pointer and the caller's return address, replays the displaced prologue
- * bytes, then resumes the function. Behaviour is otherwise unchanged. The
- * target and displaced length are supplied at runtime so candidates can be
- * tried without rebuilding. Remove before release. */
-/* Scratch for the temporary UI probe. It must live above the live bridge
- * blob (sizeof(live_bridge_blob) bytes, ~0xFBE4 including the 1024-entry
- * HUD restore cache) and below LIVE_ALLOCATION; the old 0x8000 values fell
- * inside the blob tail and corrupted the bridge on install. The region
- * [LIVE_PROMPT_WORK+LIVE_PROMPT_WORK_SIZE, LIVE_ALLOCATION) is unused.
- * Remove before release. */
-#define LIVE_PROBE_LOG   0x00017000u
-#define LIVE_PROBE_ADDR  0x00017400u
-#define LIVE_PROBE_STUB  0x00017600u
-_Static_assert(LIVE_PROBE_LOG+0x8000<=LIVE_ALLOCATION,"probe scratch exceeds the live allocation");
-int gt7_live_probe_install(uintptr_t target,uint32_t displaced,int mode,uintptr_t watch){
+/* ------------------------------------------------------------------------
+ * Hook slots.
+ *
+ * Each slot owns one snapshot record and one detour stub inside the live
+ * allocation, so several game functions can be observed at once. Slot 0 also
+ * owns the shared log block used by the census modes (0,3,4,5,6,7,8) and keeps
+ * the historical offsets, so the existing diagnostics keep working.
+ *
+ * Mode 9 is the observation trace: the stub saves the integer argument
+ * registers, calls live_trace() in the bridge and appends one fixed 64-byte
+ * record to the trace ring. Unlike the census modes it never blocks and never
+ * allocates, so it is safe to leave installed while the game runs.
+ *
+ * A stub replays the displaced prologue at its own address, so the displaced
+ * byte range must contain no RIP-relative instruction: its disp32 would
+ * resolve from the stub, and the stub sits several GiB away. work/sitelint.py
+ * validates candidate sites offline; every default site below passes.
+ *
+ * Remove before release.
+ * ---------------------------------------------------------------------- */
+#define LIVE_PROBE_LOG    0x00008000u   /* census log block (slot 0 only)    */
+#define LIVE_PROBE_ADDR   0x00008800u   /* snapshot records                  */
+#define LIVE_PROBE_RING   0x00000100u
+#define LIVE_PROBE_RING_COUNT 64u
+#define LIVE_PROBE_RING_WORDS 26u
+#define LIVE_PROBE_RECORD_STRIDE 0x00000080u
+#define LIVE_PROBE_STUB   0x00009000u   /* detour stubs                      */
+#define LIVE_PROBE_CODE_STRIDE   0x00000400u
+#define LIVE_PROBE_SLOTS  8u
+#define LIVE_PROBE_MODES  9
+typedef struct {
+    uintptr_t target;
+    uint32_t displaced;
+    uint32_t mode;
+    uint32_t active;
+    uint32_t slot;
+    uint64_t watch;
+    unsigned char original[0x40];
+} LiveProbeRecord;
+_Static_assert(sizeof(LiveProbeRecord)<=LIVE_PROBE_RECORD_STRIDE,"probe record exceeds slot stride");
+static uintptr_t probe_stub(uintptr_t allocation,uint32_t slot){return allocation+LIVE_PROBE_STUB+(uintptr_t)slot*LIVE_PROBE_CODE_STRIDE;}
+static uintptr_t probe_record(uintptr_t allocation,uint32_t slot){return allocation+LIVE_PROBE_ADDR+(uintptr_t)slot*LIVE_PROBE_RECORD_STRIDE;}
+/* Default observation sites, as RVAs from the module image base. Each is the
+ * smallest whole-instruction boundary >= 14 bytes that contains no
+ * RIP-relative instruction, which is what a replayed prologue requires.
+ *
+ *   vm.invoke             script VM call chokepoint. rdi is the invoked
+ *                         object, so the record carries its interned symbol
+ *                         and bound native: the full script activity log.
+ *   ui.pushFunctionEvent  UI event queue push
+ *   ui.pushEvent          UI event queue push
+ *   ui.filterEvent        UI event filter
+ *
+ * The event funnels run tens of thousands of times a second, so they are
+ * recorded through a sample divider (one record in every 2^sample calls) and
+ * without the rdi dereference. */
+typedef struct {uint32_t rva;uint32_t displaced;uint32_t slot;uint32_t sample;int deref;const char *label;} LiveTraceSite;
+static const LiveTraceSite trace_sites[]={
+    {0x0026d00u,17u,0,0,1,"vm.invoke"},
+    {0x189b0c0u,17u,1,6,0,"ui.pushFunctionEvent"},
+    {0x189ac50u,15u,2,6,0,"ui.pushEvent"},
+    {0x18db940u,17u,3,6,0,"ui.filterEvent"},
+};
+#define LIVE_TRACE_SITE_COUNT ((uint32_t)(sizeof(trace_sites)/sizeof(trace_sites[0])))
+int gt7_live_probe_install_slot(uintptr_t target,uint32_t displaced,int mode,uintptr_t watch,uint32_t slot,uint64_t cfg){
     pid_t pid;uintptr_t base,address;LiveMailbox state;
     if(credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.allocation)return -1;
-    if(displaced<14||displaced>0x40||mode>4)return -1;
-    uintptr_t alloc=state.allocation,stub=alloc+LIVE_PROBE_STUB,record=alloc+LIVE_PROBE_ADDR,log=alloc+LIVE_PROBE_LOG;
+    if(displaced<14||displaced>0x40||mode<0||mode>LIVE_PROBE_MODES||slot>=LIVE_PROBE_SLOTS)return -1;
+    uintptr_t alloc=state.allocation;
+    uintptr_t stub=probe_stub(alloc,slot),record=probe_record(alloc,slot),log=alloc+LIVE_PROBE_LOG;
     unsigned char orig[0x40];
     if(read_mem(pid,target,orig,displaced))return -1;
-    if(displaced>=14&&orig[0]==0xFF&&orig[1]==0x25&&*(uintptr_t *)(orig+6)==stub)return -1;/* target already hooked; restore it before re-hooking */
+    if(orig[0]==0xFF&&orig[1]==0x25&&*(uintptr_t *)(orig+6)==stub)return -1;/* already hooked here */
     unsigned char code[0x800];size_t n=0;
+    if(mode==9){
+    /* Observation trace detour. Every integer register the hooked function may
+     * be reading is pushed, the block is handed to live_trace() together with
+     * the allocated base, and the registers are restored before the displaced
+     * prologue runs. live_trace is built with -mgeneral-regs-only, so incoming
+     * xmm argument values are left exactly as the caller set them. */
+    {
+        static const unsigned char pushes[]={0x9C,0x50,0x51,0x52,0x56,0x57,0x41,0x50,0x41,0x51,0x41,0x52,0x41,0x53};
+        static const unsigned char pops[]={0x41,0x5B,0x41,0x5A,0x41,0x59,0x41,0x58,0x5F,0x5E,0x5A,0x59,0x58,0x9D};
+        uint64_t fn=alloc+LIVE_TRACE;
+        code[n++]=0x48;code[n++]=0x83;code[n++]=0xEC;code[n++]=0x08;   /* sub rsp,8: keeps the call 16-byte aligned */
+        memcpy(code+n,pushes,sizeof(pushes));n+=sizeof(pushes);
+        code[n++]=0x48;code[n++]=0x89;code[n++]=0xE7;                   /* mov rdi,rsp */
+        code[n++]=0x48;code[n++]=0xBE;memcpy(code+n,&cfg,8);n+=8;       /* mov rsi,cfg */
+        code[n++]=0x48;code[n++]=0xBA;memcpy(code+n,&alloc,8);n+=8;     /* mov rdx,allocation */
+        code[n++]=0x48;code[n++]=0xB8;memcpy(code+n,&fn,8);n+=8;        /* mov rax,live_trace */
+        code[n++]=0xFF;code[n++]=0xD0;                                  /* call rax */
+        memcpy(code+n,pops,sizeof(pops));n+=sizeof(pops);
+        code[n++]=0x48;code[n++]=0x83;code[n++]=0xC4;code[n++]=0x08;    /* add rsp,8 */
+    }
+    }else{
     if(mode!=1){
     code[n++]=0x49;code[n++]=0xBB;memcpy(code+n,&log,8);n+=8;
     static const unsigned char stores[7][3]={{0x49,0x89,0x7B},{0x49,0x89,0x73},{0x49,0x89,0x53},{0x49,0x89,0x4B},{0x4D,0x89,0x43},{0x4D,0x89,0x4B},{0x49,0x89,0x63}};
@@ -542,6 +623,65 @@ int gt7_live_probe_install(uintptr_t target,uint32_t displaced,int mode,uintptr_
         code[n++]=0x49;code[n++]=0x89;code[n++]=0x02;                             /* mov [r10],rax */
         code[n++]=0x49;code[n++]=0xFF;code[n++]=0x42;code[n++]=0x08;              /* inc qword [r10+8] */
         code[n++]=0x58;                                                            /* pop rax */
+    }
+    }
+    if(mode==5){
+    /* Symbol-keyed trace: hash the interned symbol at [rdi+0x28] (whose
+     * content is the invoked method/class path) into the 1024-bucket table.
+     * Interned symbols are stable, so a RARE method invocation keeps its own
+     * bucket instead of being overwritten by the ambient ~10k/s stream --
+     * unlike mode 0, which keys by the per-frame instance pointer rdi and
+     * therefore only ever remembers frequent occupants. The deref of rdi is
+     * exactly as safe as the target's own first instruction (mov rax,[rdi+0x20]).
+     * Bucket = {symbol, count, native}: we also record the native bound at
+     * [rdi+0x20] (stride 0x20), turning this into a symbol->native map -- the
+     * output of the load-time registration pass, readable at any time. */
+    {
+        code[n++]=0x50;                                                  /* push rax */
+        code[n++]=0x52;                                                  /* push rdx */
+        code[n++]=0x51;                                                  /* push rcx */
+        code[n++]=0x49;code[n++]=0x8B;code[n++]=0x03;                    /* mov rax,[r11] (rdi) */
+        code[n++]=0x48;code[n++]=0x85;code[n++]=0xC0;                    /* test rax,rax */
+        code[n++]=0x74;code[n++]=0x37;                                   /* jz skip */
+        code[n++]=0x48;code[n++]=0x8B;code[n++]=0x40;code[n++]=0x28;     /* mov rax,[rax+0x28] */
+        code[n++]=0x48;code[n++]=0x85;code[n++]=0xC0;                    /* test rax,rax */
+        code[n++]=0x74;code[n++]=0x2E;                                   /* jz skip */
+        code[n++]=0x48;code[n++]=0x89;code[n++]=0xC2;                    /* mov rdx,rax */
+        code[n++]=0x48;code[n++]=0xC1;code[n++]=0xEA;code[n++]=0x04;     /* shr rdx,4 */
+        code[n++]=0x48;code[n++]=0x81;code[n++]=0xE2;code[n++]=0xFF;code[n++]=0x03;code[n++]=0x00;code[n++]=0x00;/* and rdx,0x3ff */
+        code[n++]=0x48;code[n++]=0xC1;code[n++]=0xE2;code[n++]=0x05;     /* shl rdx,5 (stride 0x20) */
+        {uint32_t table5=0x4000u;
+        code[n++]=0x49;code[n++]=0x8D;code[n++]=0x8B;memcpy(code+n,&table5,4);n+=4;/* lea rcx,[r11+0x4000] */}
+        code[n++]=0x48;code[n++]=0x01;code[n++]=0xD1;                    /* add rcx,rdx */
+        code[n++]=0x48;code[n++]=0x89;code[n++]=0x01;                    /* mov [rcx],rax (symbol) */
+        code[n++]=0x48;code[n++]=0xFF;code[n++]=0x41;code[n++]=0x08;     /* inc qword [rcx+8] */
+        code[n++]=0x49;code[n++]=0x8B;code[n++]=0x03;                    /* mov rax,[r11] (rdi=record) */
+        code[n++]=0x48;code[n++]=0x8B;code[n++]=0x40;code[n++]=0x20;     /* mov rax,[rax+0x20] (native) */
+        code[n++]=0x48;code[n++]=0x89;code[n++]=0x41;code[n++]=0x10;     /* mov [rcx+0x10],rax */
+        code[n++]=0x59;                                                  /* skip: pop rcx */
+        code[n++]=0x5A;                                                  /* pop rdx */
+        code[n++]=0x58;                                                  /* pop rax */
+    }
+    }
+    if(mode==6){
+    /* Symbol-watch: bump log+0x100 whenever the invoked object's interned
+     * symbol [rdi+0x28] equals the configured watch value. Used to detect a
+     * specific script method invocation (e.g. pushPage) by its stable symbol
+     * identity, independent of the per-frame instance pointer. rdi is
+     * dereferenced by the target itself, so the extra read is safe. */
+    {
+        code[n++]=0x50;                                                  /* push rax */
+        code[n++]=0x51;                                                  /* push rcx */
+        code[n++]=0x49;code[n++]=0x8B;code[n++]=0x03;                    /* mov rax,[r11] (rdi) */
+        code[n++]=0x48;code[n++]=0x85;code[n++]=0xC0;                    /* test rax,rax */
+        code[n++]=0x74;code[n++]=0x1A;                                   /* jz skip */
+        code[n++]=0x48;code[n++]=0x8B;code[n++]=0x40;code[n++]=0x28;     /* mov rax,[rax+0x28] */
+        code[n++]=0x48;code[n++]=0xB9;memcpy(code+n,&watch,8);n+=8;      /* mov rcx,watch */
+        code[n++]=0x48;code[n++]=0x39;code[n++]=0xC8;                    /* cmp rax,rcx */
+        code[n++]=0x75;code[n++]=0x07;                                   /* jne skip */
+        code[n++]=0x49;code[n++]=0xFF;code[n++]=0x83;code[n++]=0x00;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;/* inc qword [r11+0x100] */
+        code[n++]=0x59;                                                  /* skip: pop rcx */
+        code[n++]=0x58;                                                  /* pop rax */
     }
     }
     }
@@ -596,22 +736,77 @@ int gt7_live_probe_install(uintptr_t target,uint32_t displaced,int mode,uintptr_
      * at the chokepoint regardless of how its instance address changes. */
     {
         uintptr_t wv=watch;
+        code[n++]=0x50;                                                          /* push rax (preserve) */
         code[n++]=0x49;code[n++]=0xBA;memcpy(code+n,&wv,8);n+=8;                  /* mov r10,watch */
         code[n++]=0x4D;code[n++]=0x39;code[n++]=0x13;                            /* cmp [r11],r10 (rdi) */
-        code[n++]=0x75;code[n++]=0x02;                                           /* jne skip */
-        code[n++]=0x49;code[n++]=0xFF;code[n++]=0x83;code[n++]=0x00;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00; /* inc [r11+0x100] */
+        code[n++]=0x0F;code[n++]=0x94;code[n++]=0xC0;                            /* sete al */
+        code[n++]=0x0F;code[n++]=0xB6;code[n++]=0xC0;                            /* movzx eax,al */
+        code[n++]=0x49;code[n++]=0x01;code[n++]=0x83;code[n++]=0x00;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00; /* add [r11+0x100],rax */
+        code[n++]=0x58;                                                          /* pop rax */
+    }
+    }
+    if(mode==7){
+    /* Bind census: at the bind-native API the name arrives in rsi (log[8]).
+     * Hash rsi into the 1024-bucket table so every distinct interned symbol
+     * bound through this API is recorded, independent of the context pointer
+     * rdi (constant here). Lets us prove whether the credit-open symbol is
+     * ever bound to a native. rsi is only stored, never dereferenced. */
+    {
+        uint32_t table7=0x4000u;
+        code[n++]=0x50;                                                          /* push rax */
+        code[n++]=0x49;code[n++]=0x8B;code[n++]=0x43;code[n++]=0x08;             /* mov rax,[r11+8]  (rsi=name) */
+        code[n++]=0x48;code[n++]=0xC1;code[n++]=0xE8;code[n++]=0x04;             /* shr rax,4 */
+        code[n++]=0x48;code[n++]=0x25;code[n++]=0xFF;code[n++]=0x03;code[n++]=0x00;code[n++]=0x00; /* and rax,0x3ff */
+        code[n++]=0x48;code[n++]=0xC1;code[n++]=0xE0;code[n++]=0x04;             /* shl rax,4 */
+        code[n++]=0x4D;code[n++]=0x8D;code[n++]=0x93;memcpy(code+n,&table7,4);n+=4;/* lea r10,[r11+0x4000] */
+        code[n++]=0x49;code[n++]=0x01;code[n++]=0xC2;                            /* add r10,rax */
+        code[n++]=0x49;code[n++]=0x8B;code[n++]=0x43;code[n++]=0x08;             /* mov rax,[r11+8] */
+        code[n++]=0x49;code[n++]=0x89;code[n++]=0x02;                            /* mov [r10],rax */
+        code[n++]=0x49;code[n++]=0xFF;code[n++]=0x42;code[n++]=0x08;             /* inc qword [r10+8] */
+        code[n++]=0x58;                                                          /* pop rax */
+    }
+    }
+    if(mode==8){
+    /* Override (PoC): when the invoked object's interned symbol [rdi+0x28]
+     * equals the configured watch value (the credits-icon key handler), queue
+     * the native number pad by writing PROMPT_QUEUED into the live mailbox --
+     * but only when the prompt is idle, so an in-progress prompt is never
+     * clobbered. Fires synchronously on the press, in-process, no polling.
+     * The original handler still runs (suppression is a later step). */
+    {
+        int32_t disp=(int32_t)offsetof(LiveMailbox,prompt_state)-(int32_t)0x7000;
+        code[n++]=0x50;                                                  /* push rax */
+        code[n++]=0x51;                                                  /* push rcx */
+        code[n++]=0x49;code[n++]=0x8B;code[n++]=0x03;                    /* mov rax,[r11] (rdi) */
+        code[n++]=0x48;code[n++]=0x85;code[n++]=0xC0;                    /* test rax,rax */
+        code[n++]=0x74;code[n++]=0x2F;                                   /* jz skip */
+        code[n++]=0x48;code[n++]=0x8B;code[n++]=0x40;code[n++]=0x28;     /* mov rax,[rax+0x28] */
+        code[n++]=0x48;code[n++]=0xB9;memcpy(code+n,&watch,8);n+=8;      /* mov rcx,watch */
+        code[n++]=0x48;code[n++]=0x39;code[n++]=0xC8;                    /* cmp rax,rcx */
+        code[n++]=0x75;code[n++]=0x1C;                                   /* jne skip */
+        code[n++]=0x41;code[n++]=0x83;code[n++]=0xBB;memcpy(code+n,&disp,4);n+=4;code[n++]=0x00;/* cmp dword [r11+disp],0 */
+        code[n++]=0x75;code[n++]=0x12;                                   /* jne skip */
+        code[n++]=0x41;code[n++]=0xC7;code[n++]=0x83;memcpy(code+n,&disp,4);n+=4;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;code[n++]=0x00;/* mov dword [r11+disp],1 (PROMPT_QUEUED) */
+        code[n++]=0x49;code[n++]=0xFF;code[n++]=0x83;code[n++]=0x00;code[n++]=0x01;code[n++]=0x00;code[n++]=0x00;/* inc qword [r11+0x100] */
+        code[n++]=0x59;                                                  /* skip: pop rcx */
+        code[n++]=0x58;                                                  /* pop rax */
+    }
     }
     }
     memcpy(code+n,orig,displaced);n+=displaced;
     code[n++]=0x49;code[n++]=0xBB;uintptr_t resume=target+displaced;memcpy(code+n,&resume,8);n+=8;
     code[n++]=0x41;code[n++]=0xFF;code[n++]=0xE3;                             /* jmp r11 */
-    if(n>0x7f0)return -1;
-    unsigned char snapshot[0x50];memset(snapshot,0,sizeof(snapshot));
-    memcpy(snapshot,&target,8);memcpy(snapshot+8,&displaced,4);memcpy(snapshot+0x0c,orig,displaced);
-    if(verified_write(pid,record,snapshot,sizeof(snapshot)))return -1;
+    if(n>LIVE_PROBE_CODE_STRIDE)return -1;
+    LiveProbeRecord snap;memset(&snap,0,sizeof(snap));
+    snap.target=target;snap.displaced=displaced;snap.mode=(uint32_t)mode;snap.slot=slot;snap.watch=watch;snap.active=1;
+    memcpy(snap.original,orig,displaced);
+    unsigned char raw[LIVE_PROBE_RECORD_STRIDE];memset(raw,0,sizeof(raw));memcpy(raw,&snap,sizeof(snap));
+    if(verified_write(pid,record,raw,sizeof(raw)))return -1;
     if(verified_write(pid,stub,code,n))return -1;
-    {unsigned char zero[0x400];memset(zero,0,sizeof(zero));if(verified_write(pid,log,zero,sizeof(zero)))return -1;}
-    {static unsigned char zobj[0x4000];if(verified_write(pid,log+0x4000,zobj,sizeof(zobj)))return -1;}
+    if(slot==0&&mode!=9){
+        unsigned char zero[0x400];memset(zero,0,sizeof(zero));if(verified_write(pid,log,zero,sizeof(zero)))return -1;
+        static unsigned char zobj[0x8000];if(verified_write(pid,log+0x4000,zobj,sizeof(zobj)))return -1;
+    }
     unsigned char patch[0x40];
     patch[0]=0xFF;patch[1]=0x25;patch[2]=0;patch[3]=0;patch[4]=0;patch[5]=0;memcpy(patch+6,&stub,8);
     for(uint32_t i=14;i<displaced;i++)patch[i]=0x90;
@@ -619,24 +814,219 @@ int gt7_live_probe_install(uintptr_t target,uint32_t displaced,int mode,uintptr_
     if(verified_write(pid,target,patch,displaced))return -1;
     return 0;
 }
+int gt7_live_probe_install(uintptr_t target,uint32_t displaced,int mode,uintptr_t watch){
+    return gt7_live_probe_install_slot(target,displaced,mode,watch,0,LIVE_TRACE_CFG(0,1,0));
+}
+int gt7_live_probe_remove_slot(uint32_t slot){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(slot>=LIVE_PROBE_SLOTS)return -1;
+    if(credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.allocation)return -1;
+    LiveProbeRecord snap;
+    if(read_mem(pid,probe_record(state.allocation,slot),&snap,sizeof(snap)))return -1;
+    if(!snap.active||!snap.target||snap.displaced<14||snap.displaced>0x40)return -1;
+    if(kernel_mprotect(pid,snap.target&~(uintptr_t)0x3fff,0x4000,PROT_READ|PROT_WRITE|PROT_EXEC))return -1;
+    if(verified_write(pid,snap.target,snap.original,snap.displaced))return -1;
+    uint64_t zero=0;
+    if(verified_write(pid,probe_record(state.allocation,slot),&zero,8))return -1;
+    return 0;
+}
 int gt7_live_probe_remove(void){
+    unsigned removed=0;
+    for(uint32_t slot=0;slot<LIVE_PROBE_SLOTS;slot++)if(!gt7_live_probe_remove_slot(slot))removed++;
+    return removed?0:-1;
+}
+/* Symbol names for the pointers the trace records reference. The chain is
+ * symbol record +0x10 -> name record +0x00 -> NUL-terminated text. Pointers
+ * are stable for the life of a game process, so the cache is keyed by pointer
+ * and dropped when the game process changes. */
+#define LIVE_NAME_CACHE 256
+typedef struct {uintptr_t ptr;char name[48];} LiveNameEntry;
+static LiveNameEntry live_name_cache[LIVE_NAME_CACHE];
+static pid_t live_name_pid;
+static const char *live_name(pid_t pid,uintptr_t sym){
+    if(!sym)return "";
+    if(live_name_pid!=pid){memset(live_name_cache,0,sizeof(live_name_cache));live_name_pid=pid;}
+    uint32_t hash=(uint32_t)((sym>>4)&(LIVE_NAME_CACHE-1));
+    for(uint32_t i=0;i<LIVE_NAME_CACHE;i++){
+        LiveNameEntry *e=&live_name_cache[(hash+i)&(LIVE_NAME_CACHE-1)];
+        if(e->ptr==sym)return e->name;
+        if(!e->ptr){
+            uintptr_t name_record=0,string_ptr=0;
+            e->ptr=sym;e->name[0]=0;
+            if(!read_mem(pid,sym+0x10,&name_record,8)&&name_record&&
+               !read_mem(pid,name_record,&string_ptr,8)&&string_ptr){
+                unsigned char raw[47];
+                if(!read_mem(pid,string_ptr,raw,sizeof(raw))){
+                    unsigned j=0;
+                    for(;j<sizeof(raw)&&raw[j];j++)e->name[j]=(raw[j]>=32&&raw[j]<127)?(char)raw[j]:'?';
+                    e->name[j]=0;
+                }
+            }
+            return e->name;
+        }
+    }
+    return "";
+}
+/* Initialise (or re-initialise) the trace ring. The epoch is bumped so records
+ * still sitting in the ring from an earlier run are rejected instead of being
+ * reported as new. */
+int gt7_live_trace_init(void){
     pid_t pid;uintptr_t base,address;LiveMailbox state;
     if(credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.allocation)return -1;
-    uintptr_t record=state.allocation+LIVE_PROBE_ADDR;
-    unsigned char snapshot[0x50];
-    if(read_mem(pid,record,snapshot,sizeof(snapshot)))return -1;
-    uintptr_t target=0;uint32_t displaced=0;memcpy(&target,snapshot,8);memcpy(&displaced,snapshot+8,4);
-    if(!target||displaced<14||displaced>0x40)return -1;
-    if(kernel_mprotect(pid,target&~(uintptr_t)0x3fff,0x4000,PROT_READ|PROT_WRITE|PROT_EXEC))return -1;
-    if(verified_write(pid,target,snapshot+0x0c,displaced))return -1;
-    uintptr_t zero=0;
-    if(verified_write(pid,record,&zero,8))return -1;
+    uintptr_t hdr=state.allocation+LIVE_TRACE_HEADER;
+    LiveTraceHeader old;
+    uint32_t epoch=0;
+    if(!read_mem(pid,hdr,&old,sizeof(old))&&old.magic==LIVE_TRACE_MAGIC)epoch=old.epoch;
+    LiveTraceHeader next;memset(&next,0,sizeof(next));
+    next.magic=LIVE_TRACE_MAGIC;next.mask=LIVE_TRACE_MASK;next.sites=LIVE_PROBE_SLOTS;next.epoch=epoch+1;
+    if(verified_write(pid,hdr,&next,sizeof(next)))return -1;
+    return 0;
+}
+/* Compact JSON for every record written since *since. A symbol dictionary is
+ * emitted alongside so a recurring pointer costs one string, not one per
+ * event. *since is advanced past the batch. */
+/* Copy a symbol name into a JSON string body. Names come from the game's
+ * interned string table and are normally plain identifiers, but a stray
+ * quote or control byte must not break the document. */
+static uint32_t trace_json_name(char *dst,uint32_t size,const char *src){
+    uint32_t at=0;
+    for(;src&&*src;src++){
+        unsigned char c=(unsigned char)*src;
+        const char *esc=0;
+        if(c=='"')esc="\\\"";
+        else if(c=='\\')esc="\\\\";
+        else if(c=='\n')esc="\\n";
+        else if(c=='\r')esc="\\r";
+        else if(c=='\t')esc="\\t";
+        else if(c<32)esc="?";
+        if(esc){
+            uint32_t n=(uint32_t)strlen(esc);
+            if(at+n>=size)break;
+            memcpy(dst+at,esc,n);at+=n;
+        }else{
+            if(at+1>=size)break;
+            dst[at++]=(char)c;
+        }
+    }
+    if(size)dst[at<size?at:size-1]=0;
+    return at;
+}
+int gt7_live_trace_report(char *out,uint32_t size,uint64_t *since,uint32_t max){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(!out||!since||size<512)return -1;
+    if(credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.allocation)return -1;
+    if(!max||max>LIVE_TRACE_MAX)max=LIVE_TRACE_MAX;
+    uintptr_t hdr=state.allocation+LIVE_TRACE_HEADER;
+    LiveTraceHeader h;
+    if(read_mem(pid,hdr,&h,sizeof(h)))return -1;
+    if(h.magic!=LIVE_TRACE_MAGIC){
+        snprintf(out,size,"{\"ready\":false,\"count\":0,\"since\":%llu,\"next\":%llu,\"lost\":0,\"syms\":{},\"events\":[]}",
+            (unsigned long long)*since,(unsigned long long)*since);
+        return 0;
+    }
+    uint64_t count=h.count,cur=*since,lost=0;
+    if(cur>count)cur=count;
+    if(count-cur>LIVE_TRACE_COUNT){lost=count-cur-LIVE_TRACE_COUNT;cur=count-LIVE_TRACE_COUNT;}
+    uint64_t available=count-cur;
+    uint32_t take=(uint32_t)(available<max?available:max);
+    static LiveTraceRecord records[LIVE_TRACE_MAX];
+    if(take){
+        uintptr_t ring=state.allocation+LIVE_TRACE_RING;
+        uint32_t first=(uint32_t)(cur&LIVE_TRACE_MASK);
+        uint32_t head=(first+take>LIVE_TRACE_COUNT)?(LIVE_TRACE_COUNT-first):take;
+        if(read_mem(pid,ring+(uintptr_t)first*sizeof(LiveTraceRecord),records,(size_t)head*sizeof(LiveTraceRecord)))return -1;
+        if(take>head&&read_mem(pid,ring,records+head,(size_t)(take-head)*sizeof(LiveTraceRecord)))return -1;
+    }
+    uintptr_t syms[128];uint32_t nsym=0;
+    for(uint32_t i=0;i<take;i++){
+        const LiveTraceRecord *rec=&records[i];
+        if(rec->seq!=cur+i+1||rec->epoch!=h.epoch){lost++;continue;}
+        if(!rec->sym)continue;
+        int seen=0;
+        for(uint32_t k=0;k<nsym;k++)if(syms[k]==rec->sym){seen=1;break;}
+        if(!seen&&nsym<128)syms[nsym++]=rec->sym;
+    }
+    int at=snprintf(out,size,"{\"ready\":true,\"count\":%llu,\"since\":%llu,\"next\":%llu,\"lost\":%llu,\"epoch\":%u,\"syms\":{",
+        (unsigned long long)count,(unsigned long long)cur,(unsigned long long)(cur+take),
+        (unsigned long long)lost,(unsigned)h.epoch);
+    for(uint32_t i=0;i<nsym;i++){
+        if(at<0||(uint32_t)at>=size)break;
+        char name[96];trace_json_name(name,sizeof(name),live_name(pid,syms[i]));
+        at+=snprintf(out+at,(size_t)(size-(uint32_t)at),"%s\"%s\"",i?",":"",name);
+    }
+    if(at>=0&&(uint32_t)at<size)at+=snprintf(out+at,(size_t)(size-(uint32_t)at),"},");
+    if(at>=0&&(uint32_t)at<size)at+=snprintf(out+at,(size_t)(size-(uint32_t)at),"\"events\":[");
+    uint32_t emitted=0;
+    for(uint32_t i=0;i<take;i++){
+        const LiveTraceRecord *rec=&records[i];
+        if(rec->seq!=cur+i+1||rec->epoch!=h.epoch)continue;
+        if(at<0||(uint32_t)at>=size-192)break;
+        int idx=-1;
+        if(rec->sym)for(uint32_t k=0;k<nsym;k++)if(syms[k]==rec->sym){idx=(int)k;break;}
+        at+=snprintf(out+at,(size_t)(size-(uint32_t)at),"%s[%u,%llu,%d,\"0x%llx\",\"0x%llx\",\"0x%llx\",\"0x%llx\"]",
+            emitted?",":"",(unsigned)rec->site,(unsigned long long)rec->tsc,idx,
+            (unsigned long long)rec->rdi,(unsigned long long)rec->rsi,(unsigned long long)rec->ret,
+            (unsigned long long)rec->native);
+        emitted++;
+    }
+    if(at>=0&&(uint32_t)at<size)at+=snprintf(out+at,(size_t)(size-(uint32_t)at),"],\"emitted\":%u}",emitted);
+    *since=cur+take;
+    return 0;
+}
+/* Install the default observation set and initialise the ring. Sites are
+ * addressed as RVAs from the module image base so the set survives a moving
+ * base. A site whose slot is already hooked is restored first. */
+int gt7_live_hooks_auto(void){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.allocation)return -1;
+    if(gt7_live_trace_init())return -1;
+    unsigned installed=0;
+    for(uint32_t i=0;i<LIVE_TRACE_SITE_COUNT;i++){
+        const LiveTraceSite *site=&trace_sites[i];
+        uint64_t cfg=LIVE_TRACE_CFG(site->slot,site->deref,site->sample);
+        gt7_live_probe_remove_slot(site->slot);
+        if(!gt7_live_probe_install_slot(base+site->rva,site->displaced,9,0,site->slot,cfg))installed++;
+    }
+    return installed?0:-1;
+}
+int gt7_live_hooks_list(char *out,uint32_t size){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;
+    if(!out||size<128)return -1;
+    if(credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.allocation)return -1;
+    LiveTraceHeader h;
+    int trace_ready=!read_mem(pid,state.allocation+LIVE_TRACE_HEADER,&h,sizeof(h))&&h.magic==LIVE_TRACE_MAGIC;
+    int at=snprintf(out,size,"{\"traceReady\":%s,\"count\":%llu,\"slots\":[",
+        trace_ready?"true":"false",(unsigned long long)(trace_ready?h.count:0));
+    unsigned shown=0;
+    for(uint32_t slot=0;slot<LIVE_PROBE_SLOTS;slot++){
+        LiveProbeRecord snap;
+        if(read_mem(pid,probe_record(state.allocation,slot),&snap,sizeof(snap)))continue;
+        if(!snap.active||!snap.target)continue;
+        const char *label="";
+        uint32_t rva=(uint32_t)(snap.target-base);
+        for(uint32_t i=0;i<LIVE_TRACE_SITE_COUNT;i++)if(trace_sites[i].rva==rva)label=trace_sites[i].label;
+        if(at<0||(uint32_t)at>=size-192)break;
+        at+=snprintf(out+at,(size_t)(size-(uint32_t)at),
+            "%s{\"slot\":%u,\"rva\":\"0x%x\",\"target\":\"0x%llx\",\"len\":%u,\"mode\":%u,\"label\":\"%s\"}",
+            shown?",":"",(unsigned)slot,(unsigned)rva,(unsigned long long)snap.target,
+            (unsigned)snap.displaced,(unsigned)snap.mode,label);
+        shown++;
+    }
+    if(at>=0&&(uint32_t)at<size)at+=snprintf(out+at,(size_t)(size-(uint32_t)at),"],\"installed\":%u}",shown);
     return 0;
 }
 int gt7_live_probe_read(uintptr_t *words,uint32_t count){
     pid_t pid;uintptr_t base,address;LiveMailbox state;
     if(!words||count<9||credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.allocation)return -1;
     return read_mem(pid,state.allocation+LIVE_PROBE_LOG,words,count*8)?-1:0;
+}
+int gt7_live_probe_history(uintptr_t *words,uint32_t count,uint32_t *next){
+    pid_t pid;uintptr_t base,address;LiveMailbox state;uint32_t cursor=0;
+    if(!words||count<LIVE_PROBE_RING_COUNT*LIVE_PROBE_RING_WORDS||credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.allocation)return -1;
+    if(read_mem(pid,state.allocation+LIVE_PROBE_LOG+0x80,&cursor,sizeof(cursor))||
+       read_mem(pid,state.allocation+LIVE_PROBE_LOG+LIVE_PROBE_RING,words,LIVE_PROBE_RING_COUNT*LIVE_PROBE_RING_WORDS*8))return -1;
+    if(next)*next=cursor;
+    return 0;
 }
 int gt7_live_menu_call(uintptr_t target,uintptr_t receiver,unsigned argc,uintptr_t args,unsigned *result){
     pid_t pid;uintptr_t base,address;LiveMailbox state;
@@ -1009,7 +1399,8 @@ static void hud_tree_node(HudTreeWalk *w,uintptr_t node,unsigned depth,HudPath *
         memset(&out,0,sizeof(out));
         memcpy(out.path,path->buf,LIVE_HUD_PATH);
         if(alias->len!=path->len)memcpy(out.alt,alias->buf,LIVE_HUD_PATH);
-        out.depth=depth;out.address=node;
+        out.depth=depth;out.address=node;out.vtable=*(uintptr_t *)blk;out.children=*(uintptr_t *)(blk+HUD_OFF_CHILDREN);
+        memcpy(out.rect,blk+HUD_OFF_RECT,sizeof(out.rect));
         int hidden=1;
         for(unsigned i=0;i<8;i++){float v;memcpy(&v,blk+HUD_OFF_RECT+4*i,4);if(v!=0.0f){hidden=0;break;}}
         out.hidden=hidden;
@@ -1200,17 +1591,17 @@ static int apply_clock_fix(pid_t pid){
 }
 static int apply_gt7(pid_t pid,int final_attempt){
     AppInfo app={0};char version[32]={0};Module game;
-    if(sceKernelGetAppInfo(pid,&app)||strcmp(app.title_id,"PPSA01317"))return 0;
+    if(sceKernelGetAppInfo(pid,&app)||strcmp(app.title_id,"PPSA01317")){atomic_store(&launch_stage,LAUNCH_NOT_GT7);return 0;}
     if(sceShellCoreUtilGetAppLaunchedParamString(app.app_id,"CONTENT_VERSION",version,sizeof(version))||strcmp(version,"01.710.000")){
-        if(final_attempt)notify("GT7: patches skipped. This payload requires version 01.710.000.");return 0;
+        atomic_store(&launch_stage,LAUNCH_VERSION);if(final_attempt)notify("GT7: patches skipped. This payload requires version 01.710.000.");return 0;
     }
-    if(main_module(pid,&game)||!game.mapbase){if(final_attempt)notify("GT7: could not locate the game executable. Close GT7 and retry.");return 0;}
-    Config config;if(load_config(state_root,&config)){if(final_attempt)notify("GT7: could not read saved patch choices. Close GT7 and save again.");return 0;}
+    if(main_module(pid,&game)||!game.mapbase){atomic_store(&launch_stage,LAUNCH_MODULE);if(final_attempt)notify("GT7: could not locate the game executable. Close GT7 and retry.");return 0;}
+    Config config;if(load_config(state_root,&config)){atomic_store(&launch_stage,LAUNCH_CONFIG);if(final_attempt)notify("GT7: could not read saved patch choices. Close GT7 and save again.");return 0;}
     /* Generate from validated settings and built-in patch data. Never execute
      * arbitrary XML supplied on disk; only the config comment is consumed. */
     FILE *f=fopen("/data/gt7p/launch.tmp","w+");
     if(f)unlink("/data/gt7p/launch.tmp");
-    if(!f||emit_xml(f,&config)){if(f)fclose(f);if(final_attempt)notify("GT7: could not prepare patches.");return 0;}
+    if(!f||emit_xml(f,&config)){atomic_store(&launch_stage,LAUNCH_PREPARE);if(f)fclose(f);if(final_attempt)notify("GT7: could not prepare patches.");return 0;}
     rewind(f);char line[16384],hex[8193];unsigned address;int failed=0,patched=0;
     const char *current_name="Unknown patch";
     while(fgets(line,sizeof(line),f)){
@@ -1245,13 +1636,14 @@ static int apply_gt7(pid_t pid,int final_attempt){
     }
     fclose(f);
     if(!failed&&(config.mask&LIVE_SETTINGS_BIT)&&live_install(pid,game.mapbase)){
+        atomic_store(&launch_stage,LAUNCH_LIVE);
         if(final_attempt)notify("GT7: could not install the optional Live Settings bridge. Close GT7 before retrying.");
         return 0;
     }
     if(!failed&&(config.mask&LIVE_SETTINGS_BIT))patched=1;
-    if(failed){if(final_attempt)notify("GT7: Patch failed: %s. Close the game before retrying.",current_name);return 0;}
-    else if(patched)notify("GT7Patcher: Saved patches applied.");
-    else notify("GT7: all patches are disabled. Launching without changes.");
+    if(failed){atomic_store(&launch_stage,LAUNCH_PATCH);if(final_attempt)notify("GT7: Patch failed: %s. Close the game before retrying.",current_name);return 0;}
+    else if(patched){atomic_store(&launch_stage,LAUNCH_APPLIED);notify("GT7Patcher: Saved patches applied.");}
+    else {atomic_store(&launch_stage,LAUNCH_UNCHANGED);notify("GT7: all patches are disabled. Launching without changes.");}
     return 1;
 }
 static void *patch_service(void *unused){
@@ -1261,7 +1653,10 @@ static void *patch_service(void *unused){
         struct timeval timeout={10,0};setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&timeout,sizeof(timeout));
         PatchRequest request={0};size_t n=0;
         while(n<sizeof(request)){ssize_t r=recv(fd,(char *)&request+n,sizeof(request)-n,0);if(r<=0)break;n+=(size_t)r;}
-        if(n==sizeof(request)&&request.pid>0){unsigned char ack=apply_gt7(request.pid,request.final_attempt)?1:0;send(fd,&ack,1,0);}
+        if(n==sizeof(request)&&request.pid>0){
+            atomic_fetch_add(&launch_requests,1);atomic_store(&launch_pid,request.pid);atomic_store(&launch_stage,LAUNCH_REQUESTED);
+            unsigned char ack=apply_gt7(request.pid,request.final_attempt)?1:0;send(fd,&ack,1,0);
+        }
         close(fd);
     }atomic_store(&live,0);return NULL;
 }
@@ -1271,6 +1666,13 @@ int gt7_engine_ready(void){
         !read_mem(shell,bridge,code,sizeof(code))&&!memcmp(code,expected_bridge,sizeof(code));
 }
 int gt7_engine_active(void){return active&&!damaged;}
+void gt7_engine_launch_status(unsigned *requests,int *pid,const char **stage){
+    unsigned state=(unsigned)atomic_load(&launch_stage);
+    if(state>=sizeof(launch_stages)/sizeof(launch_stages[0]))state=LAUNCH_NONE;
+    if(requests)*requests=atomic_load(&launch_requests);
+    if(pid)*pid=atomic_load(&launch_pid);
+    if(stage)*stage=launch_stages[state];
+}
 int gt7_engine_start(void){
     if(active)return gt7_engine_ready()?0:-1;
     if(damaged||bridge_prepare())return -1;

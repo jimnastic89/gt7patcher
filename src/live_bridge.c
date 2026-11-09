@@ -267,6 +267,39 @@ static int credit_visible(void){
     }
     return 0;
 }
+/* The race participant arena is demand-mapped.  Never touch it merely because
+ * the bridge exists: RaceDisplay is the in-process proof that the race HUD and
+ * its backing participant data have been constructed. */
+static int race_find(uintptr_t node,uintptr_t base,unsigned depth){
+    if(depth>HUD_MAX_DEPTH)return 0;
+    char nm[LIVE_HUD_NAME];
+    if(hud_name(node,nm)&&hud_same(nm,"RaceDisplay"))return 1;
+    uintptr_t nl=*(uintptr_t *)(node+HUD_OFF_CHILDREN);
+    if(!hud_ptr(nl)||*(uintptr_t *)nl!=base+HUD_NLW_RVA)return 0;
+    uintptr_t vb=*(uintptr_t *)(nl+0x38),ve=*(uintptr_t *)(nl+0x40);
+    if(!hud_ptr(vb)||ve<vb||(ve-vb)>8u*4096u)return 0;
+    for(uintptr_t v=vb;v<ve;v+=8){uintptr_t c=*(uintptr_t *)v;if(hud_ptr(c)&&race_find(c,base,depth+1))return 1;}
+    return 0;
+}
+static int race_visible(void){
+    volatile LiveMailbox *m=&live_mailbox;uintptr_t base=m->base,ctx=m->context;
+    if(!hud_ptr(base)||!hud_ptr(ctx)||*(uintptr_t *)ctx!=base+HUD_UPDATE_VT_RVA)return 0;
+    for(unsigned i=0;i<6;i++){
+        uintptr_t rc=*(uintptr_t *)(ctx+0x698+8*i);
+        if(!hud_ptr(rc)||*(uintptr_t *)rc!=base+HUD_RENDER_VT_RVA)continue;
+        uintptr_t rb=*(uintptr_t *)(rc+0x1e8),re=*(uintptr_t *)(rc+0x1f0);
+        if(!hud_ptr(rb)||re<rb||(re-rb)>8u*64u)continue;
+        for(uintptr_t v=rb;v<re;v+=8){uintptr_t rw=*(uintptr_t *)v;if(hud_ptr(rw)&&*(uintptr_t *)rw==base+HUD_ROOT_VT_RVA&&race_find(rw,base,0))return 1;}
+    }
+    return 0;
+}
+/* Race participant records use alpha-2 while the profile setter uses alpha-3.
+ * In this Australia test, replace only the native UN fallback fields after the
+ * race arena is proven present.  Sign still resolves its own flag asset. */
+static void race_country_apply(void){
+    volatile unsigned char *p=(volatile unsigned char *)(uintptr_t)0xe41e000000ULL;
+    for(unsigned i=0;i<0x200000u;i+=8)if(p[i]=='U'&&p[i+1]=='N'&&!p[i+2]){p[i]='A';p[i+1]='U';}
+}
 static void credit_watch(void){
     volatile LiveMailbox *m=&live_mailbox;
     int visible=credit_visible();
@@ -554,6 +587,7 @@ static void prompt(void){
 __attribute__((visibility("hidden"))) void live_frame(void *context,float delta_time){
     __atomic_add_fetch(&live_mailbox.heartbeat,1,__ATOMIC_RELAXED);
     live_mailbox.context=(uintptr_t)context;
+    if(race_visible())race_country_apply();
     apply_hud();
     /* Execute before entering the original callback's own locks. */
     set_wheel_width();

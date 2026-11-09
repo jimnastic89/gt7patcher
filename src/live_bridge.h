@@ -19,6 +19,34 @@
 #define LIVE_PROMPT_WORK  0x00011000u
 #define LIVE_PROMPT_WORK_SIZE 0x5000u
 #define LIVE_PROMPT_TEXT_CHARS 32u
+/* Compact observation ring. It fits in the existing 0x20000-byte mapping:
+ * the bridge/code and legacy probe area occupy the low pages, while this
+ * diagnostic ring starts at 0x10000. */
+#define LIVE_TRACE_MAGIC  UINT64_C(0x3145434152543747)
+#define LIVE_TRACE_HEADER 0x0000f000u
+#define LIVE_TRACE_SAMPLE 0x0000f040u
+#define LIVE_TRACE_RING   0x00010000u
+#define LIVE_TRACE_COUNT  0x00000400u
+#define LIVE_TRACE_MASK   0x000003ffu
+#define LIVE_TRACE_MAX    LIVE_TRACE_COUNT
+#define LIVE_TRACE_CFG(site,deref,shift) ((uint64_t)(uint32_t)(site)|((uint64_t)(uint32_t)(deref)<<8)|((uint64_t)(uint32_t)(shift)<<16))
+#define LIVE_TRACE_DEREF 0x1u
+#define LIVE_ARENA_LOW  0xe400000000ULL
+#define LIVE_ARENA_HIGH 0xe420000000ULL
+enum {LIVE_SAVE_R11,LIVE_SAVE_R10,LIVE_SAVE_R9,LIVE_SAVE_R8,LIVE_SAVE_RDI,
+      LIVE_SAVE_RSI,LIVE_SAVE_RDX,LIVE_SAVE_RCX,LIVE_SAVE_RAX,LIVE_SAVE_FLAGS,
+      LIVE_SAVE_PAD,LIVE_SAVE_RET};
+typedef struct {
+    uint64_t magic,count;
+    uint32_t mask,sites,epoch,reserved;
+} LiveTraceHeader;
+typedef struct {
+    uint64_t seq,tsc;
+    uint32_t site,epoch;
+    uint64_t sym,native,rdi,rsi,ret;
+} LiveTraceRecord;
+_Static_assert(sizeof(LiveTraceRecord)==64,"trace record must fill one cache line");
+_Static_assert(sizeof(LiveTraceHeader)<=64,"trace header must fit one cache line");
 /* In-race HUD visibility control. The payload publishes a list of MENU widget
  * keys to hide; the bridge walks the live widget tree every frame and zeroes
  * the layout rect (node+0x238, 32 bytes) of any widget whose path or name
@@ -123,3 +151,4 @@ typedef struct {
  * high address. Static objects get direct PC-relative references instead. The
  * payload locates the mailbox by its offset within the blob (LIVE_MAILBOX). */
 void live_frame(void *context,float delta_time);
+void live_trace(void *save,uint64_t cfg,uint64_t allocation);

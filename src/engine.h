@@ -15,7 +15,11 @@ typedef struct {int pid;uint32_t count,sequence,applied,reserved;char entries[LI
  * `alt` is the path an older reader would have built (empty when it matches
  * `path`): it keeps a group saved before heap-allocated widget names were
  * decoded from losing sight of its widgets. */
-typedef struct {char path[LIVE_HUD_PATH];char alt[LIVE_HUD_PATH];unsigned depth;uintptr_t address;int hidden;} Gt7HudNode;
+typedef struct {
+    char path[LIVE_HUD_PATH];char alt[LIVE_HUD_PATH];unsigned depth;
+    uintptr_t address,vtable,children;
+    float rect[8];int hidden;
+} Gt7HudNode;
 int gt7_credits_read(Gt7Credits *out);
 int gt7_credits_set(const Gt7Credits *expected,uint32_t amount);
 int gt7_wheel_width_read(Gt7WheelWidth *out);
@@ -55,11 +59,21 @@ int gt7_live_find(uintptr_t address,uint32_t length,const char *needle,uint32_t 
 int gt7_live_probe_install(uintptr_t target,uint32_t displaced,int mode,uintptr_t watch);
 int gt7_live_probe_remove(void);
 int gt7_live_probe_read(uintptr_t *words,uint32_t count);
+int gt7_live_probe_history(uintptr_t *words,uint32_t count,uint32_t *next);
+int gt7_live_probe_install_slot(uintptr_t target,uint32_t displaced,int mode,uintptr_t watch,uint32_t slot,uint64_t cfg);
+int gt7_live_probe_remove_slot(uint32_t slot);
+int gt7_live_trace_init(void);
+int gt7_live_trace_report(char *out,uint32_t size,uint64_t *since,uint32_t max);
+int gt7_live_hooks_auto(void);
+int gt7_live_hooks_list(char *out,uint32_t size);
 int gt7_live_menu_call(uintptr_t target,uintptr_t receiver,unsigned argc,uintptr_t args,unsigned *result);
 void gt7_live_configure(int enabled);
 int gt7_engine_start(void);
 int gt7_engine_active(void);
 int gt7_engine_ready(void);
+/* Last request received through the ShellCore launch hook.  This is kept in
+ * the patch engine rather than relying on a notification being visible. */
+void gt7_engine_launch_status(unsigned *requests,int *pid,const char **stage);
 int gt7_engine_stop(void);
 int gt7_install_icon(void);
 int gt7_launch_game(void);
