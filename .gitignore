@@ -23,8 +23,6 @@ coverage.xml
 
 # Local design and editor files
 /icon0.psd
-/Lang.png
-/Patches.png
 /header.png
 /header.svg
 .DS_Store
@@ -45,9 +43,8 @@ TODO.md
 AGENTS.md
 .goosehints
 Offsets.gif
-tools/monitor_race_values.ps1
-tools/inspect_screen.ps1
-tools/monitor_is_clean.ps1
-tools/trace_vm_history.ps1
-tools/ScreenInspector.xaml
-tools/ScreenInspector.ps1
+# Development-only tools are not payload or release inputs. Existing tracked
+# tools remain tracked; this prevents new local investigation scripts from
+# entering the repository accidentally.
+/tools/
+web/index.html.bak-hud

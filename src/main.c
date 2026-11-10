@@ -28,7 +28,7 @@
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 #endif
-#define VERSION "0.40.26-11-10_1653"
+#define VERSION "0.40.27-11-11_0834"
 #ifndef PORT
 #define PORT 7210
 #endif
@@ -75,6 +75,7 @@ static void response(int fd,int code,const char *type,const char *body){
     int z=snprintf(h,sizeof(h),"HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: frame-ancestors 'none'\r\nConnection: close\r\n\r\n",code,code==200?"OK":"Error",type,n);
     if(z>0&&(size_t)z<sizeof(h)&&!transfer(fd,h,(size_t)z))transfer(fd,body,n);
 }
+#ifdef PS5
 /* Convert the JSON-like property maps embedded in resolved VM binding objects
  * into a small, read-only feed for the PowerShell inspector.  The objects are
  * not assumed to have a fixed C layout: only quoted keys followed by a colon
@@ -108,7 +109,8 @@ static int binding_emit_rows(char *out,size_t cap,size_t *at,const unsigned char
                 if(!esc&&raw[ve]=='"')break;
                 esc=!esc&&raw[ve]=='\\';if(raw[ve]!='\\')esc=0;
             }
-            if(ve>=len)continue;ve++;
+            if(ve>=len)continue;
+            ve++;
         }else{
             if(raw[vs]!='-'&&(raw[vs]<'0'||raw[vs]>'9')&&raw[vs]!='t'&&raw[vs]!='f'&&raw[vs]!='n')continue;
             while(ve<len&&raw[ve]!=','&&raw[ve]!='}'&&raw[ve]!='\r'&&raw[ve]!='\n'&&raw[ve]>=0x20&&raw[ve]<0x7f)ve++;
@@ -199,6 +201,7 @@ static size_t decode_query_text(const char *src,char *dst,size_t cap){
     }
     dst[n]=0;return n;
 }
+#endif
 static int running_gt7(void){
 #ifdef PS5
     int mib[4]={CTL_KERN,KERN_PROC,KERN_PROC_PROC,0};size_t n=0;
@@ -456,9 +459,8 @@ static void json_status(int fd){
     response(fd,200,"application/json",body);
 }
 static void serve(int fd){
-    /* Static: the saved HUD layout is a ~21 KB JSON document, far too big to
-     * keep on a request-thread stack. serve() only ever runs on the accept
-     * loop, so one buffer is safe. */
+    /* Requests are capped at 256 KiB below. Keep the buffer bounded to that
+     * limit plus room for the request line and headers. */
     static char req[262144+4096];char method[12],path[128],proto[16];size_t used=0;char *body=NULL;
     struct timeval tv={5,0};setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&tv,sizeof(tv));
     while(used+1<sizeof(req)){
