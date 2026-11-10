@@ -92,7 +92,34 @@ static void store(unsigned char *b,uint32_t a,uint32_t target,uint32_t value){
     memcpy(b+2,&displacement,4);memcpy(b+6,&value,4);
 }
 static void put32(unsigned char *b,int32_t v){memcpy(b,&v,4);}
-static void put64(unsigned char *b,uint64_t v){memcpy(b,&v,8);}
+static void emit_race_country(FILE *file, int country)
+{
+    static const char codes[][3] = {
+        "AU","AT","BE","BR","CA","CH","CL","CN","CZ","DE","DK","ES","FI","FR","GB",
+        "GR","HK","HR","HU","ID","IE","IL","IN","IT","JP","KR","MX","MY","NL","NO",
+        "NZ","PH","PL","PT","RO","RU","SE","SG","SK","TH","TR","TW","UA","US","ZA","AR"
+    };
+    _Static_assert(sizeof(codes) / sizeof(codes[0]) == COUNTRY_COUNT, "country table");
+    const uint32_t site = 0x3b97047;
+    unsigned char stub[] = {
+        0xc4,0xa1,0x7c,0x11,0x84,0x20,0xd8,0x03,0x00,0x00, /* displaced store */
+        0x9c,                                               /* pushfq */
+        0x41,0x83,0xff,0x00,                               /* cmp r15d, 0 */
+        0x75,0x15,                                         /* jne restore */
+        0x48,0x81,0x7d,0x08,0x1e,0x6c,0xb9,0x03,           /* cmp [rbp+8], 0x3b96c1e */
+        0x75,0x0b,                                         /* jne restore */
+        0xc7,0x84,0x20,0xf8,0x03,0x00,0x00,0,0,0,0,         /* store alpha-2 + NUL */
+        0x9d,                                               /* popfq */
+        0xe9,0,0,0,0
+    };
+    unsigned char jump[] = {0xe9,0,0,0,0,0x90,0x90,0x90,0x90,0x90};
+    memcpy(stub + 34, codes[country], 2);
+    put32(stub + sizeof(stub) - 4,
+          (int32_t)(site + sizeof(jump) - (COUNTRY_CAVE + sizeof(stub))));
+    put32(jump + 1, (int32_t)(COUNTRY_CAVE - (site + 5)));
+    line(file, COUNTRY_CAVE, stub, sizeof(stub));
+    line(file, site, jump, sizeof(jump));
+}
 int emit_xml(FILE *f,const Config *c){
     if(!valid_config(c))return -1;
     fputs("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Patch><TitleID><ID>PPSA01317</ID></TitleID>\n"
@@ -117,29 +144,8 @@ int emit_xml(FILE *f,const Config *c){
         line(f,0xc21e93,b,5);b[0]=0xeb;b[1]=3;line(f,0xc21e98,b,2);
     }
     if(c->country>=0){
-        const char *cc=country_code(c->country);
         fputs("<!-- GT7FEATURE country -->\n",f);
-        /* MPDINetworkUserProfile owns the account country code. Its generated
-         * countryCode setter resolves the real profile then assigns its
-         * std::string field at +0x70. Redirect only that assignment and retain
-         * the game's profile lookup and normal field-write path. This is
-         * upstream of Dashboard::InGarageRank, not a leaderboard UI patch.
-         * Language and display units remain independent overrides. */
-        const uint32_t site=0x1bd182c,cave=COUNTRY_CAVE,back=0x1bd1839;
-        unsigned char jump[13];jump[0]=0xe9;put32(jump+1,(int32_t)(cave-(site+5)));
-        memset(jump+5,0x90,sizeof(jump)-5);line(f,site,jump,sizeof(jump));
-        unsigned char s[40];size_t n=0;
-        /* The displaced sequence has already resolved rdi to +0x70. */
-        s[n++]=0x48;s[n++]=0xbe;put64(s+n,(uint64_t)(cave+32));n+=8;/* mov rsi,cave+32 */
-        s[n++]=0xba;s[n++]=4;s[n++]=0;s[n++]=0;s[n++]=0;            /* mov edx,4: three ISO alpha-3 bytes plus terminator */
-        s[n++]=0xe8;put32(s+n,(int32_t)(0x430a320-(cave+n+4)));n+=4;/* call assign */
-        s[n++]=0xe9;put32(s+n,(int32_t)(back-(cave+n+4)));n+=4;
-        while(n<32)s[n++]=0x90;
-        /* The assignment length above includes all three alpha-3 characters
-         * and the trailing NUL.  Omitting cc[2] produced an invalid "AU"
-         * profile value for Australia, which can abort initialization. */
-        s[n++]=(unsigned char)cc[0];s[n++]=(unsigned char)cc[1];s[n++]=(unsigned char)cc[2];s[n++]=0;
-        line(f,cave,s,n);
+        emit_race_country(f, c->country);
     }
     if(c->aspect>=0){
         fputs("<!-- GT7FEATURE aspect -->\n",f);

@@ -6,6 +6,12 @@ typedef struct {int pid;uint64_t object;uint32_t amount;} Gt7Credits;
 typedef struct {int pid;uint32_t model_code,sequence;int8_t front,rear;} Gt7WheelWidth;
 typedef struct {int pid;uint32_t model_code;int8_t inch_up;int16_t offset_front,offset_rear,hub_front,hub_rear;} Gt7WheelGeometry;
 typedef struct {int pid;uint32_t model_code;uint8_t category;} Gt7EngineSwap;
+/* Physics rev limiter: the u16 maximum-RPM field of the active car's engine
+ * spec object. `increase` is the user's requested RPM bump on top of the
+ * car's native limit (0 = none); `native_rpm` is that native limit and
+ * `max_rpm` is what the spec field currently holds. `applied` is non-zero
+ * while an increase is in force. */
+typedef struct {int pid;uint16_t max_rpm,idle_rpm,red_rpm,native_rpm,increase;uint8_t applied;uint64_t dial_addr;uint16_t dial_scale,dial_red;} Gt7RevLimit;
 typedef struct {int pid;uint32_t state,result,amount,chars,dbg_got,dbg_end,dbg_status,dbg_user;} Gt7CreditPrompt;
 /* HUD visibility: the set of MENU widget keys (paths, or bare names) the
  * bridge is hiding. The field order mirrors the mailbox tail. */
@@ -34,6 +40,12 @@ int gt7_hud_set(const char (*entries)[LIVE_HUD_PATH],uint32_t count);
  * builds them, so a path selected in the UI matches at runtime. */
 int gt7_hud_tree(int (*emit)(void *context,const Gt7HudNode *node),void *context);
 int gt7_engine_swap_set(const Gt7EngineSwap *expected,uint8_t category,int unlock);
+/* Read the active car's rev limiter and set an RPM increase. Only the limiter
+ * field (spec+0x298) is ever written; live engine RPM is never modified. */
+int gt7_rev_limit_read(Gt7RevLimit *out);
+int gt7_rev_limit_set(const Gt7RevLimit *expected,uint16_t increase);
+/* Re-apply a stored increase after a car change; safe to call every tick. */
+int gt7_rev_limit_tick(void);
 int gt7_live_ready(void);
 int gt7_live_arm_credit_input(void);
 int gt7_live_credit_prompt_begin(void);

@@ -28,7 +28,7 @@
 typedef struct {uint32_t app_id;uint64_t unknown1;char title_id[10];uint32_t apptype;char unknown2[0x36];} AppInfo;
 extern int sceKernelGetAppInfo(pid_t,AppInfo *);
 #endif
-#define VERSION "0.32.26-11-09_2337"
+#define VERSION "0.40.26-11-10_1653"
 #ifndef PORT
 #define PORT 7210
 #endif
@@ -40,6 +40,7 @@ static Config config;
 static void gt7_live_pad_configure(int enabled){(void)enabled;}
 static void gt7_live_pad_poll(void){}
 static int gt7_live_credit_auto_poll(void){return -1;}
+static int gt7_rev_limit_tick(void){return -1;}
 #endif
 
 static int broken;
@@ -443,6 +444,14 @@ static void json_status(int fd){
     else
 #endif
         n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":false,\"category\":null,\"modelCode\":null");
+    n+=(size_t)snprintf(body+n,sizeof(body)-n,"},\"revLimit\":{");
+#ifdef PS5
+    Gt7RevLimit rev;
+    if((config.mask&LIVE_SETTINGS_BIT)&&!atomic_load(&startup_pending)&&game_running>0&&!gt7_rev_limit_read(&rev))
+        n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":true,\"maxRpm\":%u,\"idleRpm\":%u,\"redRpm\":%u,\"nativeRpm\":%u,\"increase\":%u,\"applied\":%s,\"dialAddr\":%llu,\"dialScale\":%u,\"dialRed\":%u",(unsigned)rev.max_rpm,(unsigned)rev.idle_rpm,(unsigned)rev.red_rpm,(unsigned)rev.native_rpm,(unsigned)rev.increase,rev.applied?"true":"false",(unsigned long long)rev.dial_addr,(unsigned)rev.dial_scale,(unsigned)rev.dial_red);
+    else
+#endif
+        n+=(size_t)snprintf(body+n,sizeof(body)-n,"\"available\":false,\"maxRpm\":null,\"idleRpm\":null,\"redRpm\":null,\"nativeRpm\":null,\"increase\":null,\"applied\":false,\"dialAddr\":null,\"dialScale\":null,\"dialRed\":null");
     snprintf(body+n,sizeof(body)-n,"}}}");
     response(fd,200,"application/json",body);
 }
@@ -727,7 +736,7 @@ static void serve(int fd){
     size_t received=used-(size_t)(body-req);
     if(received>length){response(fd,400,"text/plain","Invalid body length");return;}
     while(received<length){ssize_t r=recv(fd,body+received,length-received,0);if(r<=0)return;received+=(size_t)r;}body[length]=0;
-    if(strncmp(path,"/api/live/probe",15)&&strncmp(path,"/api/live/menu-call",19)&&strcmp(path,"/api/live/snapshot")&&strcmp(path,"/api/live/snapshot/clear")&&strcmp(path,"/api/config")&&strcmp(path,"/api/live/credit-input")&&strcmp(path,"/api/live/wheel-width")&&strcmp(path,"/api/live/wheel-geometry")&&strcmp(path,"/api/live/engine-swap")&&strncmp(path,"/api/live/hud",13)&&strcmp(path,"/api/start")&&strcmp(path,"/api/game/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
+    if(strncmp(path,"/api/live/probe",15)&&strncmp(path,"/api/live/menu-call",19)&&strcmp(path,"/api/live/snapshot")&&strcmp(path,"/api/live/snapshot/clear")&&strcmp(path,"/api/config")&&strcmp(path,"/api/live/credit-input")&&strcmp(path,"/api/live/wheel-width")&&strcmp(path,"/api/live/wheel-geometry")&&strcmp(path,"/api/live/engine-swap")&&strcmp(path,"/api/live/rev-limit")&&strncmp(path,"/api/live/hud",13)&&strcmp(path,"/api/start")&&strcmp(path,"/api/game/start")&&strcmp(path,"/api/shortcut/reinstall")&&strcmp(path,"/api/engine/stop")&&strcmp(path,"/api/payload/stop")){response(fd,404,"text/plain","Not found");return;}
 #ifdef PS5
     if(atomic_load(&startup_pending)){response(fd,409,"text/plain","Startup is still running. Please retry shortly; the browser page remains available.");return;}
 #endif
@@ -877,6 +886,23 @@ static void serve(int fd){
         response(fd,409,"text/plain","Engine swapping is only available while supported GT7 is running on PS5.");return;
 #endif
     }
+    if(!strcmp(path,"/api/live/rev-limit")){
+        unsigned increase,expected_max,expected_idle;int consumed=0;char canonical[96];
+        if(length>=sizeof(canonical)||sscanf(body,"increase=%u&expectedMax=%u&expectedIdle=%u%n",&increase,&expected_max,&expected_idle,&consumed)!=3||consumed!=(int)length||
+           increase>8000||expected_max<1500||expected_max>20000||expected_idle<300||expected_idle>2000){response(fd,400,"text/plain","Use an RPM increase from 0 to 8000 and the current limiter sample.");return;}
+        snprintf(canonical,sizeof(canonical),"increase=%u&expectedMax=%u&expectedIdle=%u",increase,expected_max,expected_idle);
+        if(strcmp(body,canonical)){response(fd,400,"text/plain","Invalid rev-limit request.");return;}
+        if(!(config.mask&LIVE_SETTINGS_BIT)){response(fd,409,"text/plain","Select and save the Live Settings patch first.");return;}
+#ifdef PS5
+        Gt7RevLimit before={0,(uint16_t)expected_max,(uint16_t)expected_idle,0,0,0,0,0,0,0};
+        int result=gt7_rev_limit_set(&before,(uint16_t)increase);
+        if(result){response(fd,409,"text/plain",result==-2?"The car or its rev limiter changed since the last refresh. Refresh and retry.":"The rev limiter could not be updated. Sit in a car with the Live Settings patch selected.");return;}
+        strcpy(message,increase?"Rev limit raised by the requested amount.":"Rev limit restored to its native value.");
+        json_status(fd);return;
+#else
+        response(fd,409,"text/plain","Rev-limit editing is only available while supported GT7 is running on PS5.");return;
+#endif
+    }
     if(!strcmp(path,"/api/payload/stop")){
         if(length){response(fd,400,"text/plain","Unexpected request body");return;}
 #ifdef PS5
@@ -989,9 +1015,9 @@ int main(int argc,char **argv){
             /* Never touch the game bridge after GT7 has exited. In
              * particular, a crash can leave an eboot entry present long
              * enough for stale mdbg reads to stall the payload's main loop. */
-            if(running_gt7()>0){gt7_live_pad_poll();hud_tick();gt7_live_credit_auto_poll();}
+            if(running_gt7()>0){gt7_live_pad_poll();hud_tick();gt7_live_credit_auto_poll();gt7_rev_limit_tick();}
 #else
-            gt7_live_pad_poll();hud_tick();gt7_live_credit_auto_poll();
+            gt7_live_pad_poll();hud_tick();gt7_live_credit_auto_poll();gt7_rev_limit_tick();
 #endif
             continue;
         }

@@ -1313,6 +1313,214 @@ int gt7_engine_swap_set(const Gt7EngineSwap *expected,uint8_t category,int unloc
         if(state.engine_state==ENGINE_INVALID||state.engine_state==ENGINE_UNAVAILABLE)return -1;}
     return -3;
 }
+/* Rev limit: the physics limiter is the u16 maximum-RPM field of the engine
+ * spec object at spec+0x298 (the value the getMaxRpm accessor reads). The sim
+ * graph is reachable only through a fixed, version-locked arena address --
+ * nothing global or in data points at it -- so the vehicle is located at the
+ * known arena slot and every hop is verified against the object vtables before
+ * anything is written. The override is an RPM increase on top of whatever
+ * native value the car currently has, so it survives switching cars; the idle
+ * tick re-applies it whenever the game rebuilds the spec for a new car. The
+ * limiter, the spec red-zone fields and the tach-face record are all moved
+ * together so the dial keeps matching the cut; idle and live engine RPM are
+ * never touched. */
+#define GT7_REV_VEHICLE            UINT64_C(0xec059a9070)  /* active vehicle (the one populated arena slot) */
+#define GT7_REV_VEHICLE_VTABLE_RVA 0x054ccec8u
+#define GT7_REV_ENGINE_VTABLE_RVA  0x053d48f8u
+#define GT7_REV_ENGINE_VEHICLE_OFF 0x18u
+#define GT7_REV_ENGINE_SPEC_OFF    0x28u
+#define GT7_REV_SPEC_MAX_OFF       0x298u
+#define GT7_REV_SPEC_IDLE_OFF      0x29au
+#define GT7_REV_SPEC_RED_OFF       0x3aeu
+#define GT7_REV_RED_COUNT          4u
+#define GT7_REV_INCREASE_MAX       8000u
+#define GT7_REV_MAX_FLOOR          1500u
+#define GT7_REV_MAX_CEILING        20000u
+#define GT7_REV_RED_CEILING        22000u
+
+static uint16_t rev_increase;    /* requested increase, 0 = none */
+static uint16_t rev_applied;     /* limiter value last written, 0 = none */
+static uint16_t rev_native;      /* native limiter observed before applying */
+static uint16_t rev_applied_red; /* red-zone value last written, 0 = none */
+static uint16_t rev_native_red;  /* native red-zone observed before applying */
+static uint16_t rev_dial_applied;     /* dial scale last written, 0 = none */
+static uint16_t rev_dial_native;      /* native dial scale observed before applying */
+static uint16_t rev_dial_red_applied; /* dial red-zone last written, 0 = none */
+static uint16_t rev_dial_red_native;  /* native dial red-zone observed before applying */
+/* The spec also carries four u16 red-zone copies next to the limiter; they are
+ * shifted by the same amount so any spec consumer stays consistent. The tach
+ * face itself is driven by the separate GT7_REV_DIAL record below. */
+static const uint16_t rev_red_offs[GT7_REV_RED_COUNT]={GT7_REV_SPEC_RED_OFF,0x3b0u,0x3b2u,0x3b4u};
+static int rev_read_red(pid_t pid,uintptr_t spec,uint16_t red[GT7_REV_RED_COUNT]){
+    for(unsigned i=0;i<GT7_REV_RED_COUNT;i++)if(read_mem(pid,spec+rev_red_offs[i],&red[i],2))return -1;
+    return 0;
+}
+static int rev_write_red(pid_t pid,uintptr_t spec,uint16_t value){
+    for(unsigned i=0;i<GT7_REV_RED_COUNT;i++)if(verified_write(pid,spec+rev_red_offs[i],&value,2))return -1;
+    return 0;
+}
+static uint16_t rev_shift(uint16_t native,uint16_t increase,uint16_t ceiling){
+    uint32_t want=(uint32_t)native+increase;
+    if(want>ceiling)want=ceiling;
+    return (uint16_t)want;
+}
+/* The tachometer face (maximum scale and red-zone start) is a small u16 pair
+ * the HUD reads directly; it is independent of the physics spec. The record
+ * is a per-session arena allocation, so it is located by its shape - scale,
+ * red, idle, scale - checked against a mirrored twin 0x9a0 bytes later, not
+ * by a fixed address. A miss leaves the limiter-only behaviour intact. */
+#define GT7_REV_DIAL_SCALE_OFF     0x00u
+#define GT7_REV_DIAL_RED_OFF       0x02u
+#define GT7_REV_DIAL_IDLE_OFF      0x04u
+#define GT7_REV_DIAL_FLOOR         500u
+#define GT7_REV_DIAL_CEILING       30000u
+#define GT7_REV_DIAL_TWIN_DELTA    0x9a0u
+#define GT7_REV_DIAL_SCAN_START    UINT64_C(0xec04000000)
+#define GT7_REV_DIAL_SCAN_END      UINT64_C(0xec0c000000)
+#define GT7_REV_DIAL_SCAN_CHUNK    0x40000u
+static uintptr_t rev_dial_addr;  /* located tach-face record, 0 = unknown */
+static int rev_read_dial(pid_t pid,uint16_t idle,uint16_t *scale_out,uint16_t *red_out){
+    uint16_t w[4];
+    if(!rev_dial_addr)return -1;
+    if(read_mem(pid,rev_dial_addr,w,8))return -1;
+    if(w[0]<GT7_REV_DIAL_FLOOR||w[0]>GT7_REV_DIAL_CEILING)return -1;
+    if(w[1]<GT7_REV_DIAL_FLOOR||w[1]>GT7_REV_DIAL_CEILING||w[1]>w[0])return -1;
+    if(w[2]!=idle)return -1;
+    if(scale_out)*scale_out=w[0];if(red_out)*red_out=w[1];
+    return 0;
+}
+static int rev_write_dial(pid_t pid,uint16_t scale,uint16_t red){
+    if(!rev_dial_addr)return -1;
+    if(verified_write(pid,rev_dial_addr+GT7_REV_DIAL_SCALE_OFF,&scale,2))return -1;
+    if(verified_write(pid,rev_dial_addr+GT7_REV_DIAL_RED_OFF,&red,2))return -1;
+    return 0;
+}
+static int rev_dial_shape(const uint8_t *p,uint16_t idle){
+    uint16_t w[4];
+    memcpy(w,p,8);
+    if(w[0]<GT7_REV_DIAL_FLOOR||w[0]>GT7_REV_DIAL_CEILING)return 0;
+    if(w[1]<GT7_REV_DIAL_FLOOR||w[1]>GT7_REV_DIAL_CEILING||w[1]>w[0])return 0;
+    if(w[2]!=idle)return 0;
+    if(w[3]!=w[0])return 0;
+    return 1;
+}
+static uintptr_t rev_dial_locate(pid_t pid,uint16_t idle){
+    static uint8_t buf[GT7_REV_DIAL_SCAN_CHUNK+8];
+    for(uintptr_t a=GT7_REV_DIAL_SCAN_START;a<GT7_REV_DIAL_SCAN_END;a+=GT7_REV_DIAL_SCAN_CHUNK){
+        size_t n=GT7_REV_DIAL_SCAN_CHUNK+8;
+        if(a+n>GT7_REV_DIAL_SCAN_END)n=(size_t)(GT7_REV_DIAL_SCAN_END-a);
+        if(read_mem(pid,a,buf,n))continue;
+        for(size_t o=0;o+8<=n;o+=2){
+            uintptr_t addr=a+o;
+            if(addr+8>GT7_REV_DIAL_SCAN_END)break;
+            if(!rev_dial_shape(buf+o,idle))continue;
+            uint8_t twin[8];
+            if(read_mem(pid,addr+GT7_REV_DIAL_TWIN_DELTA,twin,8))continue;
+            if(memcmp(twin,buf+o,8)==0)return addr;
+        }
+    }
+    return 0;
+}
+static int rev_resolve(pid_t *pid_out,uintptr_t *spec_out,uint16_t *max_out,uint16_t *idle_out,uint16_t red_out[GT7_REV_RED_COUNT]){
+    pid_t pid;uintptr_t base,vtable=0,engine=0,evtable=0,spec=0;uint16_t max=0,idle=0,red[GT7_REV_RED_COUNT]={0};
+    if(credits_game(&pid,&base))return -1;
+    /* Verify the whole chain: a moved/exited process, or a different GT7
+     * build, must fail here rather than corrupt unrelated memory. */
+    if(read_mem(pid,GT7_REV_VEHICLE,&vtable,8)||vtable!=base+GT7_REV_VEHICLE_VTABLE_RVA)return -1;
+    if(read_mem(pid,GT7_REV_VEHICLE+GT7_REV_ENGINE_VEHICLE_OFF,&engine,8)||engine<0x10000||(engine&7))return -1;
+    if(read_mem(pid,engine,&evtable,8)||evtable!=base+GT7_REV_ENGINE_VTABLE_RVA)return -1;
+    if(read_mem(pid,engine+GT7_REV_ENGINE_SPEC_OFF,&spec,8)||spec<0x10000||(spec&1))return -1;
+    if(read_mem(pid,spec+GT7_REV_SPEC_MAX_OFF,&max,2)||read_mem(pid,spec+GT7_REV_SPEC_IDLE_OFF,&idle,2)||
+       rev_read_red(pid,spec,red))return -1;
+    if(max<GT7_REV_MAX_FLOOR||max>GT7_REV_MAX_CEILING||idle<300||idle>2000)return -1;
+    if(pid_out)*pid_out=pid;if(spec_out)*spec_out=spec;if(max_out)*max_out=max;if(idle_out)*idle_out=idle;
+    for(unsigned i=0;i<GT7_REV_RED_COUNT;i++)red_out[i]=red[i];
+    return 0;
+}
+int gt7_rev_limit_read(Gt7RevLimit *out){
+    pid_t pid;uintptr_t spec;uint16_t max,idle,red[GT7_REV_RED_COUNT];
+    if(!out||rev_resolve(&pid,&spec,&max,&idle,red))return -1;
+    /* When our override is in force the limiter holds native+increase; report
+     * the native limit separately so the page can show both. If the game has
+     * since replaced the value (a new car), the increase no longer applies. */
+    uint16_t native=max;
+    if(rev_applied&&max==rev_applied)native=rev_native;
+    out->pid=pid;out->max_rpm=max;out->idle_rpm=idle;out->red_rpm=red[0];
+    out->native_rpm=native;out->increase=rev_increase;out->applied=(uint8_t)(rev_increase?1:0);
+    uint16_t dial_scale=0,dial_red=0;
+    rev_read_dial(pid,idle,&dial_scale,&dial_red);
+    out->dial_addr=(uint64_t)rev_dial_addr;out->dial_scale=dial_scale;out->dial_red=dial_red;
+    return 0;
+}
+int gt7_rev_limit_set(const Gt7RevLimit *expected,uint16_t increase){
+    pid_t pid;uintptr_t spec;uint16_t max,idle,red[GT7_REV_RED_COUNT];
+    if(!expected||increase>GT7_REV_INCREASE_MAX)return -1;
+    if(rev_resolve(&pid,&spec,&max,&idle,red))return -1;
+    /* Reject a stale sample: a different process, or a car/limiter that moved
+     * since the page last refreshed. The page tracks the limiter sample, not
+     * the pid, so only enforce the pid when the caller actually supplied one. */
+    if(expected->pid&&pid!=expected->pid)return -2;
+    if(expected->max_rpm!=max||expected->idle_rpm!=idle)return -2;
+    uint16_t native=max,red_native=red[0];
+    if(rev_applied&&max==rev_applied)native=rev_native;
+    if(rev_applied_red&&red[0]==rev_applied_red)red_native=rev_native_red;
+    uint16_t value=rev_shift(native,increase,GT7_REV_MAX_CEILING);
+    uint16_t value_red=rev_shift(red_native,increase,GT7_REV_RED_CEILING);
+    if(verified_write(pid,spec+GT7_REV_SPEC_MAX_OFF,&value,2))return -1;
+    if(rev_write_red(pid,spec,value_red))return -1;
+    rev_increase=increase;rev_native=native;rev_applied=increase?value:0;
+    rev_native_red=red_native;rev_applied_red=increase?value_red:0;
+    /* Move the tach face by the same amount so the dial keeps matching the cut.
+     * The record is a per-session allocation, so it is searched for on every
+     * apply; a previous address is only kept while it still validates. */
+    uintptr_t dial_found=rev_dial_locate(pid,idle);
+    if(dial_found)rev_dial_addr=dial_found;
+    uint16_t dial_scale=0,dial_red=0;
+    if(rev_read_dial(pid,idle,&dial_scale,&dial_red)){
+        rev_dial_addr=0;
+    }else{
+        uint16_t dial_native=dial_scale,dial_red_native=dial_red;
+        if(rev_dial_applied&&dial_scale==rev_dial_applied)dial_native=rev_dial_native;
+        if(rev_dial_red_applied&&dial_red==rev_dial_red_applied)dial_red_native=rev_dial_red_native;
+        uint16_t dial_value=rev_shift(dial_native,increase,GT7_REV_DIAL_CEILING);
+        uint16_t dial_red_value=rev_shift(dial_red_native,increase,GT7_REV_DIAL_CEILING);
+        if(rev_write_dial(pid,dial_value,dial_red_value))return -1;
+        rev_dial_native=dial_native;rev_dial_applied=increase?dial_value:0;
+        rev_dial_red_native=dial_red_native;rev_dial_red_applied=increase?dial_red_value:0;
+    }
+    return 0;
+}
+int gt7_rev_limit_tick(void){
+    if(!rev_increase)return 0;
+    pid_t pid;uintptr_t spec;uint16_t max,idle,red[GT7_REV_RED_COUNT];
+    if(rev_resolve(&pid,&spec,&max,&idle,red))return -1;
+    int changed=0;
+    if(max!=rev_applied||red[0]!=rev_applied_red){
+        /* The game rewrote the limiter (typically a new car was loaded). Treat
+         * the values now present as the new native and re-apply the increase. */
+        rev_native=max;rev_native_red=red[0];
+        uint16_t value=rev_shift(max,rev_increase,GT7_REV_MAX_CEILING);
+        uint16_t value_red=rev_shift(red[0],rev_increase,GT7_REV_RED_CEILING);
+        if(verified_write(pid,spec+GT7_REV_SPEC_MAX_OFF,&value,2)){rev_applied=0;return -1;}
+        if(rev_write_red(pid,spec,value_red)){rev_applied_red=0;return -1;}
+        rev_applied=value;rev_applied_red=value_red;changed=1;
+        rev_dial_addr=0;  /* car changed: the face record moved */
+    }
+    /* Keep the tach face in step with the limiter as well. */
+    uint16_t dial_scale=0,dial_red=0;
+    if(rev_read_dial(pid,idle,&dial_scale,&dial_red)){
+        rev_dial_addr=0;  /* record moved or gone; re-locate on next apply */
+    }else if(dial_scale!=rev_dial_applied||dial_red!=rev_dial_red_applied){
+        rev_dial_native=dial_scale;rev_dial_red_native=dial_red;
+        uint16_t dial_value=rev_shift(dial_scale,rev_increase,GT7_REV_DIAL_CEILING);
+        uint16_t dial_red_value=rev_shift(dial_red,rev_increase,GT7_REV_DIAL_CEILING);
+        if(!rev_write_dial(pid,dial_value,dial_red_value)){
+            rev_dial_applied=dial_value;rev_dial_red_applied=dial_red_value;changed=1;
+        }
+    }
+    return changed;
+}
+
 /* HUD visibility: publish the set of MENU widget keys the bridge should hide.
  * The keys are written before hud_count is raised so the bridge never reads a
  * partial list, and hud_sequence is bumped so the caller can confirm the
@@ -1617,7 +1825,18 @@ static int apply_gt7(pid_t pid,int final_attempt){
             current_name="Game language";continue;
         }
         if(strstr(line,"<!-- GT7FEATURE country -->")){
-            current_name="Player country";continue;
+            static const unsigned char expected[] = {
+                0xc4, 0xa1, 0x7c, 0x11, 0x84, 0x20, 0xd8, 0x03, 0x00, 0x00
+            };
+            unsigned char actual[sizeof(expected)];
+            current_name = "Player country";
+            if (game.mapbase != LIVE_IMAGE_BASE ||
+                read_mem(pid, 0x3b97047, actual, sizeof(actual)) ||
+                memcmp(actual, expected, sizeof(expected))) {
+                failed = 1;
+                break;
+            }
+            continue;
         }
         if(strstr(line,"<!-- GT7FEATURE aspect -->")){
             current_name="Video aspect ratio";continue;

@@ -495,7 +495,7 @@ button:not([role="tab"]) {
             </div>
             <div class="actions"><button type="button" id="apply-credits" class="primary" disabled>Apply</button><button type="button" id="edit-credits" disabled>Edit in game</button></div>
             <p id="credit-feedback" class="detail" role="status">Enter 0 to 100,000,000 credits. The balance refreshes every five seconds. Apply changes the live amount immediately.</p>
-            <p id="credit-input-feedback" class="detail" role="status">Edit in game opens the system number pad with its own text field so you can type the balance on the console.</p>
+            
         </div>
         <div class="card">
             <h2>Wheel settings</h2>
