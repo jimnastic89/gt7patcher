@@ -8,7 +8,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 DIST = HERE / 'dist'
 DIST.mkdir(exist_ok=True)
-VERSION = '0.40.27-11-11_0834'
+VERSION = '0.40'
 name = f'GT7Patcher-v{VERSION}'
 elf = DIST / f'{name}.elf'
 source_version = re.search(r'#define VERSION "([^"]+)"', (HERE / 'src/main.c').read_text())

@@ -65,7 +65,7 @@ static atomic_int launch_pid;
 static atomic_int launch_stage;
 static pthread_t thread;
 static unsigned char expected_bridge[sizeof(hook_blob)];
-static const char *state_root="/data/gt7p/patches";
+static const char *state_root="/data/gt7p";
 enum {LAUNCH_NONE,LAUNCH_REQUESTED,LAUNCH_NOT_GT7,LAUNCH_VERSION,LAUNCH_MODULE,
       LAUNCH_CONFIG,LAUNCH_PREPARE,LAUNCH_PATCH,LAUNCH_LIVE,LAUNCH_APPLIED,
       LAUNCH_UNCHANGED};
@@ -241,7 +241,7 @@ static int credits_game(pid_t *pid,uintptr_t *base){
     if(result){static unsigned calls;if((calls++&15)==0){engine_log_result("credits procs",procs);engine_log_result("credits eboot",ebs);if(ebs)engine_log(diag);}}
     free(data);return result;
 }
-typedef struct {uint64_t magic,original,map,allocation,heartbeat;uint32_t state,reserved;uint64_t entry;} LiveBoot;
+typedef struct {uint64_t magic,original,map,allocation,heartbeat;uint32_t state,allocation_size;uint64_t entry;} LiveBoot;
 _Static_assert(sizeof(LiveBoot)==56,"bootstrap ABI");
 _Static_assert(sizeof(LiveMailbox)==6712,"mailbox ABI");
 _Static_assert(sizeof(live_boot_blob)<=LIVE_BOOT_RESERVED,"live bootstrap exceeds reserved region");
@@ -255,7 +255,10 @@ enum {LIVE_SLOT_RVA=0x051bee08,LIVE_ORIGINAL_RVA=0x0028bb20,
        * then DialogInit, then sceImeClose, then DialogTerm. */
       IME_DIALOG_STATUS_GOT_RVA=0x055df290,IME_DIALOG_RESULT_GOT_RVA=0x055df2a0,
       IME_DIALOG_INIT_GOT_RVA=0x055df2b0,IME_DIALOG_TERM_GOT_RVA=0x055df2c0};
-_Static_assert(LIVE_ALLOCATION>=LIVE_PROMPT_WORK+LIVE_PROMPT_WORK_SIZE,"prompt scratch exceeds the live allocation");
+_Static_assert(sizeof(live_bridge_blob) <= LIVE_PROMPT_PARAM, "bridge overlaps prompt parameters");
+_Static_assert(LIVE_PROMPT_PARAM + 0x200u <= LIVE_PROMPT_TEXT, "prompt parameters overlap prompt text");
+_Static_assert(LIVE_PROMPT_TEXT + 2u * LIVE_PROMPT_TEXT_CHARS <= LIVE_PROMPT_WORK, "prompt text overlaps prompt work");
+_Static_assert(LIVE_PROMPT_WORK + LIVE_PROMPT_WORK_SIZE <= LIVE_PROBE_LOG, "prompt work overlaps probe log");
 static uint32_t foreground_user(void){
     uint32_t user=0xffffffffU;
     if(!user_service_ready){if(sceUserServiceInitialize(NULL))return 0xffffffffU;user_service_ready=1;}
@@ -263,7 +266,9 @@ static uint32_t foreground_user(void){
     return user;
 }
 static int live_boot_read(pid_t pid,uintptr_t base,LiveBoot *boot){
-    return read_mem(pid,base+LIVE_BOOT_RVA+LIVE_BOOT_CONTROL,boot,sizeof(*boot))||boot->magic!=UINT64_C(0x31544f4f424c3747)?-1:0;
+    return read_mem(pid,base+LIVE_BOOT_RVA+LIVE_BOOT_CONTROL,boot,sizeof(*boot)) ||
+           boot->magic!=UINT64_C(0x31544f4f424c3747) ||
+           boot->allocation_size!=LIVE_ALLOCATION ? -1 : 0;
 }
 static int live_install(pid_t pid,uintptr_t base){
     uintptr_t current=0;LiveBoot existing;
@@ -285,7 +290,12 @@ static int live_install(pid_t pid,uintptr_t base){
     if(read_mem(pid,base+LIVE_BOOT_RVA,blank,sizeof(blank))){engine_log("Live: padding read failed");return -1;}
     for(unsigned i=0;i<sizeof(blank);i++)if(blank[i]){engine_log_result("Live: padding not blank at",(long)i);return -1;}
     uintptr_t map=kernel_dynlib_dlsym(pid,0x2001,"mmap");if(!map){engine_log("Live: mmap dlsym failed");return -1;}
-    LiveBoot boot={UINT64_C(0x31544f4f424c3747),base+LIVE_ORIGINAL_RVA,map,0,0,0,0,0};
+    LiveBoot boot={
+        .magic=UINT64_C(0x31544f4f424c3747),
+        .original=base+LIVE_ORIGINAL_RVA,
+        .map=map,
+        .allocation_size=LIVE_ALLOCATION,
+    };
     unsigned char blob[sizeof(live_boot_blob)];memcpy(blob,live_boot_blob,sizeof(blob));
     memcpy(blob+LIVE_BOOT_CONTROL,&boot,sizeof(boot));
     if(kernel_mprotect(pid,(base+LIVE_BOOT_RVA)&~(uintptr_t)0x3fff,0x4000,PROT_READ|PROT_WRITE|PROT_EXEC)){engine_log("Live: boot mprotect failed");return -1;}
@@ -506,8 +516,7 @@ int gt7_live_credit_prompt_read(Gt7CreditPrompt *out){
  *
  * Each slot owns one snapshot record and one detour stub inside the live
  * allocation, so several game functions can be observed at once. Slot 0 also
- * owns the shared log block used by the census modes (0,3,4,5,6,7,8) and keeps
- * the historical offsets, so the existing diagnostics keep working.
+ * owns the shared log block used by the census modes (0,3,4,5,6,7,8).
  *
  * Mode 9 is the observation trace: the stub saves the integer argument
  * registers, calls live_trace() in the bridge and appends one fixed 64-byte
@@ -521,13 +530,10 @@ int gt7_live_credit_prompt_read(Gt7CreditPrompt *out){
  *
  * Remove before release.
  * ---------------------------------------------------------------------- */
-#define LIVE_PROBE_LOG    0x00008000u   /* census log block (slot 0 only)    */
-#define LIVE_PROBE_ADDR   0x00008800u   /* snapshot records                  */
 #define LIVE_PROBE_RING   0x00000100u
 #define LIVE_PROBE_RING_COUNT 64u
 #define LIVE_PROBE_RING_WORDS 26u
 #define LIVE_PROBE_RECORD_STRIDE 0x00000080u
-#define LIVE_PROBE_STUB   0x00009000u   /* detour stubs                      */
 #define LIVE_PROBE_CODE_STRIDE   0x00000400u
 #define LIVE_PROBE_SLOTS  8u
 #define LIVE_PROBE_MODES  9
@@ -541,6 +547,21 @@ typedef struct {
     unsigned char original[0x40];
 } LiveProbeRecord;
 _Static_assert(sizeof(LiveProbeRecord)<=LIVE_PROBE_RECORD_STRIDE,"probe record exceeds slot stride");
+_Static_assert(LIVE_PROBE_RING + LIVE_PROBE_RING_COUNT * LIVE_PROBE_RING_WORDS * sizeof(uintptr_t) <= 0x4000u,
+               "probe history overlaps census table");
+_Static_assert(LIVE_PROBE_LOG + LIVE_PROBE_LOG_SIZE <= LIVE_PROBE_ADDR, "probe log overlaps records");
+_Static_assert(LIVE_PROBE_ADDR + LIVE_PROBE_SLOTS * LIVE_PROBE_RECORD_STRIDE <= LIVE_PROBE_STUB,
+               "probe records overlap detour stubs");
+_Static_assert(LIVE_PROBE_STUB + LIVE_PROBE_SLOTS * LIVE_PROBE_CODE_STRIDE <= LIVE_TRACE_HEADER,
+               "probe stubs overlap trace header");
+_Static_assert(LIVE_TRACE_HEADER + sizeof(LiveTraceHeader) <= LIVE_TRACE_SAMPLE, "trace header overlaps sample counters");
+_Static_assert(LIVE_TRACE_SAMPLE + 32u * sizeof(uint32_t) <= LIVE_TRACE_RING, "trace counters overlap trace ring");
+_Static_assert(LIVE_TRACE_RING + LIVE_TRACE_COUNT * sizeof(LiveTraceRecord) <= LIVE_MENU_CLOSE_STUB,
+               "trace ring overlaps menu close code");
+_Static_assert(LIVE_MENU_CLOSE_STUB + LIVE_MENU_CLOSE_STUB_SIZE <= LIVE_MENU_CONTROL,
+               "menu close code overlaps menu data");
+_Static_assert(LIVE_MENU_CONTROL + sizeof(LiveMenuControl) <= LIVE_ALLOCATION,
+               "menu data exceeds allocation");
 static uintptr_t probe_stub(uintptr_t allocation,uint32_t slot){return allocation+LIVE_PROBE_STUB+(uintptr_t)slot*LIVE_PROBE_CODE_STRIDE;}
 static uintptr_t probe_record(uintptr_t allocation,uint32_t slot){return allocation+LIVE_PROBE_ADDR+(uintptr_t)slot*LIVE_PROBE_RECORD_STRIDE;}
 /* Default observation sites, as RVAs from the module image base. Each is the
@@ -573,7 +594,8 @@ int gt7_live_probe_install_slot(uintptr_t target,uint32_t displaced,int mode,uin
     uintptr_t stub=probe_stub(alloc,slot),record=probe_record(alloc,slot),log=alloc+LIVE_PROBE_LOG;
     unsigned char orig[0x40];
     if(read_mem(pid,target,orig,displaced))return -1;
-    if(orig[0]==0xFF&&orig[1]==0x25&&*(uintptr_t *)(orig+6)==stub)return -1;/* already hooked here */
+    if (orig[0] == 0xff && orig[1] == 0x25)
+        return -1;
     unsigned char code[0x800];size_t n=0;
     if(mode==9){
     /* Observation trace detour. Every integer register the hooked function may
@@ -774,7 +796,7 @@ int gt7_live_probe_install_slot(uintptr_t target,uint32_t displaced,int mode,uin
      * clobbered. Fires synchronously on the press, in-process, no polling.
      * The original handler still runs (suppression is a later step). */
     {
-        int32_t disp=(int32_t)offsetof(LiveMailbox,prompt_state)-(int32_t)0x7000;
+        int32_t disp=(int32_t)(LIVE_MAILBOX + offsetof(LiveMailbox,prompt_state))-(int32_t)LIVE_PROBE_LOG;
         code[n++]=0x50;                                                  /* push rax */
         code[n++]=0x51;                                                  /* push rcx */
         code[n++]=0x49;code[n++]=0x8B;code[n++]=0x03;                    /* mov rax,[r11] (rdi) */
@@ -805,7 +827,7 @@ int gt7_live_probe_install_slot(uintptr_t target,uint32_t displaced,int mode,uin
     if(verified_write(pid,stub,code,n))return -1;
     if(slot==0&&mode!=9){
         unsigned char zero[0x400];memset(zero,0,sizeof(zero));if(verified_write(pid,log,zero,sizeof(zero)))return -1;
-        static unsigned char zobj[0x8000];if(verified_write(pid,log+0x4000,zobj,sizeof(zobj)))return -1;
+        static unsigned char zobj[LIVE_PROBE_LOG_SIZE-0x4000u];if(verified_write(pid,log+0x4000,zobj,sizeof(zobj)))return -1;
     }
     unsigned char patch[0x40];
     patch[0]=0xFF;patch[1]=0x25;patch[2]=0;patch[3]=0;patch[4]=0;patch[5]=0;memcpy(patch+6,&stub,8);
@@ -1028,25 +1050,277 @@ int gt7_live_probe_history(uintptr_t *words,uint32_t count,uint32_t *next){
     if(next)*next=cursor;
     return 0;
 }
-int gt7_live_menu_call(uintptr_t target,uintptr_t receiver,unsigned argc,uintptr_t args,unsigned *result){
-    pid_t pid;uintptr_t base,address;LiveMailbox state;
-    if(result)*result=0;
-    if(argc!=0||target!=UINT64_C(0x001d63ce0)||receiver<0x10000||receiver>UINT64_C(0x7fffffffffff))return -1;
-    if(credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled)return -1;
-    if(state.menu_call_state==1||state.menu_call_state==2)return -2;
-    uint32_t zero=0,queued=1;
-    if(verified_write(pid,address+offsetof(LiveMailbox,menu_call_target),&target,8)||
-       verified_write(pid,address+offsetof(LiveMailbox,menu_call_receiver),&receiver,8)||
-       verified_write(pid,address+offsetof(LiveMailbox,menu_call_argv),&args,8)||
-       verified_write(pid,address+offsetof(LiveMailbox,menu_call_argc),&argc,4)||
-       verified_write(pid,address+offsetof(LiveMailbox,menu_call_result),&zero,4)||
-       verified_write(pid,address+offsetof(LiveMailbox,menu_call_state),&queued,4))return -1;
-    for(unsigned i=0;i<150;i++){
+static int menu_clone_name(pid_t pid, uintptr_t node, const char *expected)
+{
+    uintptr_t name;
+    char actual[16];
+    if (read_mem(pid, node + HUD_OFF_NAME, &name, sizeof(name)) ||
+        !hud_ptr(name) || read_mem(pid, name, actual, sizeof(actual)))
+        return 0;
+    return !memcmp(actual, expected, strlen(expected) + 1);
+}
+
+static uintptr_t menu_clone_template(pid_t pid, uintptr_t option)
+{
+    uintptr_t type, parent, box, row, tail, source = 0;
+    uint32_t stage, count;
+    if (option < LIVE_ARENA_LOW || option >= LIVE_ARENA_HIGH - 0x408u ||
+        read_mem(pid, option, &type, sizeof(type)) || type != LIVE_MENU_OPTION_VA ||
+        read_mem(pid, option + 0x30, &parent, sizeof(parent)) ||
+        !hud_ptr(parent) || !menu_clone_name(pid, parent, "RaceInfo") ||
+        read_mem(pid, option + 0x400, &stage, sizeof(stage)) || stage ||
+        read_mem(pid, option + 0x3c8, &box, sizeof(box)) ||
+        !hud_ptr(box) || !menu_clone_name(pid, box, "VBox") ||
+        read_mem(pid, box + 0x2ec, &count, sizeof(count)) ||
+        count != LIVE_MENU_STOCK_ROWS ||
+        read_mem(pid, box + 0x2c8, &row, sizeof(row)) ||
+        read_mem(pid, box + 0x2d0, &tail, sizeof(tail)))
+        return 0;
+
+    /* The linked list exists before GT7 opens the popup and caches a vector. */
+    for (unsigned i = 0; i < LIVE_MENU_STOCK_ROWS; i++)
+    {
+        uintptr_t origin, next;
+        if (!hud_ptr(row) || read_mem(pid, row, &type, sizeof(type)) ||
+            type != LIVE_MENU_ITEM_VA ||
+            read_mem(pid, row + 0x30, &parent, sizeof(parent)) || parent != box ||
+            read_mem(pid, row + 0x68, &origin, sizeof(origin)) || !hud_ptr(origin) ||
+            (source && origin != source) ||
+            read_mem(pid, row + 0xa8, &next, sizeof(next)) ||
+            (i + 1 == LIVE_MENU_STOCK_ROWS && (row != tail || next)))
+            return 0;
+        source = origin;
+        row = next;
+    }
+
+    if (source < LIVE_ARENA_LOW || source >= LIVE_ARENA_HIGH - 0x300u ||
+        read_mem(pid, source, &type, sizeof(type)) || type != LIVE_MENU_ITEM_VA ||
+        !menu_clone_name(pid, source, "PulldownItem") ||
+        read_mem(pid, source + 0x30, &parent, sizeof(parent)) ||
+        !hud_ptr(parent) || !menu_clone_name(pid, parent, "hidden"))
+        return 0;
+    return source;
+}
+
+static int menu_install_close(pid_t pid, uintptr_t allocation, uintptr_t mailbox)
+{
+    static const unsigned char original[] = {
+        0x49, 0x89, 0xf6, 0x48, 0x89, 0xfb, 0x49, 0x8b,
+        0x07, 0x48, 0x89, 0x45, 0xe0, 0x85, 0xd2,
+    };
+    /* The stock prologue leaves RSP 16-byte aligned here. The ten pushes
+     * preserve that alignment and match the saved register layout. */
+    static const unsigned char save[] = {
+        0x9c, 0x50, 0x51, 0x52, 0x56, 0x57, 0x41, 0x50,
+        0x41, 0x51, 0x41, 0x52, 0x41, 0x53,
+        0x48, 0x89, 0xe7, /* mov rdi, rsp */
+        0x48, 0xbe,       /* movabs rsi, mailbox */
+    };
+    static const unsigned char handler_arg[] = {0x48, 0xb8}; /* movabs rax, handler */
+    static const unsigned char dispatch[] = {
+        0xff, 0xd0,                   /* call rax */
+        0x85, 0xc0,                   /* test eax, eax */
+        0x74, 0x0b,                   /* jz restore */
+        0x48, 0x83, 0xc4, 0x78,       /* add rsp, 80 + 0x28 */
+        0x5b, 0x41, 0x5e, 0x41, 0x5f, /* pop rbx, r14, r15 */
+        0x5d, 0xc3,                   /* pop rbp; ret */
+    };
+    static const unsigned char restore[] = {
+        0x41, 0x5b, 0x41, 0x5a, 0x41, 0x59, 0x41, 0x58,
+        0x5f, 0x5e, 0x5a, 0x59, 0x58, 0x9d,
+    };
+    static const unsigned char jump[] = {0xff, 0x25, 0, 0, 0, 0};
+    const uintptr_t site = LIVE_MENU_CLOSE_VA;
+    const uintptr_t stub = allocation + LIVE_MENU_CLOSE_STUB;
+    const uintptr_t handler = allocation + LIVE_MENU_CLOSE;
+    const uintptr_t resume = site + sizeof(original);
+    unsigned char patch[sizeof(original)], actual[sizeof(original)];
+    memset(patch, 0x90, sizeof(patch));
+    memcpy(patch, jump, sizeof(jump));
+    memcpy(patch + sizeof(jump), &stub, sizeof(stub));
+    if (read_mem(pid, site, actual, sizeof(actual)))
+        return -1;
+    if (!memcmp(actual, patch, sizeof(actual)))
+        return 0;
+    if (memcmp(actual, original, sizeof(actual)))
+        return -1;
+
+    unsigned char code[LIVE_MENU_CLOSE_STUB_SIZE];
+    size_t at = 0;
+    memcpy(code + at, save, sizeof(save));
+    at += sizeof(save);
+    memcpy(code + at, &mailbox, sizeof(mailbox));
+    at += sizeof(mailbox);
+    memcpy(code + at, handler_arg, sizeof(handler_arg));
+    at += sizeof(handler_arg);
+    memcpy(code + at, &handler, sizeof(handler));
+    at += sizeof(handler);
+    memcpy(code + at, dispatch, sizeof(dispatch));
+    at += sizeof(dispatch);
+    memcpy(code + at, restore, sizeof(restore));
+    at += sizeof(restore);
+    memcpy(code + at, original, sizeof(original));
+    at += sizeof(original);
+    memcpy(code + at, jump, sizeof(jump));
+    at += sizeof(jump);
+    memcpy(code + at, &resume, sizeof(resume));
+    at += sizeof(resume);
+
+    if (verified_write(pid, stub, code, at) ||
+        kernel_mprotect(pid, site & ~(uintptr_t)0x3fff, 0x4000, PROT_READ | PROT_WRITE | PROT_EXEC))
+        return -1;
+    if (verified_write(pid, site, patch, sizeof(patch)))
+    {
+        if (verified_write(pid, site, original, sizeof(original)))
+            engine_log("Race Info Display: close code could not be restored");
+        return -1;
+    }
+    return 0;
+}
+
+static int menu_copy_available(pid_t pid)
+{
+    static const unsigned char prologue[] = {
+        0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41,
+        0x55, 0x41, 0x54, 0x53, 0x48, 0x83, 0xec, 0x18,
+    };
+    unsigned char actual[sizeof(prologue)];
+    return !read_mem(pid, LIVE_MENU_COPY_VA, actual, sizeof(actual)) &&
+           !memcmp(actual, prologue, sizeof(actual));
+}
+
+static int menu_queue(pid_t pid, uintptr_t address, const LiveMailbox *state,
+                      uintptr_t receiver, int attach)
+{
+    const uintptr_t target = LIVE_MENU_COPY_VA;
+    if (state->base != LIVE_IMAGE_BASE || !state->enabled || !menu_copy_available(pid))
+        return -1;
+    if (state->menu_call_state == MENU_CALL_QUEUED || state->menu_call_state == MENU_CALL_RUNNING)
+        return -2;
+    if (attach && !state->menu_count)
+        return -1;
+    if (attach && state->menu_active_option && state->menu_active_option != receiver)
+    {
+        uintptr_t box, tail;
+        if (!read_mem(pid, state->menu_active_option + 0x3c8, &box, sizeof(box)) &&
+            box == state->menu_active_box &&
+            !read_mem(pid, box + 0x2d0, &tail, sizeof(tail)) && tail == state->menu_active_row)
+            return -2;
+    }
+    uintptr_t source = menu_clone_template(pid, receiver);
+    if (!source)
+        return -1;
+    if (attach && menu_install_close(pid, state->allocation, address))
+        return -1;
+    uintptr_t option = attach ? receiver : 0;
+    uint32_t zero = 0, queued = MENU_CALL_QUEUED;
+    if (verified_write(pid, address + offsetof(LiveMailbox, menu_call_target), &target, 8) ||
+        verified_write(pid, address + offsetof(LiveMailbox, menu_call_receiver), &source, 8) ||
+        verified_write(pid, address + offsetof(LiveMailbox, menu_install_option), &option, 8) ||
+        verified_write(pid, address + offsetof(LiveMailbox, menu_call_argc), &zero, 4) ||
+        verified_write(pid, address + offsetof(LiveMailbox, menu_call_result), &zero, 4) ||
+        verified_write(pid, address + offsetof(LiveMailbox, menu_call_state), &queued, 4))
+        return -1;
+    return 0;
+}
+
+int gt7_live_menu_call(uintptr_t target, uintptr_t receiver, unsigned argc,
+                      uintptr_t args, unsigned *result)
+{
+    pid_t pid;
+    uintptr_t base, address;
+    LiveMailbox state;
+    if (result)
+        *result = 0;
+    if (target != LIVE_MENU_COPY_VA || argc || args > 1 ||
+        credits_game(&pid, &base) || live_resolve(pid, base, &address, &state))
+        return -1;
+    int rc = menu_queue(pid, address, &state, receiver, args != 0);
+    if (rc)
+        return rc;
+    for (unsigned i = 0; i < 150; i++)
+    {
         usleep(10000);
-        if(read_mem(pid,address,&state,sizeof(state)))return -3;
-        if(state.menu_call_state==3||state.menu_call_state==4||state.menu_call_state==5){if(result)*result=state.menu_call_result;return state.menu_call_state==3?0:-1;}
+        if (read_mem(pid, address, &state, sizeof(state)))
+            return -3;
+        if (result)
+            *result = state.menu_call_result;
+        if (state.menu_call_state >= MENU_CALL_DONE && state.menu_call_state <= MENU_CALL_FAILED)
+            return state.menu_call_state == MENU_CALL_DONE ? 0 : -1;
     }
     return -3;
+}
+
+int gt7_live_menu_sync(int expected_pid, const char labels[][LIVE_MENU_LABEL],
+                       const uint8_t *hidden, uint32_t count, uint32_t *acknowledged,
+                       uint8_t events[LIVE_MENU_EVENTS], uint32_t *sequence)
+{
+    pid_t pid;
+    uintptr_t base, address;
+    LiveMailbox state;
+    if (!count || count > LIVE_MENU_MAX || credits_game(&pid, &base) || pid != expected_pid ||
+        live_resolve(pid, base, &address, &state) || !state.enabled || !state.allocation)
+        return -1;
+
+    const uintptr_t control = state.allocation + LIVE_MENU_CONTROL;
+    static LiveMenuControl current;
+    if (read_mem(pid, control, &current, sizeof(current)))
+        return -1;
+    if (!state.menu_count)
+    {
+        if (base != LIVE_IMAGE_BASE || !menu_copy_available(pid) ||
+            menu_install_close(pid, state.allocation, address) ||
+            verified_write(pid, control + offsetof(LiveMenuControl, labels),
+                           labels, count * LIVE_MENU_LABEL) ||
+            verified_write(pid, control + offsetof(LiveMenuControl, hidden), hidden, count) ||
+            verified_write(pid, address + offsetof(LiveMailbox, menu_count), &count, sizeof(count)))
+            return -1;
+    }
+    else if (state.menu_count != count || memcmp(current.labels, labels, count * LIVE_MENU_LABEL))
+        return -1;
+    else if (memcmp(current.hidden, hidden, count))
+    {
+        uint32_t revision = current.label_sequence + 1;
+        if (verified_write(pid, control + offsetof(LiveMenuControl, hidden), hidden, count) ||
+            verified_write(pid, control + offsetof(LiveMenuControl, label_sequence),
+                           &revision, sizeof(revision)))
+            return -1;
+    }
+
+    /* Read the producer's sequence before the ring. Unacknowledged slots
+     * are never overwritten by the bridge. */
+    *acknowledged = current.acknowledged;
+    *sequence = state.menu_toggle_sequence;
+    memcpy(events, current.events, LIVE_MENU_EVENTS);
+    if (state.menu_candidate && state.menu_active_option &&
+        state.menu_active_option != state.menu_candidate &&
+        state.menu_call_state != MENU_CALL_RUNNING &&
+        state.menu_call_state != MENU_CALL_QUEUED)
+        (void)menu_queue(pid, address, &state, state.menu_candidate, 1);
+    return 0;
+}
+
+int gt7_live_menu_acknowledge(int expected_pid, uint32_t sequence,
+                              const uint8_t *hidden, uint32_t count)
+{
+    pid_t pid;
+    uintptr_t base, address;
+    LiveMailbox state;
+    if (!count || count > LIVE_MENU_MAX || credits_game(&pid, &base) || pid != expected_pid ||
+        live_resolve(pid, base, &address, &state) || !state.allocation ||
+        state.menu_count != count)
+        return -1;
+    uintptr_t control = state.allocation + LIVE_MENU_CONTROL;
+    uintptr_t label_sequence = control + offsetof(LiveMenuControl, label_sequence);
+    uint32_t revision;
+    if (read_mem(pid, label_sequence, &revision, sizeof(revision)) ||
+        verified_write(pid, control + offsetof(LiveMenuControl, hidden), hidden, count))
+        return -1;
+    revision++;
+    if (verified_write(pid, label_sequence, &revision, sizeof(revision)))
+        return -1;
+    return verified_write(pid, control + offsetof(LiveMenuControl, acknowledged),
+                          &sequence, sizeof(sequence));
 }
 int gt7_live_car_pointers(uintptr_t *implementation,uintptr_t *expanded,uintptr_t *style,uint32_t *model_code,uint32_t *sequence){
     pid_t pid;uintptr_t base,address;LiveMailbox state;
@@ -1544,8 +1818,8 @@ int gt7_hud_set(const char (*entries)[LIVE_HUD_PATH],uint32_t count){
     for(uint32_t i=0;i<count;i++)
         if(verified_write(pid,address+offsetof(LiveMailbox,hud_entries)+i*LIVE_HUD_PATH,entries[i],LIVE_HUD_PATH))return -1;
     uint32_t sequence=state.hud_sequence+1;
-    if(verified_write(pid,address+offsetof(LiveMailbox,hud_sequence),&sequence,4))return -1;
     if(verified_write(pid,address+offsetof(LiveMailbox,hud_count),&count,4))return -1;
+    if(verified_write(pid,address+offsetof(LiveMailbox,hud_sequence),&sequence,4))return -1;
     return 0;
 }
 /* ---------------------------------------------------------------------------

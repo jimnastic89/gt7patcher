@@ -35,6 +35,7 @@ int parse_config(const char *body, Config *c);
 int emit_xml(FILE *f, const Config *c);
 int save_config(const char *root, const Config *c);
 int load_config(const char *root, Config *c);
+int initialize_config(const char *root, Config *c);
 const char *feature_name(unsigned i);
 const char *feature_note(unsigned i);
 unsigned feature_count(unsigned i);

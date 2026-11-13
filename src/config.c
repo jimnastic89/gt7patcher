@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #include "config.h"
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -166,22 +167,40 @@ int emit_xml(FILE *f,const Config *c){
     fputs("</Patch>\n",f);
     return ferror(f)?-1:0;
 }
-static int save_config_unlocked(const char *root,const Config *c){
-    char path[512],temp[520];
-    snprintf(path,sizeof(path),"%s/xml_prospero/PPSA01317.xml",root);
-    snprintf(temp,sizeof(temp),"%s.tmp",path);
-    FILE *f=fopen(temp,"wb");if(!f)return -1;
-    int r=emit_xml(f,c);if(fflush(f)||fsync(fileno(f)))r=-1;if(fclose(f))r=-1;
-    if(r||rename(temp,path)){unlink(temp);return -1;}
-    /* Persist the UI state inside the same atomic XML snapshot. The engine ignores this comment. */
+static int save_config_unlocked(const char *root, const Config *c)
+{
+    char path[512], temp[520];
+    if (snprintf(path, sizeof(path), "%s/config.json", root) >= (int)sizeof(path))
+        return -1;
+    snprintf(temp, sizeof(temp), "%s.tmp", path);
+    FILE *f = fopen(temp, "wb");
+    if (!f)
+        return -1;
+    int r = fprintf(f,
+                    "{\n  \"mask\": %u,\n  \"preset\": %d,\n  \"units\": %d,\n"
+                    "  \"language\": %d,\n  \"speed\": %d,\n  \"mass\": %d,\n"
+                    "  \"power\": %d,\n  \"torque\": %d,\n  \"temperature\": %d,\n"
+                    "  \"autostart\": %d,\n  \"country\": %d,\n  \"aspect\": %d,\n  \"important\": %d\n}\n",
+                    c->mask, c->preset, c->units, c->language, c->speed, c->mass, c->power,
+                    c->torque, c->temperature, c->autostart, c->country, c->aspect,
+                    c->important_dismissed) < 0;
+    if (fflush(f) || fsync(fileno(f)))
+        r = -1;
+    if (fclose(f) || r || rename(temp, path))
+    {
+        unlink(temp);
+        return -1;
+    }
     return 0;
 }
 int save_config(const char *root,const Config *c){
     int r;pthread_mutex_lock(&config_io_lock);r=save_config_unlocked(root,c);pthread_mutex_unlock(&config_io_lock);return r;
 }
-static int load_config_unlocked(const char *root,Config *c){
-    char path[512],buf[512];snprintf(path,sizeof(path),"%s/xml_prospero/PPSA01317.xml",root);
-    FILE *f=fopen(path,"rb");if(!f)return -1;
+static int load_legacy_config(const char *root,Config *c){
+    char path[512],buf[512];
+    if (snprintf(path, sizeof(path), "%s/patches/xml_prospero/PPSA01317.xml", root) >= (int)sizeof(path))
+        return -1;
+    FILE *f=fopen(path,"rb");if(!f)return errno == ENOENT ? 1 : -1;
     int r=-1,has_race_info=0,has_debug_environment=0,has_live_hook=0,has_opening_movie_skip=0;Config loaded={0};unsigned saved_mask=0;
     while(fgets(buf,sizeof(buf),f)){
         if(strstr(buf,"<!-- GT7LIVEHOOK 1 -->"))has_live_hook=1;
@@ -214,8 +233,72 @@ static int load_config_unlocked(const char *root,Config *c){
     if(!valid_config(&loaded))return -1;
     *c=loaded;return 0;
 }
+static int load_config_unlocked(const char *root, Config *c)
+{
+    char path[512], json[4096], form[512];
+    if (snprintf(path, sizeof(path), "%s/config.json", root) >= (int)sizeof(path))
+        return -1;
+    FILE *file = fopen(path, "rb");
+    if (!file)
+        return errno == ENOENT ? 1 : -1;
+    size_t size = fread(json, 1, sizeof(json) - 1, file);
+    int valid = feof(file) && !ferror(file) && !memchr(json, 0, size);
+    fclose(file);
+    if (!valid)
+        return -1;
+    json[size] = 0;
+    const char *p = json + strspn(json, " \t\r\n");
+    if (*p++ != '{')
+        return -1;
+    size_t used = 0;
+    unsigned fields = 0;
+    for (;;)
+    {
+        char key[17];
+        int offset = 0;
+        if (sscanf(p, " \"%16[a-z]\" : %n", key, &offset) != 1 || !offset)
+            return -1;
+        p += offset;
+        const char *number = p;
+        if (*p == '-')
+            p++;
+        size_t digits = strspn(p, "0123456789");
+        if (!digits || digits > 4 || (digits > 1 && *p == '0'))
+            return -1;
+        p += digits;
+        int count = snprintf(form + used, sizeof(form) - used, "%s%s=%.*s",
+                             fields ? "&" : "", key, (int)(p - number), number);
+        if (count < 0 || (size_t)count >= sizeof(form) - used)
+            return -1;
+        used += (size_t)count;
+        fields++;
+        p += strspn(p, " \t\r\n");
+        if (*p != ',')
+            break;
+        p++;
+    }
+    if (fields != 13 || *p++ != '}' || p[strspn(p, " \t\r\n")])
+        return -1;
+    return parse_config(form, c);
+}
+
 int load_config(const char *root,Config *c){
     int r;pthread_mutex_lock(&config_io_lock);r=load_config_unlocked(root,c);pthread_mutex_unlock(&config_io_lock);return r;
+}
+
+int initialize_config(const char *root, Config *c)
+{
+    int result = load_config(root, c);
+    if (result != 1)
+        return result;
+    result = load_legacy_config(root, c);
+    if (result < 0)
+        return -1;
+    if (result == 1)
+        *c = defaults();
+    if (save_config(root, c))
+        return -1;
+    return load_config(root, c);
 }
 const char *feature_name(unsigned i){return patch_names[i];}
 const char *feature_note(unsigned i){return patch_notes[i];}
