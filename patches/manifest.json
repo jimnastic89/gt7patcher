@@ -13,7 +13,7 @@
   },
   {
     "name": "Quick Store Rotation",
-    "note": "One-minute shop rotation override, offers last six minutes. Shop data stored in /data/gt7offline/shop_catalog_1710.json",
+    "note": "One-minute shop rotation override, offers last six minutes",
     "source": "quick_store_rotation",
     "built": true
   },
@@ -37,7 +37,7 @@
   },
   {
     "name": "Live Settings",
-    "note": "Enable the live settings bridge to enable in-game credit editor. Select credits icon to open",
+    "note": "Enables the in-game credit editor and HUD visibility controls",
     "source": "live_settings",
     "built": true,
     "runtime": true
@@ -50,7 +50,7 @@
   },
   {
     "name": "Debug Environment",
-    "note": "Changes the internal build environment to expose additional demo, LAN, B-Spec, and car settings.",
+    "note": "Changes the internal build environment to expose demo, LAN, B-Spec, and car settings.",
     "source": "debug_environment",
     "built": true
   },
