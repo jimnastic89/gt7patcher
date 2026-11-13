@@ -675,38 +675,7 @@ button:not([role="tab"]) {
     </section>
     <section id="live" role="tabpanel" aria-labelledby="live-tab" hidden>
         <div class="card">
-            <h2>Wheel settings</h2>
-            <p id="wheel-settings-status" aria-live="polite">Wheel settings unavailable. Select a garage car and wait for the next refresh.</p>
-            <input id="wheel-inch" type="hidden" disabled>
-            <div class="wheel-settings-grid" role="table" aria-label="Wheel settings">
-                <div aria-hidden="true"></div><div class="wheel-column" role="columnheader">Front</div><div class="wheel-column" role="columnheader">Rear</div>
-                <div class="wheel-row-label" role="rowheader">Wheel width</div>
-                <div class="field"><label class="sr-only" for="wheel-width-front">Front wheel width</label><input id="wheel-width-front" class="text-input" type="text" inputmode="numeric" maxlength="4" aria-describedby="wheel-settings-feedback" disabled></div>
-                <div class="field"><label class="sr-only" for="wheel-width-rear">Rear wheel width</label><input id="wheel-width-rear" class="text-input" type="text" inputmode="numeric" maxlength="4" aria-describedby="wheel-settings-feedback" disabled></div>
-                <div class="wheel-row-label" role="rowheader">Wheel offset</div>
-                <div class="field"><label class="sr-only" for="wheel-offset-front">Front wheel offset</label><input id="wheel-offset-front" class="text-input" type="text" inputmode="numeric" maxlength="6" aria-describedby="wheel-settings-feedback" disabled></div>
-                <div class="field"><label class="sr-only" for="wheel-offset-rear">Rear wheel offset</label><input id="wheel-offset-rear" class="text-input" type="text" inputmode="numeric" maxlength="6" aria-describedby="wheel-settings-feedback" disabled></div>
-                <div class="wheel-row-label" role="rowheader">Hub offset</div>
-                <div class="field"><label class="sr-only" for="hub-offset-front">Front hub offset</label><input id="hub-offset-front" class="text-input" type="text" inputmode="numeric" maxlength="6" aria-describedby="wheel-settings-feedback" disabled></div>
-                <div class="field"><label class="sr-only" for="hub-offset-rear">Rear hub offset</label><input id="hub-offset-rear" class="text-input" type="text" inputmode="numeric" maxlength="6" aria-describedby="wheel-settings-feedback" disabled></div>
-            </div>
-            <div class="actions"><button type="button" id="apply-wheel-settings" class="primary" disabled>Apply</button></div>
-            <p id="wheel-settings-feedback" class="detail" role="status">Width, wheel-offset, and hub-offset values are applied together. Rim inch-up is preserved.</p>
-        </div>
-        <div class="card">
-            <h2>Engine swap</h2>
-            <p id="engine-swap-status" aria-live="polite">Engine-swap data unavailable. Select a garage car and wait for the next refresh.</p>
-            <div class="field"><label for="engine-swap">Installed engine</label><select id="engine-swap" disabled><option value="0">Original engine</option><option value="1">Swap slot 1</option><option value="2">Swap slot 2</option></select></div>
-            <label><input id="engine-unlock" type="checkbox" disabled> Unlock a supported swap slot before installing it</label>
-            <div class="actions"><button type="button" id="apply-engine-swap" class="primary" disabled>Apply engine</button></div>
-            <p id="engine-swap-feedback" class="detail" role="status">Slots are predefined by GT7 for this recipient car; arbitrary donor engines are not supported.</p>
-        </div>
-        <div class="card">
-            <h2>Rev limit</h2>
-            <p id="rev-limit-status" aria-live="polite">Rev-limit data unavailable. Sit in a car and wait for the next refresh.</p>
-            <div class="field"><label for="rev-limit-increase">Increase limiter by (RPM)</label><input id="rev-limit-increase" class="text-input" type="text" inputmode="numeric" maxlength="5" disabled></div>
-            <div class="actions"><button type="button" id="apply-rev-limit" class="primary" disabled>Apply</button><button type="button" id="reset-rev-limit" disabled>Restore native</button></div>
-            <p id="rev-limit-feedback" class="detail" role="status">Raises the physics rev limiter without changing engine RPM. Re-applied automatically after a car change.</p>
+            <p class="detail">Select the credits icon <img class="credits-icon" src="data:image/png;base64,__CREDITS_ICON_DATA__" alt="Credits icon"> in the in-game menu to open the credit editor</p>
         </div>
         <style>
         #hud-elements{margin:8px 0}
@@ -733,6 +702,28 @@ button:not([role="tab"]) {
         #hud-export{width:100%;height:8em;font:12px/1.35 ui-monospace,monospace;margin-top:6px}
         </style>
         <div class="card">
+            <h2>Race Info Display</h2>
+            <p class="detail">Drag groups between lists or reorder them. The checkbox controls the HUD items visibility in a race. The show/hide button controls if the HUD item is visible in the pause menu. Restart the game for changes to take effect.</p>
+            <style>
+                .race-list { min-height: 3em; padding: .25rem; border: 1px solid #555; border-radius: 6px; }
+                .race-row { display: grid; grid-template-columns: 1em 1.25em minmax(0, 1fr) 2.5em 2.5em 5.5em; align-items: center; gap: .4rem; padding: .3rem; }
+                .race-row input[type=text], .race-rule { width: 100%; min-width: 0; box-sizing: border-box; }
+                .race-row button { min-width: 0; padding-inline: .2rem; }
+                .race-rule { grid-column: 3; margin: 0; border: 0; border-top: 1px solid #89929b; }
+                .race-grip { cursor: grab; }
+                .race-row[data-drop] { box-shadow: inset 0 2px #8ab; }
+            </style>
+            <h3>Visible in dropdown</h3>
+            <div class="race-list" id="race-visible"></div>
+            <h3>Hidden from dropdown</h3>
+            <div class="race-list" id="race-hidden"></div>
+            <div class="actions">
+                <button type="button" id="race-divider" disabled>Add divider</button>
+                <button type="button" id="race-reload">Reload from console</button>
+            </div>
+            <p id="race-status" class="detail" role="status"></p>
+        </div>
+        <div class="card" id="hud-card" hidden>
             <h2>In-race HUD</h2>
             <p id="hud-status" aria-live="polite">HUD control unavailable. Start GT7 with the Live Settings patch selected.</p>
             <div class="actions" style="margin:6px 0"><input id="hud-search" type="search" placeholder="Filter items\u2026" style="flex:1;min-width:180px"><button type="button" id="hud-edit">Edit groups</button><button type="button" id="hud-fold-all">Collapse all</button></div>
@@ -829,7 +820,7 @@ button:not([role="tab"]) {
         setTimeout(async () => {
             if (!token) return;
             const text = encodeURIComponent(`GT7Patcher: update available: v${version}.`);
-            try { await fetch(`/api/notify?text=${text}`, { cache: 'no-store', headers: { 'X-GT7-Token': token } }) } catch (error) { /* Notification is best effort. */ }
+            try { await fetch(`/api/update-notify?text=${text}`, { cache: 'no-store', headers: { 'X-GT7-Token': token } }) } catch (error) { /* Notification is best effort. */ }
         }, 5000);
     }
     function comparableVersion(value) {
@@ -975,15 +966,6 @@ button:not([role="tab"]) {
         } catch (error) { $('wheel-settings-feedback').textContent = error.message; $('wheel-settings-feedback').classList.add('error'); status(error.message, true) }
         finally { busy = false; buttons() }
     }
-    for (const id of ['wheel-width-front', 'wheel-width-rear']) {
-        $(id).addEventListener('input', () => { wheelDirty = true; wheelSettingsButtons() });
-        $(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyWheelSettings() } });
-    }
-    for (const id of geometryIds) $(id).addEventListener('input', () => { geometryDirty = true; wheelSettingsButtons() });
-    $('apply-wheel-settings').onclick = applyWheelSettings;
-    $('apply-engine-swap').onclick = applyEngineSwap;
-    $('apply-rev-limit').onclick = () => applyRevLimit(Number($('rev-limit-increase').value));
-    $('reset-rev-limit').onclick = () => applyRevLimit(0);
     const languages = [['JP', 'Japanese'], ['US', 'English (United States)'], ['GB', 'English (United Kingdom)'], ['FR', 'French'], ['ES', 'Spanish (Spain)'], ['DE', 'German'], ['IT', 'Italian'], ['NL', 'Dutch'], ['PT', 'Portuguese'], ['RU', 'Russian'], ['PL', 'Polish'], ['TR', 'Turkish'], ['EL', 'Greek'], ['KR', 'Korean'], ['TW', 'Chinese (Traditional)'], ['CN', 'Chinese (Simplified)'], ['DK', 'Danish'], ['NO', 'Norwegian'], ['SE', 'Swedish'], ['FI', 'Finnish'], ['CZ', 'Czech'], ['HU', 'Hungarian'], ['BP', 'Portuguese (Brazil)'], ['MS', 'Spanish (Latin America)'], ['AR', 'Arabic'], ['TH', 'Thai'], ['ZH', 'Chinese (ZH)']];
     $('language').append(new Option('System language', -1)); languages.forEach(([code, name], i) => $('language').append(new Option(`${name} · ${code}`, i)));
     const countries = [
@@ -1000,6 +982,7 @@ button:not([role="tab"]) {
     ];
     $('country').append(new Option('Game default', -1));
     countries.map((country, value) => [...country, value]).sort((a, b) => a[1].localeCompare(b[1])).forEach(([code, name, value]) => $('country').append(new Option(name + ' (' + code + ')', value)));
+    $('country').value = '-1';
     let toastTimer = 0;
     function status(text, error = false) {
         const toast = $('toast');
@@ -1011,7 +994,7 @@ button:not([role="tab"]) {
         $('status').textContent = text; $('status').hidden = !visible;
     }
     function units() { for (const e of $('unit-fields').querySelectorAll('select')) e.disabled = $('units').value === '0' }
-    function buttons() { hudButtons(); const running = engine || engineActive; $('start').textContent = running ? 'Stop engine' : 'Start engine'; $('start').disabled = !loaded || busy || halted; $('launch-game').disabled = !loaded || busy || halted || !engine || !gameClosed; $('reinstall-shortcut').disabled = !loaded || busy || halted; $('stop-payload').disabled = !loaded || busy || halted; wheelSettingsButtons(); engineSwapButtons(); revLimitButtons() }
+    function buttons() { hudButtons(); const running = engine || engineActive; $('start').textContent = running ? 'Stop engine' : 'Start engine'; $('start').disabled = !loaded || busy || halted; $('launch-game').disabled = !loaded || busy || halted || !engine || !gameClosed; $('reinstall-shortcut').disabled = !loaded || busy || halted; $('stop-payload').disabled = !loaded || busy || halted; if ($('wheel-width-front')) wheelSettingsButtons(); if ($('engine-swap')) engineSwapButtons(); if ($('rev-limit-increase')) revLimitButtons() }
     function updateFeatureTile(input) { input.closest?.('.feature')?.classList.toggle('selected', input.checked) }
     const featureIcons = {
         'Offline Mode': '<path d="M7 18h10.5a4.5 4.5 0 0 0 .7-8.95A6.5 6.5 0 0 0 5.1 10.5 3.75 3.75 0 0 0 7 18Z"/><path d="m10 10 4 4m0-4-4 4"/>',
@@ -1020,7 +1003,7 @@ button:not([role="tab"]) {
         'Unlock Power Pack': '<path d="m13 2-8 11h6l-1 9 8-12h-6l1-8Z"/>',
         'Unlock Vehicle DLC': '<path d="M3 15h18v4H3v-4Z"/><path d="m5 15 2-5h8l4 5"/><circle cx="7" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/>',
         'Wheel Offset Presets': '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 12V4M12 12l6.93-4M12 12l6.93 4M12 12v8M12 12l-6.93 4M12 12 5.07 8"/>',
-        'Live Settings': '<path d="M3 12h3l2-5 4 10 2-5h7"/><path d="M12 3v2m0 14v2M3 12H1m22 0h-2"/>',
+        'Live Settings': '<path d="M3 12h3l2-5 4 10 2-5h7"/>',
         'New Game Intro Movie Skip': '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 8.5 12 12l-5 3.5v-7Zm7 0 5 3.5-5 3.5v-7Z"/>',
         'Debug Environment': '<path d="M8 8 4 12l4 4M16 8l4 4-4 4M14 5l-4 14"/>',
         'Sync Game Clock to System': '<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2M12 2v2M12 20v2M2 12h2m16 0h2"/>',
@@ -1039,8 +1022,6 @@ button:not([role="tab"]) {
     function liveTab(selected) { if (!$('live-tab')) return;
         $('live-tab').hidden = !selected;
         if (!selected) {
-            renderWheelWidth(null);
-            renderWheelGeometry(null); renderEngineSwap(null); renderRevLimit(null);
             if (!$('live').hidden) $('patch-tab').onclick();
         }
     }
@@ -1048,7 +1029,6 @@ button:not([role="tab"]) {
         token = s.token; engine = s.engineRunning; engineActive = s.engineActive === true; gameRunning = s.gameRunning === 1; gameClosed = s.gameRunning === 0; $('version').textContent = `v${s.version}`; document.title = `GT7Patcher v${s.version}`;
         checkForUpdate(s.version);
         renderCreditInput(s.live);
-        renderWheelWidth(s.live); renderWheelGeometry(s.live); renderEngineSwap(s.live); renderRevLimit(s.live);
         const featureOrder = [0, 1, 8, 2, 3, 4, 5, 6, 7, 9, 10];
         if (!loaded) {
             featureOrder.forEach(i => {
@@ -1092,9 +1072,9 @@ button:not([role="tab"]) {
             units();
         }
         liveTab(dirty ? Boolean($('patch-6')?.checked) : Boolean(s.config.mask & 64));
-        loaded = true; buttons(); readHud(); if (!dirty) pageStatus(s.gameRunning === 1 ? 'GT7 is running. Saved changes will apply the next time it starts.' : '');
+        loaded = true; buttons(); readHud(); raceEditorStatus(); if (!dirty) pageStatus(s.gameRunning === 1 ? 'GT7 is running. Saved changes will apply the next time it starts.' : '');
     }
-    async function read() { if (refreshing) return; refreshing = true; const before = revision; try { const r = await fetch('/api/status', { cache: 'no-store' }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (!busy && !halted && before === revision) { render(result); if (!initialStatusShown) { initialStatusShown = true; if (result.message && result.message !== 'GT7 launch requested. The patch engine will apply saved patches as the game starts.') status(result.message) } } } catch (e) { if (!busy && !halted && before === revision) { renderWheelWidth(null); renderWheelGeometry(null); renderEngineSwap(null); renderRevLimit(null); status(e.message, true) } } finally { refreshing = false } }
+    async function read() { if (refreshing) return; refreshing = true; const before = revision; try { const r = await fetch('/api/status', { cache: 'no-store' }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (!busy && !halted && before === revision) { render(result); if (!initialStatusShown) { initialStatusShown = true; if (result.message && result.message !== 'GT7 launch requested. The patch engine will apply saved patches as the game starts.') status(result.message) } } } catch (e) { if (!busy && !halted && before === revision) status(e.message, true) } finally { refreshing = false } }
     async function post(path, body, savesSettings = false) { busy = true; revision++; buttons(); try { const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body }); if (!r.ok) throw Error(await r.text()); const result = await r.json(); if (savesSettings) dirty = false; render(result); status(result.message) } catch (e) { status(e.message, true) } finally { busy = false; buttons() } }
     function configBody() { const c = { mask: 0, autostart: Number($('autostart').checked), important: Number(importantDismissed) }; document.querySelectorAll('#features input[data-bit]').forEach(input => { if (input.checked) c.mask |= 1 << Number(input.dataset.bit) }); for (const k of keys) c[k] = Number($(k).value); return new URLSearchParams(c).toString() }
     $('form').addEventListener('submit', e => { e.preventDefault(); clearTimeout(saveTimer); saveConfig() });
@@ -1108,6 +1088,163 @@ button:not([role="tab"]) {
     $('preset').addEventListener('change', () => { const p = presets[$('preset').value]; if (p) { for (const [k, v] of Object.entries(p)) $(k).value = v; $('units').value = 1; units() } });
     const tabs = [['patch-tab', 'patches'], ['game-tab', 'game'], ['live-tab', 'live'], ['help-tab', 'help']].filter(([id]) => $(id));
     for (const [id, panel] of tabs) $(id).onclick = () => { activePanel = panel; for (const [t, p] of tabs) { $(t).setAttribute('aria-selected', String(t === id)); $(p).hidden = p !== panel } $('launch-guidance').hidden = panel === 'help' || panel === 'live'; $('controls').hidden = false; pageStatus(persistentMessage) };
+
+    let raceDraft, raceDragging, raceLoading = false, raceDirty = false, raceRequested = false;
+    const raceUrl = '/api/live/hud/config';
+
+    function raceEditorStatus() {
+        $('race-divider').disabled = !raceDraft || raceLoading;
+        $('race-reload').disabled = raceLoading;
+        if (raceDirty && !raceLoading && $('race-status').textContent === 'Unsaved changes.' && !gameClosed)
+            $('race-status').textContent = 'Unsaved changes. Save is available once GT7 is closed.';
+        else if (raceDirty && gameClosed && $('race-status').textContent.startsWith('Unsaved changes.'))
+            $('race-status').textContent = 'Unsaved changes.';
+        if (token && !raceRequested) raceFetch(false);
+    }
+
+    async function raceFetch(save) {
+        if (raceLoading || !token) return;
+        raceRequested = true;
+        raceLoading = true;
+        renderRaceEditor();
+        try {
+            const options = { cache: 'no-store', headers: { 'X-GT7-Token': token } };
+            if (save) {
+                options.method = 'POST';
+                options.headers['Content-Type'] = 'application/json';
+                options.body = JSON.stringify({ raceInfoDisplay: raceDraft }, null, 2);
+            }
+            const response = await fetch(raceUrl, options);
+            if (!response.ok) throw Error(await response.text());
+            if (!save) {
+                const { raceInfoDisplay } = await response.json();
+                if (!Array.isArray(raceInfoDisplay?.visible) || !Array.isArray(raceInfoDisplay?.hidden))
+                    throw Error('The console JSON must contain visible and hidden lists.');
+                raceDraft = raceInfoDisplay;
+            }
+            raceDirty = false;
+            $('race-status').textContent = save ? 'HUD list saved.' : '';
+        } catch (error) {
+            $('race-status').textContent = error.message;
+        } finally {
+            raceLoading = false;
+            renderRaceEditor();
+        }
+    }
+
+    function raceChanged() {
+        raceDirty = true;
+        $('race-status').textContent = 'Unsaved changes.';
+        raceEditorStatus();
+    }
+
+    function raceMove(from, entry, to, before) {
+        if (raceLoading || !entry || entry === before || (entry.type === 'divider' && to === 'hidden')) return;
+        const index = raceDraft[from].indexOf(entry);
+        if (index < 0) return;
+        raceDraft[from].splice(index, 1);
+        const destination = raceDraft[to];
+        destination.splice(before ? destination.indexOf(before) : destination.length, 0, entry);
+        raceChanged();
+        renderRaceEditor();
+    }
+
+    function renderRaceEditor() {
+        for (const section of ['visible', 'hidden']) {
+            const list = $('race-' + section);
+            list.replaceChildren();
+            if (!raceDraft) continue;
+            for (const [index, entry] of raceDraft[section].entries()) {
+                const divider = entry.type === 'divider';
+                const row = document.createElement('div');
+                row.className = 'race-row';
+                const grip = document.createElement('span');
+                grip.className = 'race-grip';
+                grip.textContent = '⠿';
+                grip.draggable = !raceLoading;
+                grip.ondragstart = event => {
+                    raceDragging = { section, entry };
+                    event.dataTransfer.setData('text/plain', entry.identifier || 'divider');
+                    event.dataTransfer.effectAllowed = 'move';
+                };
+                grip.ondragend = () => { raceDragging = null };
+                row.ondragover = event => {
+                    if (!raceDragging || (section === 'hidden' && raceDragging.entry.type === 'divider')) return;
+                    event.preventDefault();
+                    row.dataset.drop = '';
+                };
+                row.ondragleave = () => { delete row.dataset.drop };
+                row.ondrop = event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    delete row.dataset.drop;
+                    if (raceDragging) raceMove(raceDragging.section, raceDragging.entry, section, entry);
+                    raceDragging = null;
+                };
+                row.append(grip);
+                function button(label, action, disabled = false) {
+                    const control = document.createElement('button');
+                    control.type = 'button';
+                    control.textContent = label;
+                    control.disabled = disabled || raceLoading;
+                    control.onclick = action;
+                    row.append(control);
+                }
+                if (divider) {
+                    const rule = document.createElement('hr');
+                    rule.className = 'race-rule';
+                    rule.setAttribute('aria-label', 'Divider');
+                    row.append(rule);
+                } else {
+                    const enabled = document.createElement('input');
+                    enabled.type = 'checkbox';
+                    enabled.checked = entry.enabled !== false;
+                    enabled.disabled = raceLoading;
+                    enabled.setAttribute('aria-label', 'Enable ' + entry.identifier);
+                    enabled.onchange = () => { entry.enabled = enabled.checked; raceChanged() };
+                    const name = document.createElement('input');
+                    name.type = 'text';
+                    name.className = 'text-input';
+                    name.value = entry.displayName;
+                    name.placeholder = entry.identifier;
+                    name.maxLength = 63;
+                    name.disabled = raceLoading;
+                    name.setAttribute('aria-label', 'Display name for ' + entry.identifier);
+                    name.oninput = () => { entry.displayName = name.value; raceChanged() };
+                    row.append(enabled, name);
+                }
+                const entries = raceDraft[section];
+                button('↑', () => raceMove(section, entry, section, entries[index - 1]), index === 0);
+                button('↓', () => raceMove(section, entry, section, entries[index + 2]), index + 1 === entries.length);
+                if (divider) button('Remove', () => { entries.splice(index, 1); raceChanged(); renderRaceEditor() });
+                else {
+                    const target = section === 'visible' ? 'hidden' : 'visible';
+                    button(section === 'visible' ? 'Hide' : 'Show',
+                        () => raceMove(section, entry, target));
+                }
+                list.append(row);
+            }
+            list.ondragover = event => {
+                if (raceDragging && (section === 'visible' || raceDragging.entry.type !== 'divider'))
+                    event.preventDefault();
+            };
+            list.ondrop = event => {
+                event.preventDefault();
+                if (raceDragging) raceMove(raceDragging.section, raceDragging.entry, section);
+                raceDragging = null;
+            };
+        }
+        raceEditorStatus();
+    }
+
+    $('race-divider').onclick = () => {
+        raceDraft.visible.push({ type: 'divider' });
+        raceChanged();
+        renderRaceEditor();
+    };
+    $('race-reload').onclick = () => {
+        if (!raceDirty || confirm('Discard unsaved HUD list changes?')) raceFetch(false);
+    };
 
     /* In-race HUD control: a flat list of groups. A group is a label plus a
      * list of widgets; every widget gets its own checkbox and the heading gets
@@ -1189,6 +1326,7 @@ button:not([role="tab"]) {
       ['Whole HUD container (4)','RaceDisplay/Container/objective/MFDNav/MfdNavDots/Container',['','Dot','Dot/Active','Dot/ColorFace','Dot0','Dot0/Active','Dot0/ColorFace','Dot1','Dot1/Active','Dot1/ColorFace','Dot10','Dot11','Dot12','Dot13','Dot14','Dot2','Dot2/Active','Dot2/ColorFace','Dot3','Dot3/Active','Dot3/ColorFace','Dot4','Dot5','Dot6','Dot7','Dot8','Dot9']],
       ['Ungrouped (not in the in-race HUD)','',['/BGMInfo','/BGMInfo/Bg','/BGMInfo/HBox','/BGMInfo/HBox/Icon','/BGMInfo/HBox/VBox','/BGMInfo/HBox/VBox/Artist','/BGMInfo/HBox/VBox/Title','/BuddyLayerRoot','/BuddyLayerRoot/Caution','/BuddyLayerRoot/CenterNotify','/BuddyLayerRoot/Dock','/BuddyLayerRoot/MenuBookStart','/BuddyLayerRoot/Message','/BuddyLayerRoot/Narration','/BuddyLayerRoot/Notify','/Dimmer','/DriverInfo','/DriverInfo_OLD','/EventTitle','/GiftCarItem','/GiftCarItem/VBox','/GiftCarItem/VBox/SBox','/GiftCarItem/VBox/SBox/ColorFace','/GiftCarItem/VBox/SBox/HBox','/GiftCarItem/VBox/SBox/HBox/Compass','/GiftCarItem/VBox/SBox/HBox/Compass/Base','/GiftCarItem/VBox/SBox/HBox/Compass/BaseActive','/GiftCarItem/VBox/SBox/HBox/Compass/Icon','/GiftCarItem/VBox/SBox/SBox4','/GiftCarItem/VBox/SBox/SBox4/CarAcquired','/GiftCarItem/VBox/SBox/SBox4/ImageFace','/GiftCarItem/VBox/SBox/SBox4/OwnCarMark','/GiftCarItem/VBox/SBox/SBox4/PresentCarName','/GiftCarItem/VBox/SBox5','/GiftCarItem/VBox/SBox5/BG_Color','/GiftCarItem/VBox/SBox5/SBox_Prize','/GiftCarItem/VBox/SBox5/TextFace0','/Loading','/MUIUpdate','/NotVR','/NotVR/ColorFace','/NotVR/RacePauseMenu','/NotVR/RacePauseMenu/Cancel','/NotVR/RacePauseMenu/Cancel/Blur','/NotVR/RacePauseMenu/Cancel/ColorFace','/NotVR/RacePauseMenu/Cancel/TextFace','/NotVR/RacePauseMenu/Chat','/NotVR/RacePauseMenu/Finish','/NotVR/RacePauseMenu/FinishPractice','/NotVR/RacePauseMenu/ForceFinishRace','/NotVR/RacePauseMenu/Mask','/NotVR/RacePauseMenu/Options','/NotVR/RacePauseMenu/Options/Blur','/NotVR/RacePauseMenu/Options/ColorFace','/NotVR/RacePauseMenu/Options/TextFace','/NotVR/RacePauseMenu/OptionsOnline','/NotVR/RacePauseMenu/Quit','/NotVR/RacePauseMenu/Quit/Blur','/NotVR/RacePauseMenu/Quit/ColorFace','/NotVR/RacePauseMenu/Quit/TextFace','/NotVR/RacePauseMenu/Quit/TextFace_i','/NotVR/RacePauseMenu/QuitOnline','/NotVR/RacePauseMenu/Retire','/NotVR/RacePauseMenu/Retry','/NotVR/RacePauseMenu/Retry/Blur','/NotVR/RacePauseMenu/Retry/ColorFace','/NotVR/RacePauseMenu/Retry/TextFace','/NotVR/RacePauseMenu/Retry/TextFace_i','/NotVR/RacePauseMenu/StartOnlineRace','/NotVR/RacePauseMenu/ToPit','/RaceFader','/RaceFader/ColorFace','/RaceFaderBase','/RaceFaderBase/ColorFace','/RaceFaderBase/LoadingCircle','/RaceFaderBase/LoadingCircle/Label','/RaceFaderBase/LoadingCircle/Preloader','/RaceFaderBase/LoadingCircle/Preloader/ImageFace','/RaceFaderBase/LoadingCircle/Preloader/ImageFace0','/RaceFaderBase/LoadingCircle/Preloader/PieChart','/RaceFaderBase/LoadingCircle/Preloader/PieChart0','/RaceFaderBase/LoadingCircle/TimerFrame','/RenderControl','/SBox','/VR','/`','/`/Message']],
     ];
+    const webHudEditorEnabled = false;
     let hudAvailable = false, hudHidden = new Set(), hudDirty = false;
     let hudLive = null, hudTreeAge = 0, hudEdit = false, hudDrag = null, hudDragGroup = null;
     let hudLiveStamp = '', hudSig = '';
@@ -1232,7 +1370,7 @@ button:not([role="tab"]) {
      * edits are never overwritten: a pending push, an apply in flight or focus
      * inside the card all stop the check. */
     async function hudLayoutWatch() {
-        if (!token || hudLayoutTimer || hudApplying || hudFocusBusy()) return;
+        if (!webHudEditorEnabled || !token || hudLayoutTimer || hudApplying || hudFocusBusy()) return;
         try { const r = await fetch(HUD_LAYOUT_URL, { cache: 'no-store', headers: { 'X-GT7-Token': token } });
             if (!r.ok) return;
             const o = await r.json(); const gs = o && o.groups;
@@ -1536,7 +1674,7 @@ button:not([role="tab"]) {
     function hudButtons() { if (!$('hud-elements')) return; const dis = !hudAvailable || busy || halted;
         for (const i of $('hud-elements').querySelectorAll('input[type=checkbox]')) i.disabled = dis || i.dataset.blocked === '1';
         if ($('hud-refresh')) $('hud-refresh').disabled = dis }
-    async function readHud() { if (!$('hud-elements') || !token) return;
+    async function readHud() { if (!webHudEditorEnabled || !$('hud-elements') || !token) return;
         hudLayoutEnsure();
         try { const r = await fetch('/api/live/hud', { cache: 'no-store', headers: { 'X-GT7-Token': token } }); if (!r.ok) throw Error(await r.text());
             const h = await r.json(); hudAvailable = h.available === true;
@@ -1565,6 +1703,8 @@ button:not([role="tab"]) {
         catch (e) { status(e.message, true) }
         finally { hudApplying = false; hudSig = hudSignature();
             if (hudApplyAgain) { hudApplyAgain = false; hudApplySoon() } } }
+    if (webHudEditorEnabled) {
+    $('hud-card').hidden = false;
     hudEditorShow(); renderHud();
     $('hud-refresh').onclick = () => { hudTreeAge = 0; readHudTree(true) };
     if ($('hud-search')) $('hud-search').oninput = () => renderHud();
@@ -1577,6 +1717,7 @@ button:not([role="tab"]) {
     if ($('hud-fold-all')) $('hud-fold-all').onclick = () => {
         hudCollapsed = new Set(hudAllFolded() ? [] : hudGroups.map(hudGroupId));
         hudCollapsedSave(); renderHud() };
+    }
     read(); readHud().then(() => readHudTree());
     setInterval(() => { if (!busy && !halted) { read(); readHud().then(() => readHudTree()); hudLayoutWatch() } }, 5000);
 </script>
