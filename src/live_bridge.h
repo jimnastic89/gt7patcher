@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #pragma once
+#define LIVE_ALLOCATION 0x00044000
+#ifndef __ASSEMBLER__
 #include <stdint.h>
 #define LIVE_MAGIC UINT64_C(0x3145474449523747)
 #define LIVE_MAX_CREDITS 100000000U
@@ -9,23 +11,21 @@
 #define LIVE_IMAGE_BASE 0x00400000u
 #define LIVE_BOOT_RVA 0x03f0e940u
 #define LIVE_BOOT_RESERVED 0x000000c8u
-/* The live-settings allocation is mapped read/write/execute by the bootstrap
- * (see src/live_boot.S, size 0x20000). The bridge code occupies its start; the
- * credit number-input scratch lives at the offsets below. Keep LIVE_ALLOCATION
- * in step with the mmap size in live_boot.S. */
-#define LIVE_ALLOCATION 0x00020000u
-#define LIVE_PROMPT_PARAM 0x00010000u
-#define LIVE_PROMPT_TEXT  0x00010200u
-#define LIVE_PROMPT_WORK  0x00011000u
+/* The bootstrap maps this allocation. The bridge image occupies its start. */
+#define LIVE_PROMPT_PARAM 0x00014000u
+#define LIVE_PROMPT_TEXT  0x00014200u
+#define LIVE_PROMPT_WORK  0x00015000u
 #define LIVE_PROMPT_WORK_SIZE 0x5000u
 #define LIVE_PROMPT_TEXT_CHARS 32u
-/* Compact observation ring. It fits in the existing 0x20000-byte mapping:
- * the bridge/code and legacy probe area occupy the low pages, while this
- * diagnostic ring starts at 0x10000. */
+#define LIVE_PROBE_LOG  0x0001c000u
+#define LIVE_PROBE_LOG_SIZE 0x0000c000u
+#define LIVE_PROBE_ADDR 0x00028000u
+#define LIVE_PROBE_STUB 0x00028400u
+/* Observation ring and sampling counters live after all legacy probe slots. */
 #define LIVE_TRACE_MAGIC  UINT64_C(0x3145434152543747)
-#define LIVE_TRACE_HEADER 0x0000f000u
-#define LIVE_TRACE_SAMPLE 0x0000f040u
-#define LIVE_TRACE_RING   0x00010000u
+#define LIVE_TRACE_HEADER 0x0002c000u
+#define LIVE_TRACE_SAMPLE 0x0002c040u
+#define LIVE_TRACE_RING   0x00030000u
 #define LIVE_TRACE_COUNT  0x00000400u
 #define LIVE_TRACE_MASK   0x000003ffu
 #define LIVE_TRACE_MAX    LIVE_TRACE_COUNT
@@ -56,12 +56,28 @@ _Static_assert(sizeof(LiveTraceHeader)<=64,"trace header must fit one cache line
 #define LIVE_HUD_MAX 64
 #define LIVE_HUD_NAME 32
 #define LIVE_HUD_PATH 96
-/* One-shot UI diagnostic: the payload calls a single engine routine on the
- * game's UI thread as a VM native, following the engine's binding convention:
- * rsi = receiver object, edx = argument count, rcx = argument vector pointer
- * (arg[i] = *(uint64_t *)(rcx + 8*i)); rdi is unused. argc must equal the
- * routine's own expected count or the routine rejects the call. */
-#define LIVE_MENU_CALL_MAX 6
+/* Race Info Display prototype for GT7 01.710.000. */
+#define LIVE_MENU_COPY_VA 0x00c96f50u
+#define LIVE_MENU_ITEM_VA 0x0558f460u
+#define LIVE_MENU_RELEASE_VA 0x00400970u
+#define LIVE_MENU_OPTION_VA 0x055b1250u
+#define LIVE_MENU_CLOSE_VA 0x01d66de4u
+#define LIVE_MENU_CLOSE_STUB 0x00040000u
+#define LIVE_MENU_CLOSE_STUB_SIZE 0x00000100u
+#define LIVE_MENU_STOCK_ROWS 4u
+#define LIVE_MENU_CONTROL 0x00040100u
+#define LIVE_MENU_MAX 96u
+#define LIVE_MENU_LABEL 64u
+#define LIVE_MENU_EVENTS 128u
+#define LIVE_MENU_DIVIDER 2u
+enum {MENU_CALL_IDLE, MENU_CALL_QUEUED, MENU_CALL_RUNNING, MENU_CALL_DONE,
+      MENU_CALL_REJECTED, MENU_CALL_FAILED};
+typedef struct {
+    char labels[LIVE_MENU_MAX][LIVE_MENU_LABEL];
+    uint8_t hidden[LIVE_MENU_MAX];
+    uint8_t events[LIVE_MENU_EVENTS];
+    uint32_t acknowledged, label_sequence;
+} LiveMenuControl;
 enum {PROMPT_IDLE,PROMPT_QUEUED,PROMPT_RUNNING,PROMPT_OPEN,PROMPT_ENTERED,PROMPT_APPLIED,PROMPT_CANCELLED,PROMPT_FAILED};
 enum {LIVE_IDLE, LIVE_QUEUED, LIVE_RUNNING, LIVE_DONE, LIVE_STALE, LIVE_INVALID, LIVE_CANCELLED};
 enum {CAR_IDLE, CAR_QUEUED, CAR_RUNNING, CAR_READY, CAR_UNAVAILABLE};
@@ -137,11 +153,13 @@ typedef struct {
     uint32_t credit_request;
     char hud_entries[LIVE_HUD_MAX][LIVE_HUD_PATH];
     /* One-shot UI diagnostic (engine -> payload). */
-    uint32_t menu_call_state, menu_call_result, menu_call_argc, menu_call_reserved;
+    uint32_t menu_call_state, menu_call_result, menu_call_argc, menu_toggle_sequence;
     /* menu_call_result holds MENU_CALL_ENTERED while the routine runs, so a
      * fault inside it can be told apart from a call never dispatched. */
     uint64_t menu_call_target, menu_call_receiver;
-    uint64_t menu_call_argv[LIVE_MENU_CALL_MAX];
+    uint64_t menu_install_option, menu_active_option, menu_active_box, menu_active_row;
+    uint64_t menu_candidate;
+    uint32_t menu_count, menu_active_count;
 } LiveMailbox;
 /* The mailbox is defined file-local in live_bridge.c. It must NOT be a global
  * symbol: the PS5 clang toolchain marks every global GLOBAL DEFAULT (ignoring
@@ -152,3 +170,5 @@ typedef struct {
  * payload locates the mailbox by its offset within the blob (LIVE_MAILBOX). */
 void live_frame(void *context,float delta_time);
 void live_trace(void *save,uint64_t cfg,uint64_t allocation);
+int live_menu_close(const uint64_t *registers, volatile LiveMailbox *mailbox);
+#endif

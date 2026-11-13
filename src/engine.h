@@ -79,6 +79,11 @@ int gt7_live_trace_report(char *out,uint32_t size,uint64_t *since,uint32_t max);
 int gt7_live_hooks_auto(void);
 int gt7_live_hooks_list(char *out,uint32_t size);
 int gt7_live_menu_call(uintptr_t target,uintptr_t receiver,unsigned argc,uintptr_t args,unsigned *result);
+int gt7_live_menu_sync(int expected_pid, const char labels[][LIVE_MENU_LABEL],
+                       const uint8_t *hidden, uint32_t count, uint32_t *acknowledged,
+                       uint8_t events[LIVE_MENU_EVENTS], uint32_t *sequence);
+int gt7_live_menu_acknowledge(int expected_pid, uint32_t sequence,
+                              const uint8_t *hidden, uint32_t count);
 void gt7_live_configure(int enabled);
 int gt7_engine_start(void);
 int gt7_engine_active(void);

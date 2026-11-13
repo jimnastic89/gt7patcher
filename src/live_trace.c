@@ -36,3 +36,32 @@ void live_trace(void *save,uint64_t cfg,uint64_t allocation){
     record->ret=regs[LIVE_SAVE_RET];
     __atomic_store_n(&record->seq,seq,__ATOMIC_RELEASE);
 }
+
+int live_menu_close(const uint64_t *registers, volatile LiveMailbox *mailbox)
+{
+    uintptr_t option = registers[LIVE_SAVE_RDI];
+    if ((uint32_t)registers[LIVE_SAVE_RDX] || !option ||
+        option != mailbox->menu_active_option)
+        return 0;
+    uint32_t selected = *(const uint32_t *)(option + 0x388);
+    uint32_t count = mailbox->menu_active_count;
+    if (selected < LIVE_MENU_STOCK_ROWS || selected - LIVE_MENU_STOCK_ROWS >= count)
+        return 0;
+    uintptr_t box = *(const uintptr_t *)(option + 0x3c8);
+    if (!box || box != mailbox->menu_active_box ||
+        *(const uintptr_t *)(box + 0x2d0) != mailbox->menu_active_row)
+        return 0;
+
+    /* Consume the confirmation before the native close and its stock
+     * value callback. Keep the popup open at its current row and scroll. */
+    if (!mailbox->enabled || !mailbox->allocation)
+        return 1;
+    volatile LiveMenuControl *control =
+        (volatile LiveMenuControl *)(mailbox->allocation + LIVE_MENU_CONTROL);
+    uint32_t sequence = mailbox->menu_toggle_sequence;
+    if (sequence - __atomic_load_n(&control->acknowledged, __ATOMIC_ACQUIRE) >= LIVE_MENU_EVENTS)
+        return 1;
+    control->events[sequence % LIVE_MENU_EVENTS] = (uint8_t)(selected - LIVE_MENU_STOCK_ROWS);
+    __atomic_store_n(&mailbox->menu_toggle_sequence, sequence + 1, __ATOMIC_RELEASE);
+    return 1;
+}

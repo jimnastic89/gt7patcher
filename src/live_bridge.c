@@ -37,8 +37,7 @@ typedef struct {char text[16];uint64_t size,capacity;} GameString;
  * also hides every layer inside it: one selection can zero many widgets,
  * and each one needs its original rect kept so it can be shown again.
  * The cache lives in the bridge mapping, not in the mailbox, so this does
- * not change the payload ABI. The blob must stay below LIVE_PROMPT_PARAM
- * (0x10000); 1024 entries of 48 bytes keep it near 0xea00.
+ * not change the payload ABI. The blob must stay below LIVE_PROMPT_PARAM.
  *
  * Keyed by a 64-bit hash of the widget path rather than by the path itself:
  * a single selection cascades over everything below it, so the cache has to
@@ -154,11 +153,19 @@ static void hud_walk(uintptr_t node,volatile LiveMailbox *m,uintptr_t base,unsig
                 else if(spare<0)spare=(int)i;
             }
             if(slot<0&&spare>=0){
-                slot=spare;
-                hud_fill(&hud_saved[slot],0,sizeof(HudSaved));
-                hud_saved[slot].hash=key_hash;
-                hud_copy(hud_saved[slot].rect,(void *)(node+HUD_OFF_RECT),HUD_RECT_LEN);
-                hud_saved[slot].have=1;
+                /* A widget can exist before GT7 has laid it out. Wait
+                 * for that layout before saving a rectangle to restore. */
+                const float *rect = (const float *)(node + HUD_OFF_RECT);
+                for (unsigned i = 0; i < HUD_RECT_LEN / sizeof(*rect); i++)
+                    if (rect[i] != 0.0f)
+                    {
+                        slot = spare;
+                        hud_fill(&hud_saved[slot], 0, sizeof(HudSaved));
+                        hud_saved[slot].hash = key_hash;
+                        hud_copy(hud_saved[slot].rect, rect, HUD_RECT_LEN);
+                        hud_saved[slot].have = 1;
+                        break;
+                    }
             }
             /* Only hide what can be restored. When the cache is full the
              * widget is left visible rather than hidden for good. */
@@ -196,7 +203,11 @@ static void apply_hud(void){
     if(count>LIVE_HUD_MAX)count=LIVE_HUD_MAX;
     int any=0;
     for(unsigned i=0;i<HUD_SAVED_MAX;i++)if(hud_saved[i].have){any=1;break;}
-    if(!count&&!any){__atomic_store_n(&m->hud_applied,0,__ATOMIC_RELAXED);return;}
+    if (!count && !any)
+    {
+        __atomic_store_n(&m->hud_applied, 0, __ATOMIC_RELAXED);
+        return;
+    }
     uintptr_t base=m->base,ctx=m->context;
     if(!hud_ptr(base)||!hud_ptr(ctx)||*(uintptr_t *)ctx!=base+HUD_UPDATE_VT_RVA)return;
     HudPath path;path.len=0;path.buf[0]=0;
@@ -229,6 +240,8 @@ static void apply_hud(void){
  * while the popup stays open; the prompt state is reset to idle once the popup
  * closes so the next press can arm again. */
 static int credit_popup_prev;
+static void menu_observe(uintptr_t option);
+static uintptr_t menu_divider_template;
 /* Only the credits *view* popup may open the numpad - not the purchase
  * confirmation shown by the tuning shop and GT Auto. The two are the same
  * template: both render a widget named "GTCredit", so matching that name alone
@@ -246,6 +259,12 @@ static int credit_find(uintptr_t node,uintptr_t base,unsigned depth,const char *
     char nm[LIVE_HUD_NAME];
     int named=hud_name(node,nm)==1; /* inline names only: this walk predates heap-name decoding */
     const char *name=named?nm:"";
+    if (live_mailbox.menu_count && named && hud_same(name, "line_top") &&
+        hud_same(parent, "VideoSettings") && *(const uintptr_t *)node == 0x0558c238u)
+        menu_divider_template = node;
+    if (live_mailbox.menu_count && named && hud_same(name, "OptionMenu") &&
+        hud_same(parent, "RaceInfo"))
+        menu_observe(node);
     if(named&&hud_same(nm,"HBox")&&hud_same(parent,"SBox")&&hud_same(grand,"GTCredit"))return 1;
     uintptr_t nl=*(uintptr_t *)(node+HUD_OFF_CHILDREN);
     if(!hud_ptr(nl)||*(uintptr_t *)nl!=base+HUD_NLW_RVA)return 0;
@@ -269,6 +288,8 @@ static int credit_visible(void){
 }
 static void credit_watch(void){
     volatile LiveMailbox *m=&live_mailbox;
+    m->menu_candidate = 0;
+    menu_divider_template = 0;
     int visible=credit_visible();
     uint32_t st=m->prompt_state;
     if(visible&&!credit_popup_prev&&st==PROMPT_IDLE)m->credit_request=1;
@@ -300,7 +321,8 @@ static void sample_car(void){
     if(((int (*)(void *))(uintptr_t)m->get_riding_car)(car)){
         uintptr_t implementation=*(uintptr_t *)car;
         uintptr_t style=implementation?*(uintptr_t *)(implementation+0x18):0;
-        if(style){
+        if(implementation>=LIVE_ARENA_LOW&&implementation+0x20<LIVE_ARENA_HIGH&&
+           style>=LIVE_ARENA_LOW&&style+0x6c<LIVE_ARENA_HIGH){
             /* GT7's axle argument is rear=0, front=1. */
             m->wheel_width_front=*(int8_t *)(style+0x25);
             m->wheel_width_rear=*(int8_t *)(style+0x26);
@@ -308,7 +330,10 @@ static void sample_car(void){
             m->wheel_offset_front=*(int16_t *)(style+0x20);m->wheel_offset_rear=*(int16_t *)(style+0x22);
             m->hub_offset_front=*(int16_t *)(style+0x28);m->hub_offset_rear=*(int16_t *)(style+0x2a);
             uintptr_t expanded=*(uintptr_t *)(implementation+0x10);
-            m->engine_swap_category=expanded?*(uint8_t *)(expanded+0x0c):0;
+            if(expanded>=LIVE_ARENA_LOW&&expanded+0x0d<LIVE_ARENA_HIGH)
+                m->engine_swap_category=*(uint8_t *)(expanded+0x0c);
+            else
+                m->engine_swap_category=0;
             m->car_implementation=implementation;m->car_expanded=expanded;m->car_style=style;
             m->car_model_code=*(uint32_t *)(style+0x68);
             m->car_sequence++;
@@ -378,7 +403,7 @@ static void set_wheel_width(void){
     implementation=*(uintptr_t *)car;style=implementation?*(uintptr_t *)(implementation+0x18):0;
     if(!style)goto finish;
     if(m->car_model_code!=m->wheel_expected_model_code||
-       *(int8_t *)(style+0x26)!=m->wheel_expected_front||*(int8_t *)(style+0x25)!=m->wheel_expected_rear){result=WHEEL_STALE;goto finish;}
+       *(int8_t *)(style+0x25)!=m->wheel_expected_front||*(int8_t *)(style+0x26)!=m->wheel_expected_rear){result=WHEEL_STALE;goto finish;}
     uint8_t front_axle=1,rear_axle=0,front=(uint8_t)m->wheel_requested_front,rear=(uint8_t)m->wheel_requested_rear;
     WheelWidthArgs front_args={car,&front_axle,&front},rear_args={car,&rear_axle,&rear};
     ((void (*)(void *,const WheelWidthArgs *))(uintptr_t)m->set_wheel_width)(0,&front_args);
@@ -422,37 +447,513 @@ finish:
     __atomic_store_n(&m->state,result,__ATOMIC_RELEASE);
 }
 
-enum {MENU_CALL_IDLE, MENU_CALL_QUEUED, MENU_CALL_RUNNING, MENU_CALL_DONE,
-      MENU_CALL_REJECTED, MENU_CALL_FAILED};
 /* Written into menu_call_result for the duration of the call, so a fault inside
  * the routine is distinguishable from a call that was never dispatched. */
 #define MENU_CALL_ENTERED 0x0000ca11u
-/* Coarse upper bound for the main image. The engine checks the exact bound
- * against the module's mapped size; this is the payload's second line of
- * defence so a stale mailbox can never make it jump outside the game. */
-#define MENU_CALL_IMAGE_LIMIT 0x08000000u
-static int menu_call_ptr(uintptr_t p){return p>=0x10000u&&p<=UINT64_C(0x7fffffffffff);}
-static void menu_call(void){
-    volatile LiveMailbox *m=&live_mailbox;
-    uint32_t queued=MENU_CALL_QUEUED;
-    if(!__atomic_compare_exchange_n(&m->menu_call_state,&queued,MENU_CALL_RUNNING,0,__ATOMIC_ACQ_REL,__ATOMIC_RELAXED))return;
-    uint32_t result=MENU_CALL_REJECTED;
-    uintptr_t target=(uintptr_t)m->menu_call_target;
-    if(!m->base||!menu_call_ptr(target)||target<m->base||target-m->base>=MENU_CALL_IMAGE_LIMIT||
-       m->menu_call_argc>LIVE_MENU_CALL_MAX||!menu_call_ptr((uintptr_t)m->menu_call_receiver))goto finish;
-    /* Publish ENTERED before the call: if the routine faults, the engine's poll
-     * still sees it and reports that the call was dispatched but never returned,
-     * rather than a bare timeout. */
-    m->menu_call_result=MENU_CALL_ENTERED;
+
+static int menu_pointer(uintptr_t pointer)
+{
+    return pointer >= LIVE_ARENA_LOW && pointer < LIVE_ARENA_HIGH - 0x620u &&
+           !(pointer & 7u);
+}
+
+static const uint32_t menu_visible_flag = UINT32_C(1) << 30;
+enum {MENU_IMAGE_VA = 0x055a8620u, MENU_INDICATOR_VA = 0x05583540u};
+typedef void (*MenuAppend)(uintptr_t, uintptr_t, uintptr_t, uintptr_t);
+typedef void (*MenuSetRect)(uintptr_t, const float *, const float *, const float *, const float *);
+
+static void menu_string(GameString *text, const char *value, unsigned length)
+{
+    hud_fill(text, 0, sizeof(*text));
+    text->size = length;
+    text->capacity = 15;
+    if (length <= 15)
+        hud_copy(text->text, value, length + 1);
+    else
     {
-        typedef void (*MenuCallNative)(uint64_t,uint64_t,uint64_t,uint64_t);
-        ((MenuCallNative)target)(0,(uint64_t)m->menu_call_receiver,(uint64_t)m->menu_call_argc,
-                                 (uint64_t)(uintptr_t)&m->menu_call_argv[0]);
+        /* These callers pass a borrowed, NUL-terminated buffer. GT7's
+         * setters copy the string to their own storage. */
+        hud_copy(text->text, &value, sizeof(value));
+        text->capacity = length;
     }
-    result=MENU_CALL_DONE;
+}
+
+static int menu_set_text(uintptr_t row, const volatile char *label)
+{
+    uintptr_t labels[3];
+    uintptr_t child = *(const uintptr_t *)(row + 0x2c8);
+    for (unsigned i = 0; i < 4; i++)
+    {
+        if (!menu_pointer(child) || *(const uintptr_t *)(child + 0x30) != row)
+            return 0;
+        if (i)
+        {
+            char name[LIVE_HUD_NAME];
+            if (*(const uintptr_t *)child != 0x055910c0u || !hud_name(child, name))
+                return 0;
+            if ((i == 1 && !hud_same(name, "label")) ||
+                (i == 2 && !hud_same(name, "label_i")) ||
+                (i == 3 && !hud_same(name, "label_f")))
+                return 0;
+            labels[i - 1] = child;
+        }
+        child = *(const uintptr_t *)(child + 0xa8);
+    }
+
+    char rendered[LIVE_MENU_LABEL];
+    unsigned length = 0;
+    while (length < sizeof(rendered) - 1 && label[length])
+    {
+        rendered[length] = label[length];
+        length++;
+    }
+    rendered[length] = 0;
+    GameString text;
+    menu_string(&text, rendered, length);
+    typedef void (*SetText)(uintptr_t, const GameString *);
+    for (unsigned i = 0; i < 3; i++)
+        ((SetText)(uintptr_t)0x0072cf50u)(labels[i], &text);
+    return 1;
+}
+
+static void menu_show_widget(uintptr_t widget, int visible)
+{
+    uint32_t *flags = (uint32_t *)(widget + 0x214);
+    *flags = (*flags & ~menu_visible_flag) | (visible ? menu_visible_flag : 0);
+}
+
+enum {MENU_STOCK_CHILDREN = 7, MENU_CHECKBOX_IMAGES = 2};
+
+static int menu_add_checkbox_image(uintptr_t row, const char *path, unsigned length,
+                                   int visible)
+{
+    uintptr_t image = 0;
+    ((void (*)(uintptr_t *))(uintptr_t)0x00670010u)(&image);
+    int attached = 0;
+    if (menu_pointer(image) && *(const uintptr_t *)image == MENU_IMAGE_VA)
+    {
+        GameString source;
+        menu_string(&source, path, length);
+        /* A fresh MImageFace already carries its automatic-resolve bit.  Do not
+         * let the source setter consume it here: before attachment it has no
+         * Race Info parent or render context and produces a permanently empty
+         * resource wrapper.  Restore the bit so the normal resolver can run
+         * once the row is part of the live menu tree. */
+        unsigned char *auto_resolve = (unsigned char *)(image + 0xb8);
+        unsigned char saved_auto_resolve = *auto_resolve;
+        *auto_resolve &= (unsigned char)~0x80u;
+        ((void (*)(uintptr_t, const GameString *, unsigned))(uintptr_t)0x00946930u)(
+            image, &source, 0);
+        *auto_resolve = saved_auto_resolve;
+        unsigned char *layout_mode = (unsigned char *)(image + 0x217);
+        *layout_mode = (*layout_mode & ~7u) | 1u;
+        const float x = 15.0f, y = 18.0f, size = 24.0f;
+        ((MenuSetRect)(uintptr_t)0x0048c280u)(image, &x, &y, &size, &size);
+        menu_show_widget(image, visible);
+        ((MenuAppend)(uintptr_t)0x00946b20u)(row + 0x2b8, 0, image, 0);
+        attached = *(const uintptr_t *)(row + 0x2d0) == image;
+    }
+    if (image)
+        ((void (*)(uintptr_t *))(uintptr_t)LIVE_MENU_RELEASE_VA)(&image);
+    return attached;
+}
+
+static int menu_add_checkbox(uintptr_t row, int hidden)
+{
+    uintptr_t child = *(const uintptr_t *)(row + 0x2c8);
+    for (unsigned i = 0; i < MENU_STOCK_CHILDREN; i++)
+    {
+        if (!menu_pointer(child) || *(const uintptr_t *)(child + 0x30) != row)
+            return 0;
+        if (i >= 4)
+        {
+            if (*(const uintptr_t *)child != MENU_INDICATOR_VA)
+                return 0;
+            menu_show_widget(child, 0);
+        }
+        child = *(const uintptr_t *)(child + 0xa8);
+    }
+    static const char box[] = "/image/4k/icon/components/check_base.svg";
+    static const char tick[] = "/image/4k/icon/components/check.svg";
+    return !child && menu_add_checkbox_image(row, box, sizeof(box) - 1, 1) &&
+           menu_add_checkbox_image(row, tick, sizeof(tick) - 1, !hidden);
+}
+
+static uintptr_t menu_first_checkbox_image(uintptr_t row)
+{
+    unsigned count = *(const uint32_t *)(row + 0x2ec);
+    if (count != MENU_STOCK_CHILDREN + MENU_CHECKBOX_IMAGES &&
+        count != MENU_STOCK_CHILDREN + MENU_CHECKBOX_IMAGES + 1)
+        return 0;
+
+    uintptr_t child = *(const uintptr_t *)(row + 0x2c8);
+    for (unsigned i = 0; i < MENU_STOCK_CHILDREN; i++)
+    {
+        if (!menu_pointer(child) || *(const uintptr_t *)(child + 0x30) != row)
+            return 0;
+        child = *(const uintptr_t *)(child + 0xa8);
+    }
+    return child;
+}
+
+static void menu_tint_checkbox_image(uintptr_t image, int focused)
+{
+    uintptr_t paints = *(const uintptr_t *)(image + 0x2d0);
+    if (!menu_pointer(paints) || *(const uintptr_t *)(image + 0x2d8) != paints + 0x18)
+        return;
+
+    uintptr_t paint = *(const uintptr_t *)paints;
+    if (!menu_pointer(paint) || *(const uintptr_t *)(paints + 8) != paint + 0x20)
+        return;
+
+    /* Match the RGB channels of the native focused sprite. Keep its alpha. */
+    uint32_t *rgb = (uint32_t *)paint;
+    const uint32_t channel = focused ? UINT32_C(0x3dc8c8c9) : UINT32_C(0x3f800000);
+    for (unsigned i = 0; i < 3; i++)
+        rgb[i] = channel;
+    /* Match the unfocused native outline over the dropdown background. */
+    rgb[3] = focused ? UINT32_C(0x3f800000) : UINT32_C(0x3f3851ec);
+}
+
+static int menu_update_checkbox(uintptr_t row, int hidden, int focused)
+{
+    uintptr_t image = menu_first_checkbox_image(row);
+    for (unsigned i = 0; i < MENU_CHECKBOX_IMAGES; i++)
+    {
+        if (!menu_pointer(image) || *(const uintptr_t *)image != MENU_IMAGE_VA ||
+            *(const uintptr_t *)(image + 0x30) != row)
+            return 0;
+        menu_show_widget(image, i == 0 || !hidden);
+        menu_tint_checkbox_image(image, focused);
+        image = *(const uintptr_t *)(image + 0xa8);
+    }
+    return !image || (menu_pointer(image) && *(const uintptr_t *)(image + 0x30) == row &&
+                      !*(const uintptr_t *)(image + 0xa8));
+}
+
+static uintptr_t menu_load_checkbox_archive(void)
+{
+    static const char path[] = "/projects/gt7/dialog/gpb/MultiSelectDialog_4k.gpb";
+    uintptr_t loader = ((uintptr_t (*)(unsigned))(uintptr_t)0x0047ac30u)(0);
+    uintptr_t archive = 0;
+    if (menu_pointer(loader))
+    {
+        GameString source;
+        menu_string(&source, path, sizeof(path) - 1);
+        ((void (*)(uintptr_t *, uintptr_t, const GameString *))(uintptr_t)0x00944c90u)(
+            &archive, loader, &source);
+    }
+    return archive;
+}
+
+static void menu_resolve_checkbox_images(uintptr_t row, uintptr_t archive,
+                                         uintptr_t *resources)
+{
+    uintptr_t image = menu_first_checkbox_image(row);
+    for (unsigned i = 0; i < MENU_CHECKBOX_IMAGES; i++)
+    {
+        if (!menu_pointer(image) || *(const uintptr_t *)image != MENU_IMAGE_VA ||
+            *(const uintptr_t *)(image + 0x30) != row)
+            return;
+        if (!resources[i])
+        {
+            static const char *const paths[] = {
+                "/image/4k/icon/components/check_base.svg",
+                "/image/4k/icon/components/check.svg",
+            };
+            uintptr_t table = *(const uintptr_t *)(archive + 0x30);
+            unsigned char allocated = 0;
+            size_t size = 0;
+            const void *bytes = ((const void *(*)(uintptr_t, const char *, unsigned char *,
+                                                 size_t *))(uintptr_t)0x00949610u)(
+                table, paths[i], &allocated, &size);
+            if (bytes && size)
+            {
+                uintptr_t resource = 0;
+                ((void (*)(uintptr_t *, uintptr_t, const void *, const void *))
+                    (uintptr_t)0x01c7c4a0u)(
+                    &resource, image, (const void *)(image + 0x430),
+                    (const void *)(image + 0x450));
+                if (menu_pointer(resource) && *(const uintptr_t *)resource == 0x055bf480u)
+                {
+                    ((void (*)(uintptr_t *, uintptr_t))(uintptr_t)0x00400650u)(
+                        (uintptr_t *)(resource + 0x68), archive);
+                    /* The native worker passes this same ownership flag to the decoder. */
+                    ((unsigned char (*)(uintptr_t, const void *, size_t, unsigned))
+                        (uintptr_t)0x0094d5e0u)(resource, bytes, size, allocated);
+                    if (*(const uintptr_t *)(resource + 0xb0))
+                    {
+                        resources[i] = resource;
+                        resource = 0;
+                    }
+                }
+                if (resource)
+                    ((void (*)(uintptr_t *))(uintptr_t)LIVE_MENU_RELEASE_VA)(&resource);
+            }
+        }
+        if (resources[i])
+        {
+            ((void (*)(uintptr_t *, uintptr_t))(uintptr_t)0x00400650u)(
+                (uintptr_t *)(image + 0x480), resources[i]);
+            __atomic_or_fetch((uint32_t *)(image + 0x458), 1, __ATOMIC_RELAXED);
+        }
+        image = *(const uintptr_t *)(image + 0xa8);
+    }
+}
+
+static uint32_t menu_label_sequence;
+static uint32_t menu_focused_row = UINT32_MAX;
+static void menu_observe(uintptr_t option)
+{
+    volatile LiveMailbox *m = &live_mailbox;
+    if (!menu_pointer(option) || *(const uintptr_t *)option != LIVE_MENU_OPTION_VA)
+        return;
+    uintptr_t box = *(const uintptr_t *)(option + 0x3c8);
+    if (!menu_pointer(box))
+        return;
+    uint32_t count = *(const uint32_t *)(box + 0x2ec);
+    if (count == LIVE_MENU_STOCK_ROWS && !*(const uint32_t *)(option + 0x400))
+        m->menu_candidate = option;
+    if (option != m->menu_active_option || box != m->menu_active_box ||
+        count != LIVE_MENU_STOCK_ROWS + m->menu_active_count ||
+        *(const uintptr_t *)(box + 0x2d0) != m->menu_active_row)
+        return;
+    volatile LiveMenuControl *control = (volatile LiveMenuControl *)(m->allocation + LIVE_MENU_CONTROL);
+    uint32_t sequence = __atomic_load_n(&control->label_sequence, __ATOMIC_ACQUIRE);
+    uint32_t focused = *(const uint32_t *)(option + 0x400) == 4
+                       ? *(const uint32_t *)(option + 0x388) : UINT32_MAX;
+    if (menu_label_sequence == sequence && menu_focused_row == focused)
+        return;
+    uintptr_t row = *(const uintptr_t *)(box + 0x2c8);
+    for (uint32_t i = 0; i < count; i++)
+    {
+        if (!menu_pointer(row) || *(const uintptr_t *)row != LIVE_MENU_ITEM_VA ||
+            *(const uintptr_t *)(row + 0x30) != box)
+            return;
+        if (i >= LIVE_MENU_STOCK_ROWS)
+        {
+            uint32_t item = i - LIVE_MENU_STOCK_ROWS;
+            if (!menu_update_checkbox(row, control->hidden[item] & 1u, i == focused))
+                return;
+        }
+        row = *(const uintptr_t *)(row + 0xa8);
+    }
+    menu_label_sequence = sequence;
+    menu_focused_row = focused;
+}
+
+static int menu_copy_row(uintptr_t *copy, uintptr_t source)
+{
+    typedef void (*CopyWidget)(uintptr_t *, uintptr_t, unsigned, const uintptr_t *);
+    ((CopyWidget)(uintptr_t)LIVE_MENU_COPY_VA)(copy, source, 0, NULL);
+    return *copy != source && menu_pointer(*copy) &&
+           *(const uintptr_t *)*copy == LIVE_MENU_ITEM_VA &&
+           *(const uintptr_t *)(*copy + 0x68) == source &&
+           *(const uint32_t *)(*copy + 0x2ec) == 7;
+}
+
+static int menu_add_divider(uintptr_t row)
+{
+    uintptr_t source = menu_divider_template;
+    if (!menu_pointer(source) || *(const uintptr_t *)source != 0x0558c238u)
+        return 0;
+
+    uintptr_t line = 0;
+    typedef void (*CopyWidget)(uintptr_t *, uintptr_t, unsigned, const uintptr_t *);
+    ((CopyWidget)(uintptr_t)LIVE_MENU_COPY_VA)(&line, source, 0, NULL);
+    int attached = 0;
+    if (line != source && menu_pointer(line) && *(const uintptr_t *)line == 0x0558c238u &&
+        !*(const uintptr_t *)(line + 0x30))
+    {
+        /* Match the separator's rendered contrast over the popup background.
+         * Leave the source alone if the clone shares its paint storage. */
+        uintptr_t paints = *(const uintptr_t *)(line + 0x2d0);
+        uintptr_t source_paints = *(const uintptr_t *)(source + 0x2d0);
+        if (menu_pointer(paints) && menu_pointer(source_paints) &&
+            *(const uintptr_t *)(line + 0x2d8) == paints + 0x18 &&
+            *(const uintptr_t *)(source + 0x2d8) == source_paints + 0x18)
+        {
+            uintptr_t paint = *(const uintptr_t *)paints;
+            if (menu_pointer(paint) && paint != *(const uintptr_t *)source_paints &&
+                *(const uintptr_t *)(paints + 8) == paint + 0x20)
+            {
+                float *rgba = (float *)paint;
+                for (unsigned i = 0; i < 3; i++)
+                    rgba[i] = 1.0f;
+                rgba[3] = 0.20f;
+            }
+        }
+        /* Attach the rule to the following row so it scrolls with the list. */
+        unsigned char *layout = (unsigned char *)(line + 0x217);
+        *layout = (*layout & ~7u) | 1u;
+        const float x = 2.0f, y = 1.0f, height = 1.0f;
+        /* The unfocused base has no rendered rectangle. Use the row's
+         * configured width, with the native dialog rule as the fallback. */
+        const float row_width = *(const float *)(row + HUD_OFF_RECT);
+        const float width = row_width > 4.0f ? row_width - 4.0f : 656.0f;
+        if (width > 0.0f)
+        {
+            ((MenuSetRect)(uintptr_t)0x0048c280u)(line, &x, &y, &width, &height);
+            menu_show_widget(line, 1);
+            ((MenuAppend)(uintptr_t)0x00946b20u)(row + 0x2b8, 0, line, 0);
+            attached = *(const uintptr_t *)(row + 0x2d0) == line;
+        }
+    }
+    if (line)
+        ((void (*)(uintptr_t *))(uintptr_t)LIVE_MENU_RELEASE_VA)(&line);
+    return attached;
+}
+
+static int menu_attach(uintptr_t option, uintptr_t source)
+{
+    volatile LiveMailbox *m = &live_mailbox;
+    uint32_t count = m->menu_count;
+    if (!count || count > LIVE_MENU_MAX || option != m->menu_candidate || !menu_pointer(option) ||
+        *(const uintptr_t *)option != LIVE_MENU_OPTION_VA ||
+        *(const uint32_t *)(option + 0x400) ||
+        *(const uint32_t *)(option + 0x390) != LIVE_MENU_STOCK_ROWS)
+        return 0;
+    uintptr_t box = *(const uintptr_t *)(option + 0x3c8);
+    uintptr_t context = *(const uintptr_t *)(option + 0x70);
+    if (!menu_pointer(box) || !menu_pointer(context) ||
+        *(const uintptr_t *)context != LIVE_IMAGE_BASE + HUD_RENDER_VT_RVA ||
+        *(const uint32_t *)(box + 0x2ec) != LIVE_MENU_STOCK_ROWS)
+        return 0;
+    uintptr_t first = *(const uintptr_t *)(box + 0x2c8);
+    if (!menu_pointer(first) || *(const uintptr_t *)(first + 0x68) != source)
+        return 0;
+
+    volatile LiveMenuControl *control = (volatile LiveMenuControl *)(m->allocation + LIVE_MENU_CONTROL);
+    uint32_t label_sequence = __atomic_load_n(&control->label_sequence, __ATOMIC_ACQUIRE);
+    uintptr_t copies[LIVE_MENU_MAX];
+    uint32_t prepared = 0, attached = 0;
+    for (; prepared < count; prepared++)
+    {
+        uintptr_t *row = &copies[prepared];
+        *row = 0;
+        if (!menu_copy_row(row, source) ||
+            *(const uintptr_t *)(*row + 0x30) || *(const uintptr_t *)(*row + 0x90) ||
+            !menu_set_text(*row, control->labels[prepared]) ||
+            !menu_add_checkbox(*row, control->hidden[prepared] & 1u))
+        {
+            prepared++;
+            goto release;
+        }
+        if (control->hidden[prepared] & LIVE_MENU_DIVIDER)
+            (void)menu_add_divider(*row);
+        /* The clone inherits the hidden template's visibility. */
+        menu_show_widget(*row, 1);
+    }
+    typedef void (*Recount)(uintptr_t, uintptr_t);
+    for (; attached < count; attached++)
+    {
+        uintptr_t row = copies[attached];
+        ((MenuAppend)(uintptr_t)0x00946b20u)(box + 0x2b8, context, row, 0);
+        if (*(const uintptr_t *)(box + 0x2d0) != row)
+            break;
+        m->menu_active_option = option;
+        m->menu_active_box = box;
+        m->menu_active_row = row;
+        m->menu_active_count = attached + 1;
+    }
+    if (attached)
+    {
+        ((Recount)(uintptr_t)0x01d66b20u)(option, context);
+        uintptr_t archive = menu_load_checkbox_archive();
+        if (menu_pointer(archive) && *(const uintptr_t *)archive == 0x05585770u)
+        {
+            uintptr_t resources[MENU_CHECKBOX_IMAGES] = {0};
+            for (uint32_t i = 0; i < attached; i++)
+                menu_resolve_checkbox_images(copies[i], archive, resources);
+            for (unsigned i = 0; i < MENU_CHECKBOX_IMAGES; i++)
+                if (resources[i])
+                    ((void (*)(uintptr_t *))(uintptr_t)LIVE_MENU_RELEASE_VA)(&resources[i]);
+        }
+        if (archive)
+            ((void (*)(uintptr_t *))(uintptr_t)LIVE_MENU_RELEASE_VA)(&archive);
+        menu_label_sequence = label_sequence;
+        menu_focused_row = UINT32_MAX;
+    }
+release:
+    for (uint32_t i = 0; i < prepared; i++)
+        if (copies[i])
+            ((void (*)(uintptr_t *))(uintptr_t)LIVE_MENU_RELEASE_VA)(&copies[i]);
+    return attached == count && *(const uint32_t *)(option + 0x390) == LIVE_MENU_STOCK_ROWS + count;
+}
+
+static void menu_call(void)
+{
+    volatile LiveMailbox *m = &live_mailbox;
+    uint32_t queued = MENU_CALL_QUEUED;
+    if (!__atomic_compare_exchange_n(&m->menu_call_state, &queued, MENU_CALL_RUNNING,
+                                     0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED))
+        return;
+    uint32_t result = MENU_CALL_REJECTED;
+    const uintptr_t source = m->menu_call_receiver;
+    if (m->base != LIVE_IMAGE_BASE || m->menu_call_target != LIVE_MENU_COPY_VA ||
+        m->menu_call_argc || source < LIVE_ARENA_LOW || source >= LIVE_ARENA_HIGH - 0x300u ||
+        (source & 7u) || *(const uintptr_t *)source != LIVE_MENU_ITEM_VA ||
+        !*(const uint32_t *)(source + 8) || *(const uint32_t *)(source + 0x2ec) != 7)
+        goto finish;
+
+    m->menu_call_result = MENU_CALL_ENTERED;
+    result = MENU_CALL_FAILED;
+    if (m->menu_install_option)
+    {
+        if (menu_attach(m->menu_install_option, source))
+            result = MENU_CALL_DONE;
+    }
+    else
+    {
+        uintptr_t copy = 0;
+        if (menu_copy_row(&copy, source))
+            result = MENU_CALL_DONE;
+        if (copy)
+            ((void (*)(uintptr_t *))(uintptr_t)LIVE_MENU_RELEASE_VA)(&copy);
+    }
 finish:
-    m->menu_call_result=result;
-    __atomic_store_n(&m->menu_call_state,result,__ATOMIC_RELEASE);
+    m->menu_call_result = result;
+    __atomic_store_n(&m->menu_call_state, result, __ATOMIC_RELEASE);
+}
+
+static void menu_attach_on_frame(void)
+{
+    volatile LiveMailbox *m = &live_mailbox;
+    uintptr_t option = m->menu_candidate;
+    if (!m->enabled || !option || m->menu_call_state == MENU_CALL_QUEUED ||
+        (m->menu_active_option && m->menu_active_option != option))
+        return;
+    uintptr_t box = *(const uintptr_t *)(option + 0x3c8);
+    if (!menu_pointer(box) || *(const uintptr_t *)box != 0x055b1b80u ||
+        *(const uint32_t *)(box + 0x2ec) != LIVE_MENU_STOCK_ROWS)
+        return;
+    uintptr_t row = *(const uintptr_t *)(box + 0x2c8);
+    uintptr_t source = 0;
+    for (unsigned i = 0; i < LIVE_MENU_STOCK_ROWS; i++)
+    {
+        if (!menu_pointer(row) || *(const uintptr_t *)row != LIVE_MENU_ITEM_VA ||
+            *(const uintptr_t *)(row + 0x30) != box)
+            return;
+        uintptr_t origin = *(const uintptr_t *)(row + 0x68);
+        if (source && origin != source)
+            return;
+        source = origin;
+        row = *(const uintptr_t *)(row + 0xa8);
+    }
+    if (row || !menu_pointer(source) || *(const uintptr_t *)source != LIVE_MENU_ITEM_VA ||
+        *(const uint32_t *)(source + 0x2ec) != 7)
+        return;
+    uintptr_t parent = *(const uintptr_t *)(source + 0x30);
+    char name[LIVE_HUD_NAME];
+    if (!menu_pointer(parent) || !hud_name(parent, name) || !hud_same(name, "hidden"))
+        return;
+    static uintptr_t attempted_box;
+    if (box == attempted_box && m->menu_call_state == MENU_CALL_FAILED)
+        return;
+    attempted_box = box;
+    uint32_t result = menu_attach(option, source) ? MENU_CALL_DONE : MENU_CALL_FAILED;
+    m->menu_call_result = result;
+    __atomic_store_n(&m->menu_call_state, result, __ATOMIC_RELEASE);
 }
 /* ------------------------------------------------------------------------
  * Credit number-input prompt.
@@ -559,10 +1060,13 @@ __attribute__((visibility("hidden"))) void live_frame(void *context,float delta_
     set_wheel_width();
     set_wheel_geometry();
     set_engine_swap();
-    sample_car();
     credit_watch();
     prompt();
     pump();
     menu_call();
+    menu_attach_on_frame();
     ((void (*)(void *,float))(uintptr_t)live_mailbox.original)(context,delta_time);
+    /* GT7 rebuilds the riding-car snapshot while processing Car Settings.
+     * Sample only after the native UI callback has released its rebuild path. */
+    sample_car();
 }

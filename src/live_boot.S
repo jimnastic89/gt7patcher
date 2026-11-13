@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Runs once in MENU::mUpdateContextPS4's frame callback, then always forwards
  * to the original callback. No debugger attach or instruction detour. */
+#include "live_bridge.h"
 .intel_syntax noprefix
 .section .text
 .global live_boot_entry
@@ -16,7 +17,7 @@ live_boot_entry:
     lock cmpxchg dword ptr [rip + live_boot_control + 40], ecx
     jne .forward
     xor edi, edi
-    mov esi, 0x20000
+    mov esi, LIVE_ALLOCATION
     mov edx, 7
     mov ecx, 0x1002
     mov r8, -1
@@ -46,5 +47,5 @@ live_boot_control:
     .quad 0 /* allocated mapping */
     .quad 0 /* heartbeat */
     .long 0 /* 0=new, 1=allocating, 2=mapped, 3=published, 4=entered */
-    .long 0
+    .long LIVE_ALLOCATION
     .quad 0 /* published bridge entry; read only after state 3 */
