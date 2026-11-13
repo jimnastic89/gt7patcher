@@ -388,6 +388,29 @@ button:not([role="tab"]) {
         margin-top: 24px
     }
 
+    .card-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px
+    }
+
+    .github-link {
+        display: inline-block;
+        padding: 8px 12px;
+        border: 1px solid #444444;
+        border-radius: 8px;
+        background: #2a2a2a;
+        color: #e0e0e0;
+        text-decoration: none;
+        white-space: nowrap
+    }
+
+    .github-link:hover {
+        border-color: #888888;
+        color: #ffffff
+    }
+
     .primary {
         background: linear-gradient(to bottom, #747474, #6a6a6a);
         color: #ffffff;
@@ -740,7 +763,10 @@ button:not([role="tab"]) {
     </section>
     <section id="help" role="tabpanel" aria-labelledby="help-tab" hidden>
         <div class="card" id="update-notes" hidden>
-            <h2>Update notes</h2>
+            <div class="card-title-row">
+                <h2>Update notes</h2>
+                <a class="github-link" href="https://github.com/jimnastic89/gt7patcher/releases/latest" target="_blank" rel="noopener noreferrer">GT7Patcher on GitHub</a>
+            </div>
             <p id="update-summary"></p>
             <div id="update-release-notes"></div>
         </div>
