@@ -35,11 +35,12 @@ typedef struct
 } AppInfo;
 extern int sceKernelGetAppInfo(pid_t, AppInfo *);
 #endif
-#define VERSION "0.40.27-11-11_0834"
+#define VERSION "0.40"
+#define WEB_HUD_EDITOR 0
 #ifndef PORT
 #define PORT 7210
 #endif
-static const char *root = "/data/gt7p/patches";
+static const char *root = "/data/gt7p";
 static char token[33], message[256] = "";
 static Config config;
 #ifndef PS5
@@ -54,6 +55,7 @@ static int broken;
 static volatile sig_atomic_t stopping;
 #ifdef PS5
 static atomic_int startup_pending;
+static int update_notification_sent;
 static pthread_t startup_thread;
 static int startup_thread_created;
 #endif
@@ -458,6 +460,318 @@ static char hud_hidden[LIVE_HUD_MAX][LIVE_HUD_PATH];
 static unsigned hud_hidden_count;
 #ifdef PS5
 static Gt7Hud hud_state; /* ~6 KB: kept off the request thread's stack */
+typedef struct
+{
+    const char *identifier;
+    const char *label;
+    const char *const *keys;
+    unsigned count;
+} RaceMenuGroup;
+#include "race_menu_groups.h"
+static const RaceMenuGroup *race_menu_selection[LIVE_MENU_MAX];
+static char race_menu_labels[LIVE_MENU_MAX][LIVE_MENU_LABEL];
+static uint8_t race_menu_dividers[LIVE_MENU_MAX];
+static unsigned race_menu_count;
+#define RACE_GROUP_COUNT (sizeof(race_menu_groups) / sizeof(race_menu_groups[0]))
+static uint8_t race_group_off[RACE_GROUP_COUNT];
+static char race_group_names[RACE_GROUP_COUNT][LIVE_MENU_LABEL];
+static int race_apply_saved(void);
+static int race_menu_save(void);
+
+static void race_write_group(FILE *file, size_t index, const char *separator)
+{
+    fprintf(file, "%s      {\"identifier\": \"%s\", \"displayName\": \"",
+            separator, race_menu_groups[index].identifier);
+    for (const char *p = race_group_names[index]; *p; p++)
+    {
+        if (*p == '"' || *p == '\\')
+            fputc('\\', file);
+        fputc(*p, file);
+    }
+    fprintf(file, "\", \"enabled\": %s}", race_group_off[index] ? "false" : "true");
+}
+
+static int race_menu_save(void)
+{
+    char path[512], temp[sizeof(path) + sizeof(".tmp")];
+    int length = snprintf(path, sizeof(path), "%s/race-info-display.json", root);
+    if (length < 0 || (size_t)length >= sizeof(path))
+        return -1;
+    snprintf(temp, sizeof(temp), "%s.tmp", path);
+    FILE *file = fopen(temp, "wb");
+    if (!file)
+        return -1;
+
+    uint8_t listed[RACE_GROUP_COUNT] = {0};
+    fputs("{\n  \"raceInfoDisplay\": {\n    \"visible\": [\n", file);
+    for (unsigned i = 0; i < race_menu_count; i++)
+    {
+        size_t index = (size_t)(race_menu_selection[i] - race_menu_groups);
+        if (i && race_menu_dividers[i])
+            fputs(",\n      {\"type\": \"divider\"}", file);
+        race_write_group(file, index, i ? ",\n" : "");
+        listed[index] = 1;
+    }
+    fputs("\n    ],\n    \"hidden\": [\n", file);
+    unsigned written = 0;
+    for (size_t i = 0; i < RACE_GROUP_COUNT; i++)
+        if (!listed[i])
+            race_write_group(file, i, written++ ? ",\n" : "");
+    fputs("\n    ]\n  }\n}\n", file);
+    int failed = ferror(file);
+    if (fclose(file) || failed || rename(temp, path))
+    {
+        unlink(temp);
+        return -1;
+    }
+    return 0;
+}
+
+static int race_json_take(const char **cursor, char token)
+{
+    *cursor += strspn(*cursor, " \t\r\n");
+    if (**cursor != token)
+        return 0;
+    ++*cursor;
+    return 1;
+}
+
+static int race_json_string(const char **cursor, char *value, size_t capacity)
+{
+    if (!race_json_take(cursor, '"'))
+        return 0;
+    size_t length = 0;
+    while (**cursor && **cursor != '"')
+    {
+        unsigned char c = (unsigned char)*(*cursor)++;
+        if (c == '\\')
+        {
+            c = (unsigned char)**cursor;
+            if (c != '"' && c != '\\' && c != '/')
+                return 0;
+            ++*cursor;
+        }
+        if (c < 32 || length + 1 >= capacity)
+            return 0;
+        value[length++] = (char)c;
+    }
+    value[length] = 0;
+    if (**cursor != '"')
+        return 0;
+    ++*cursor;
+    return 1;
+}
+
+static int race_json_entries(const char **cursor, int visible, uint8_t *seen)
+{
+    if (!race_json_take(cursor, '['))
+        return 0;
+    if (race_json_take(cursor, ']'))
+        return 1;
+    int divider = visible;
+    do
+    {
+        char key[16], identifier[96] = "", label[LIVE_MENU_LABEL] = "";
+        unsigned fields = 0;
+        if (!race_json_take(cursor, '{'))
+            return 0;
+        do
+        {
+            if (!race_json_string(cursor, key, sizeof(key)) || !race_json_take(cursor, ':'))
+                return 0;
+            unsigned field;
+            if (!strcmp(key, "identifier"))
+            {
+                field = 1;
+                if (!race_json_string(cursor, identifier, sizeof(identifier)))
+                    return 0;
+            }
+            else if (!strcmp(key, "displayName"))
+            {
+                field = 2;
+                if (!race_json_string(cursor, label, sizeof(label)))
+                    return 0;
+            }
+            else if (!strcmp(key, "type"))
+            {
+                char type[16];
+                field = 4;
+                if (!race_json_string(cursor, type, sizeof(type)) || strcmp(type, "divider"))
+                    return 0;
+            }
+            else if (!strcmp(key, "enabled"))
+            {
+                if (fields & 16u)
+                    return 0;
+                fields |= 16u;
+                *cursor += strspn(*cursor, " \t\r\n");
+                if (!strncmp(*cursor, "true", 4))
+                    *cursor += 4;
+                else if (!strncmp(*cursor, "false", 5))
+                {
+                    fields |= 8u;
+                    *cursor += 5;
+                }
+                else
+                    return 0;
+                continue;
+            }
+            else
+                return 0;
+            if (fields & field)
+                return 0;
+            fields |= field;
+        } while (race_json_take(cursor, ','));
+        if (!race_json_take(cursor, '}'))
+            return 0;
+        if (fields == 4 && visible)
+        {
+            divider = 1;
+            continue;
+        }
+        if ((fields & 7u) != 3u)
+            return 0;
+        size_t index = 0;
+        size_t count = sizeof(race_menu_groups) / sizeof(race_menu_groups[0]);
+        while (index < count && strcmp(identifier, race_menu_groups[index].identifier))
+            index++;
+        if (index == count || seen[index])
+            return 0;
+        seen[index] = 1;
+        memcpy(race_group_names[index], label, sizeof(label));
+        race_group_off[index] = (fields & 8u) != 0;
+        if (visible)
+        {
+            if (race_menu_count == LIVE_MENU_MAX)
+                return 0;
+            const RaceMenuGroup *group = &race_menu_groups[index];
+            race_menu_selection[race_menu_count] = group;
+            strcpy(race_menu_labels[race_menu_count], *label ? label : group->label);
+            race_menu_dividers[race_menu_count++] = divider ? LIVE_MENU_DIVIDER : 0;
+            divider = 0;
+        }
+    } while (race_json_take(cursor, ','));
+    return race_json_take(cursor, ']');
+}
+
+static int race_json_load(const char *cursor)
+{
+    char key[16];
+    uint8_t seen[sizeof(race_menu_groups) / sizeof(race_menu_groups[0])] = {0};
+    if (!race_json_take(&cursor, '{') ||
+        !race_json_string(&cursor, key, sizeof(key)) || strcmp(key, "raceInfoDisplay") ||
+        !race_json_take(&cursor, ':') || !race_json_take(&cursor, '{'))
+        return 0;
+    unsigned sections = 0;
+    do
+    {
+        if (!race_json_string(&cursor, key, sizeof(key)) || !race_json_take(&cursor, ':'))
+            return 0;
+        unsigned section = !strcmp(key, "visible") ? 1u : !strcmp(key, "hidden") ? 2u : 0u;
+        if (!section || (sections & section) || !race_json_entries(&cursor, section == 1, seen))
+            return 0;
+        sections |= section;
+    } while (race_json_take(&cursor, ','));
+    return sections == 3 && race_json_take(&cursor, '}') && race_json_take(&cursor, '}') &&
+           !cursor[strspn(cursor, " \t\r\n")];
+}
+
+static int race_menu_load_legacy(void)
+{
+    char path[512];
+    int length = snprintf(path, sizeof(path), "%s/race-info-display.txt", root);
+    if (length < 0 || (size_t)length >= sizeof(path))
+        return 0;
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return 0;
+    char line[256];
+    while (race_menu_count < LIVE_MENU_MAX && fgets(line, sizeof(line), f))
+    {
+        size_t n = strlen(line);
+        if (n == sizeof(line) - 1 && line[n - 1] != '\n')
+        {
+            int c;
+            while ((c = fgetc(f)) != '\n' && c != EOF)
+                ;
+            continue;
+        }
+        char *name = line + strspn(line, " \t");
+        n = strlen(name);
+        while (n && strchr(" \t\r\n", name[n - 1]))
+            name[--n] = 0;
+        if (!n || name[0] == '#' || n >= LIVE_MENU_LABEL)
+            continue;
+        for (size_t i = 0; i < sizeof(race_menu_groups) / sizeof(race_menu_groups[0]); i++)
+        {
+            const RaceMenuGroup *group = &race_menu_groups[i];
+            if (strcmp(name, group->label))
+                continue;
+            unsigned j = 0;
+            while (j < race_menu_count && race_menu_selection[j] != group)
+                j++;
+            if (j == race_menu_count)
+            {
+                race_menu_selection[j] = group;
+                memcpy(race_menu_labels[j], name, n + 1);
+                race_menu_dividers[j] = j == 0 ? LIVE_MENU_DIVIDER : 0;
+                race_menu_count++;
+            }
+            break;
+        }
+    }
+    fclose(f);
+    return 1;
+}
+
+static int race_menu_read(const char *path)
+{
+    FILE *file = fopen(path, "rb");
+    if (!file)
+        return 0;
+    const size_t capacity = 65536;
+    char *json = malloc(capacity);
+    int valid = 0;
+    if (json)
+    {
+        size_t size = fread(json, 1, capacity - 1, file);
+        json[size] = 0;
+        valid = feof(file) && !ferror(file) && !memchr(json, 0, size) && race_json_load(json);
+        free(json);
+    }
+    fclose(file);
+    return valid;
+}
+
+static void race_menu_clear(void)
+{
+    race_menu_count = 0;
+    memset(race_menu_labels, 0, sizeof(race_menu_labels));
+    memset(race_group_off, 0, sizeof(race_group_off));
+    memset(race_group_names, 0, sizeof(race_group_names));
+}
+
+static void race_menu_load(void)
+{
+    char path[512];
+    int length = snprintf(path, sizeof(path), "%s/race-info-display.json", root);
+    if (length < 0 || (size_t)length >= sizeof(path))
+        return;
+    if (access(path, F_OK) && errno == ENOENT)
+    {
+        int legacy = race_menu_load_legacy();
+        if (!legacy)
+            (void)race_json_load(race_menu_default_json);
+        if (race_menu_save())
+            notify("Race Info Display: could not create JSON.");
+        return;
+    }
+    if (race_menu_read(path))
+        return;
+    race_menu_clear();
+    (void)race_json_load(race_menu_default_json);
+    notify("Race Info Display: could not read JSON. Using the default menu.");
+}
 #endif
 static void hud_load(void)
 {
@@ -478,14 +792,26 @@ static void hud_load(void)
     }
     fclose(f);
 }
-static int hud_save(void)
+static int hud_save(const char entries[][LIVE_HUD_PATH], unsigned count)
 {
-    FILE *f = fopen(hud_path, "wb");
+    char temp[sizeof(hud_path) + sizeof(".tmp")];
+    snprintf(temp, sizeof(temp), "%s.tmp", hud_path);
+    FILE *f = fopen(temp, "wb");
     if (!f)
         return -1;
-    for (unsigned i = 0; i < hud_hidden_count; i++)
-        fprintf(f, "%s\n", hud_hidden[i]);
-    return fclose(f) ? -1 : 0;
+    int failed = 0;
+    for (unsigned i = 0; i < count; i++)
+        if (fprintf(f, "%s\n", entries[i]) < 0)
+        {
+            failed = 1;
+            break;
+        }
+    if (fclose(f) || failed || rename(temp, hud_path))
+    {
+        unlink(temp);
+        return -1;
+    }
+    return 0;
 }
 static void hud_push(void)
 {
@@ -493,6 +819,196 @@ static void hud_push(void)
     gt7_hud_set((const char (*)[LIVE_HUD_PATH])hud_hidden, hud_hidden_count);
 #endif
 }
+#ifdef PS5
+/* The web editor considers a key covered when it or a slash-delimited
+ * ancestor is hidden. Group rows use the same rule. */
+static int hud_key_covers(const char *ancestor, const char *key)
+{
+    size_t length = strlen(ancestor);
+    return length && !strncmp(ancestor, key, length) &&
+           (!key[length] || key[length] == '/');
+}
+
+typedef struct
+{
+    const char *keys[LIVE_HUD_MAX + RACE_MENU_CATALOG_KEYS];
+    unsigned count;
+} HudKeyList;
+
+static void hud_add_key(HudKeyList *list, const char *key)
+{
+    for (unsigned i = 0; i < list->count; i++)
+        if (hud_key_covers(list->keys[i], key))
+            return;
+    unsigned count = 0;
+    for (unsigned i = 0; i < list->count; i++)
+        if (!hud_key_covers(key, list->keys[i]))
+            list->keys[count++] = list->keys[i];
+    list->keys[count++] = key;
+    list->count = count;
+}
+
+static int race_compile_hud(HudKeyList *list)
+{
+    list->count = 0;
+    for (size_t i = 0; i < RACE_GROUP_COUNT; i++)
+    {
+        if (!race_group_off[i])
+            continue;
+        const RaceMenuGroup *group = &race_menu_groups[i];
+        for (unsigned j = 0; j < group->count; j++)
+            hud_add_key(list, group->keys[j]);
+    }
+    if (list->count > LIVE_HUD_MAX)
+        return 0;
+    for (unsigned i = 0; i < list->count; i++)
+        if (strlen(list->keys[i]) >= LIVE_HUD_PATH)
+            return 0;
+    return 1;
+}
+
+static void race_publish_hud(const HudKeyList *list)
+{
+    memset(hud_hidden, 0, sizeof(hud_hidden));
+    for (unsigned i = 0; i < list->count; i++)
+        strcpy(hud_hidden[i], list->keys[i]);
+    hud_hidden_count = list->count;
+}
+
+static int race_apply_saved(void)
+{
+    static HudKeyList list;
+    if (!race_compile_hud(&list))
+        return 0;
+    race_publish_hud(&list);
+    return 1;
+}
+
+static int race_menu_replace(const char *path, const char *json)
+{
+    static const RaceMenuGroup *selection[LIVE_MENU_MAX];
+    static char labels[LIVE_MENU_MAX][LIVE_MENU_LABEL];
+    static char names[RACE_GROUP_COUNT][LIVE_MENU_LABEL];
+    static uint8_t dividers[LIVE_MENU_MAX], off[RACE_GROUP_COUNT];
+    unsigned count = race_menu_count;
+    memcpy(selection, race_menu_selection, sizeof(selection));
+    memcpy(labels, race_menu_labels, sizeof(labels));
+    memcpy(names, race_group_names, sizeof(names));
+    memcpy(dividers, race_menu_dividers, sizeof(dividers));
+    memcpy(off, race_group_off, sizeof(off));
+    race_menu_clear();
+    static HudKeyList list;
+    int valid = (json ? race_json_load(json) : race_menu_read(path)) && race_compile_hud(&list);
+    int result = -1;
+    if (valid && json)
+    {
+        char temp[528];
+        snprintf(temp, sizeof(temp), "%s.tmp", path);
+        FILE *file = fopen(temp, "wb");
+        result = -2;
+        if (file)
+        {
+            int failed = fputs(json, file) == EOF || fputc('\n', file) == EOF;
+            if (fclose(file) || failed || rename(temp, path))
+                unlink(temp);
+            else
+                result = 0;
+        }
+    }
+    else if (valid)
+        result = 0;
+    if (!result)
+    {
+        race_publish_hud(&list);
+        return 0;
+    }
+
+    race_menu_count = count;
+    memcpy(race_menu_selection, selection, sizeof(selection));
+    memcpy(race_menu_labels, labels, sizeof(labels));
+    memcpy(race_group_names, names, sizeof(names));
+    memcpy(race_menu_dividers, dividers, sizeof(dividers));
+    memcpy(race_group_off, off, sizeof(off));
+    return result;
+}
+
+static void race_menu_reload(void)
+{
+    char path[512];
+    int length = snprintf(path, sizeof(path), "%s/race-info-display.json", root);
+    if (length < 0 || (size_t)length >= sizeof(path))
+        return;
+    static struct stat previous;
+    struct stat current;
+    if (stat(path, &current))
+        return;
+    if (previous.st_ino == current.st_ino && previous.st_size == current.st_size &&
+        previous.st_mtim.tv_sec == current.st_mtim.tv_sec &&
+        previous.st_mtim.tv_nsec == current.st_mtim.tv_nsec)
+        return;
+    previous = current;
+    if (race_menu_replace(path, NULL))
+        notify("Race Info Display: JSON reload failed. Keeping the previous settings.");
+}
+
+static const char *race_menu_toggle(unsigned index)
+{
+    if (index >= race_menu_count)
+        return "the configured row is unavailable";
+    size_t group = (size_t)(race_menu_selection[index] - race_menu_groups);
+    static HudKeyList next;
+    race_group_off[group] ^= 1;
+    const char *error = NULL;
+    if (!race_compile_hud(&next))
+        error = "the HUD hide-list limits were exceeded";
+    else if (race_menu_save())
+        error = "the JSON settings could not be saved";
+    if (error)
+        race_group_off[group] ^= 1;
+    else
+        race_publish_hud(&next);
+    return error;
+}
+
+static void hud_menu_tick(void)
+{
+    if (!race_menu_count)
+        return;
+    uint8_t hidden[LIVE_MENU_MAX], events[LIVE_MENU_EVENTS];
+    for (unsigned i = 0; i < race_menu_count; i++)
+        hidden[i] = race_menu_dividers[i] | race_group_off[race_menu_selection[i] - race_menu_groups];
+    uint32_t acknowledged, sequence;
+    if (gt7_live_menu_sync(hud_state.pid, race_menu_labels, hidden, race_menu_count,
+                         &acknowledged, events, &sequence))
+        return;
+
+    static int pid;
+    static uint32_t handled;
+    if (pid != hud_state.pid)
+    {
+        pid = hud_state.pid;
+        handled = acknowledged;
+    }
+    if (sequence - handled > LIVE_MENU_EVENTS)
+        return;
+    while (handled != sequence)
+    {
+        unsigned index = events[handled % LIVE_MENU_EVENTS];
+        const char *error = race_menu_toggle(index);
+        if (error)
+            notify("Race Info Display: %s could not be toggled because %s.",
+                   index < race_menu_count ? race_menu_selection[index]->label : "this group",
+                   error);
+        handled++;
+    }
+    if (handled != acknowledged)
+    {
+        for (unsigned i = 0; i < race_menu_count; i++)
+            hidden[i] = race_menu_dividers[i] | race_group_off[race_menu_selection[i] - race_menu_groups];
+        gt7_live_menu_acknowledge(pid, handled, hidden, race_menu_count);
+    }
+}
+#endif
 static void hud_tick(void)
 {
 #ifdef PS5
@@ -500,6 +1016,7 @@ static void hud_tick(void)
         return;
     if (gt7_hud_read(&hud_state))
         return;
+    hud_menu_tick();
     int same = hud_state.count == hud_hidden_count;
     if (same)
         for (unsigned i = 0; i < hud_hidden_count; i++)
@@ -652,27 +1169,34 @@ static int make_dirs(const char *path)
 }
 static int initialize(void)
 {
-    char p[512];
-    const char *dirs[] = {"xml_prospero"};
-    for (unsigned i = 0; i < 1; i++)
+    if (make_dirs(root) || initialize_config(root, &config))
+        return -1;
+#ifdef PS5
+    /* Remove only the payload's obsolete files after validating config.json. */
+    const char *legacy_dirs[] = {"/data/gt7p/patches", "/data/gt7p/patches/xml_prospero"};
+    struct stat info;
+    if (!lstat(legacy_dirs[0], &info) && S_ISDIR(info.st_mode))
     {
-        snprintf(p, sizeof(p), "%s/%s", root, dirs[i]);
-        if (make_dirs(p))
-            return -1;
+        if (!lstat(legacy_dirs[1], &info) && S_ISDIR(info.st_mode))
+        {
+            unlink("/data/gt7p/patches/xml_prospero/PPSA01317.xml");
+            rmdir(legacy_dirs[1]);
+        }
+        unlink("/data/gt7p/patches/hud.txt");
+        unlink("/data/gt7p/patches/hud_layout.json");
+        if (rmdir(legacy_dirs[0]) && errno != ENOENT)
+            notify("GT7Patcher: legacy patches directory could not be removed.");
     }
-    config = defaults();
-    if (load_config(root, &config))
-    {
-        /* Never overwrite an existing malformed configuration with defaults. */
-        snprintf(p, sizeof(p), "%s/xml_prospero/PPSA01317.xml", root);
-        if (access(p, F_OK) == 0)
-            return -1;
-        if (save_config(root, &config))
-            return -1;
-    }
+#endif
     snprintf(hud_path, sizeof(hud_path), "%s/hud.txt", root);
     snprintf(hud_layout_path, sizeof(hud_layout_path), "%s/hud_layout.json", root);
-    hud_load();
+    if (WEB_HUD_EDITOR)
+        hud_load();
+#ifdef PS5
+    race_menu_load();
+    if (!race_apply_saved())
+        notify("Race Info Display: JSON HUD settings exceed the hide-list limits.");
+#endif
     unsigned char random[16];
     FILE *f = fopen("/dev/urandom", "rb");
     if (!f)
@@ -852,6 +1376,35 @@ static void serve(int fd)
             response(fd, 200, "text/html; charset=utf-8", page_html());
         else if (!strcmp(path, "/api/status"))
             json_status(fd);
+        else if (!strncmp(path, "/api/update-notify", 18) && (!path[18] || path[18] == '?'))
+        {
+#ifdef PS5
+            if (!authorized)
+            {
+                response(fd, 403, "text/plain", "Reload this page before sending a notification.");
+                return;
+            }
+            if (update_notification_sent)
+            {
+                response(fd, 200, "application/json", "{\"sent\":false}");
+                return;
+            }
+            char *query = strchr(path, '?');
+            char text[192];
+            if (!query || strncmp(query + 1, "text=", 5) || !decode_query_text(query + 6, text, sizeof(text)))
+            {
+                response(fd, 400, "text/plain", "Use /api/update-notify?text=MESSAGE");
+                return;
+            }
+            notify("%s", text);
+            update_notification_sent = 1;
+            response(fd, 200, "application/json", "{\"sent\":true}");
+            return;
+#else
+            response(fd, 409, "text/plain", "Notifications are only available on PS5.");
+            return;
+#endif
+        }
         else if (!strncmp(path, "/api/notify", 11) && (!path[11] || path[11] == '?'))
         {
 #ifdef PS5
@@ -892,6 +1445,26 @@ static void serve(int fd)
             response(fd, 409, "text/plain", "Live numeric input is only available while supported GT7 is running on PS5.");
             return;
 #endif
+        }
+        else if (!strcmp(path, "/api/live/hud/config"))
+        {
+            if (!authorized)
+            {
+                response(fd, 403, "text/plain", "Reload this page before reading HUD settings.");
+                return;
+            }
+            char file_path[512];
+            int n = snprintf(file_path, sizeof(file_path), "%s/race-info-display.json", root);
+            FILE *file = n >= 0 && (size_t)n < sizeof(file_path) ? fopen(file_path, "rb") : NULL;
+            static char json[65536];
+            size_t size = file ? fread(json, 1, sizeof(json) - 1, file) : 0;
+            int valid = file && size && feof(file) && !ferror(file) && !memchr(json, 0, size);
+            if (file)
+                fclose(file);
+            json[size] = 0;
+            response(fd, valid ? 200 : 409, valid ? "application/json" : "text/plain",
+                     valid ? json : "Could not read race-info-display.json.");
+            return;
         }
         else if (!strcmp(path, "/api/live/hud"))
         {
@@ -959,7 +1532,7 @@ static void serve(int fd)
             return;
 #endif
         }
-        else if (!strcmp(path, "/api/live/hud/layout"))
+        else if (WEB_HUD_EDITOR && !strcmp(path, "/api/live/hud/layout"))
         {
             /* Saved HUD group layout. Returned verbatim so every browser shows
              * the same grouping; an empty object means nothing is saved yet and
@@ -1546,7 +2119,7 @@ static void serve(int fd)
         char *query = strchr(path, '?');
         if (!query || sscanf(query, "?target=%llx&receiver=%llx&argc=%u&args=%llx", &target, &receiver, &argc, &args) != 4)
         {
-            response(fd, 400, "text/plain", "Use /api/live/menu-call?target=0xADDR&receiver=0xADDR&argc=0&args=0");
+            response(fd, 400, "text/plain", "Use /api/live/menu-call?target=0xc96f50&receiver=0xRACE_INFO_OPTION&argc=0&args=0 for a detached clone or args=1 to add the configured rows");
             return;
         }
         int rc = gt7_live_menu_call((uintptr_t)target, (uintptr_t)receiver, argc, (uintptr_t)args, &result);
@@ -1716,7 +2289,29 @@ static void serve(int fd)
         return;
 #endif
     }
-    if (!strcmp(path, "/api/live/hud"))
+    if (!strcmp(path, "/api/live/hud/config"))
+    {
+#ifdef PS5
+        if (running_gt7() != 0)
+        {
+            response(fd, 409, "text/plain", "Close GT7 before saving Race Info Display settings.");
+            return;
+        }
+        char file_path[512];
+        int n = snprintf(file_path, sizeof(file_path), "%s/race-info-display.json", root);
+        int result = n < 0 || (size_t)n >= sizeof(file_path) ? -2 :
+                     length >= 65535 || memchr(body, 0, length) ? -1 :
+                     race_menu_replace(file_path, body);
+        response(fd, result == -2 ? 500 : result ? 400 : 200, "text/plain",
+                 result == -2 ? "Could not save race-info-display.json." :
+                 result ? "Invalid Race Info Display settings or HUD hide-list limit exceeded." :
+                 "Race Info Display settings saved.");
+#else
+        response(fd, 409, "text/plain", "Saving Race Info Display settings requires the PS5 payload.");
+#endif
+        return;
+    }
+    if (WEB_HUD_EDITOR && !strcmp(path, "/api/live/hud"))
     {
         /* Body: newline-separated MENU widget paths or names to hide. An empty
          * body clears the list. The selection is persisted and pushed live. */
@@ -1761,18 +2356,18 @@ static void serve(int fd)
             response(fd, 400, "text/plain", m);
             return;
         }
-        memcpy(hud_hidden, names, sizeof(hud_hidden));
-        hud_hidden_count = count;
-        if (hud_save())
+        if (hud_save(names, count))
         {
             response(fd, 500, "text/plain", "Could not save the HUD selection.");
             return;
         }
+        memcpy(hud_hidden, names, sizeof(hud_hidden));
+        hud_hidden_count = count;
         hud_push();
         response(fd, 200, "text/plain", "HUD selection saved.");
         return;
     }
-    if (!strcmp(path, "/api/live/hud/layout"))
+    if (WEB_HUD_EDITOR && !strcmp(path, "/api/live/hud/layout"))
     {
         /* Body: the JSON group layout the page keeps ({groups,names}). Stored
          * verbatim; independent of whether GT7 is running. */
@@ -2109,13 +2704,16 @@ int main(int argc, char **argv)
             /* Never touch the game bridge after GT7 has exited. In
              * particular, a crash can leave an eboot entry present long
              * enough for stale mdbg reads to stall the payload's main loop. */
-            if (running_gt7() > 0)
+            int game = running_gt7();
+            if (game > 0)
             {
                 gt7_live_pad_poll();
                 hud_tick();
                 gt7_live_credit_auto_poll();
                 gt7_rev_limit_tick();
             }
+            else if (game == 0)
+                race_menu_reload();
 #else
             gt7_live_pad_poll();
             hud_tick();
