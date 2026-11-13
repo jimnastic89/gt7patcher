@@ -1,10 +1,12 @@
 """Prepare reproducible, embedded assets for GT7Patcher."""
 import base64
+import ast
 import hashlib
 import json
 from pathlib import Path
 import re
 import struct
+import sys
 
 HERE = Path(__file__).resolve().parent
 BUILD = HERE / 'build'
@@ -27,6 +29,59 @@ LIVE_SETTINGS_ORIGINAL_NOTE = "Enable the optional live settings bridge for the 
 
 def cstring(value):
     return json.dumps(value, ensure_ascii=True).replace('?', r'\?')
+
+
+REMOVED_RACE_GROUPS = {
+    'throttle_position_bar', 'odometer', 'tyre_wear_indicators', 'track_wetness_label',
+    'auto_drive_indicator_3', 'auto_drive_indicator', 'auto_drive_indicator_2',
+    'left_indicator', 'right_indicator', 'overtake_indicator', 'suspension_display',
+    'start_lights', 'race_flag', 'yellow_flag', 'green_flag', 'full_course_yellow',
+    'wrong_way_warning', 'pit_lane_indicator', 'slow_down_penalty', 'countdown',
+    'laps_to_go_warning', 'whole_race_display', 'whole_hud_container',
+    'whole_hud_container_6',
+}
+
+
+def generate_race_menu_groups():
+    BUILD.mkdir(exist_ok=True)
+    html = (HERE / 'web/index.html').read_text(encoding='utf-8')
+    source = re.search(r'const HUD_GROUPS_DEFAULT = (\[\n.*?\n    \])', html, re.S)
+    groups = ast.literal_eval(source[1])
+    out = ['/* Generated from the web editor HUD groups. */']
+    total = 0
+    entries = []
+    catalog = []
+    for index, (label, root, items) in enumerate(groups):
+        aliases = {
+            'Speed / rev-limit / gear / transmission panel': 'race_indicator',
+            'MFD navigation dots (bumper cam)': 'mfd_navigation_dots_bumper',
+        }
+        identifier = aliases.get(label, re.sub(
+            r'[^a-z0-9]+', '_', re.sub(r'\((?!\d+\))[^)]*\)', '', label).lower()
+        ).strip('_'))
+        if identifier in REMOVED_RACE_GROUPS:
+            continue
+        keys = [item[1:] if item.startswith('/') else f'{root}/{item}' if item else root
+                for item in items]
+        total += len(set(keys))
+        out.append(f'static const char *const race_menu_keys_{index}[] = {{')
+        out.extend(f'    {cstring(key)},' for key in dict.fromkeys(keys))
+        out.append('};')
+        entries.append({'identifier': identifier, 'displayName': label, 'enabled': True})
+        keys = f'race_menu_keys_{index}'
+        catalog.append(f'    {{{cstring(identifier)}, {cstring(label)}, {keys}, sizeof({keys}) / sizeof({keys}[0])}},')
+    out.extend(['static const RaceMenuGroup race_menu_groups[] = {', *catalog, '};'])
+    if len({entry['identifier'] for entry in entries}) != len(entries):
+        raise ValueError('Duplicate Race Info Display identifier')
+    layout = {'raceInfoDisplay': {
+        'visible': [entry for entry in entries if entry['identifier'] != 'ungrouped'],
+        'hidden': [entry for entry in entries if entry['identifier'] == 'ungrouped'],
+    }}
+    out.append('static const char race_menu_default_json[] =')
+    out.extend(f'    {cstring(line + chr(10))}' for line in json.dumps(layout, indent=2).splitlines())
+    out[-1] += ';'
+    out.append(f'#define RACE_MENU_CATALOG_KEYS {total}u')
+    (BUILD / 'race_menu_groups.h').write_text('\n'.join(out) + '\n', encoding='utf-8')
 
 def object_patch_lines(path):
     """Read ordered .patch.SEQUENCE.ADDRESS sections from an ELF64 object."""
@@ -109,4 +164,7 @@ def generate_icon():
     (BUILD/'icon.h').write_text('static const unsigned char icon_param[]='+cstring(param)+';\nstatic const unsigned char icon_png[]={'+','.join(map(str,png))+'};\n')
 
 if __name__ == '__main__':
-    main()
+    if sys.argv[1:] == ['--race-menu']:
+        generate_race_menu_groups()
+    else:
+        main()
