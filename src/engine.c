@@ -1822,12 +1822,53 @@ static int camera_multiplier_valid(float value, unsigned minimum)
            (float)(uint32_t)value == value;
 }
 
+/* The stock horizontal constants are also used outside the camera. Redirect
+ * only the two camera loads to the remaining words in the integrator padding. */
+static const uintptr_t camera_horizontal_loads[] = {0x2a0df88, 0x2a0e02e};
+static const uintptr_t camera_horizontal_native[] = {
+    GT7_FREE_CAMERA_NORMAL_ADDR, GT7_FREE_CAMERA_FAST_ADDR,
+};
+static const unsigned camera_horizontal_min[] = {
+    GT7_FREE_CAMERA_NORMAL_MIN, GT7_FREE_CAMERA_FAST_MIN,
+};
+
+static uintptr_t camera_horizontal_slot(unsigned index)
+{
+    return CAMERA_VERTICAL_SLOT + (index + 1) * sizeof(float);
+}
+
+static int32_t camera_horizontal_disp(unsigned index, uintptr_t target)
+{
+    return (int32_t)((int64_t)target - (int64_t)camera_horizontal_loads[index] - 8);
+}
+
+static int camera_horizontal_read(pid_t pid, unsigned index, int32_t *disp,
+                                  uint32_t *slot, float *value)
+{
+    uint32_t instruction[2];
+    unsigned minimum = camera_horizontal_min[index];
+    if (read_mem(pid, camera_horizontal_loads[index], instruction, sizeof(instruction)) ||
+        instruction[0] != UINT32_C(0x0d10fac5) ||
+        read_mem(pid, camera_horizontal_slot(index), slot, sizeof(*slot)))
+        return -1;
+    *disp = (int32_t)instruction[1];
+    if (*disp == camera_horizontal_disp(index, camera_horizontal_slot(index))) {
+        memcpy(value, slot, sizeof(*value));
+    } else if (*disp == camera_horizontal_disp(index, camera_horizontal_native[index])) {
+        if (*slot != UINT32_C(0xcccccccc) ||
+            read_mem(pid, camera_horizontal_native[index], value, sizeof(*value)) ||
+            *value != (float)minimum)
+            return -1;
+    } else {
+        return -1;
+    }
+    return camera_multiplier_valid(*value, minimum) ? 0 : -1;
+}
+
 static int camera_vertical_read(pid_t pid, int32_t displacements[2], float *value)
 {
-    uint32_t slot_bits, padding;
-    if (read_mem(pid, CAMERA_VERTICAL_SLOT, &slot_bits, sizeof(slot_bits)) ||
-        read_mem(pid, CAMERA_VERTICAL_SLOT + 4, &padding, sizeof(padding)) ||
-        padding != UINT32_C(0xcccccccc))
+    uint32_t slot_bits;
+    if (read_mem(pid, CAMERA_VERTICAL_SLOT, &slot_bits, sizeof(slot_bits)))
         return -1;
     float slot;
     memcpy(&slot, &slot_bits, sizeof(slot));
@@ -1862,13 +1903,12 @@ int gt7_free_camera_read(Gt7FreeCamera *out)
     pid_t pid;
     uintptr_t base;
     float normal, fast, vertical;
-    int32_t displacements[2];
+    int32_t displacements[2], horizontal_disp;
+    uint32_t horizontal_slot;
     if (!out || credits_game(&pid, &base) ||
-        read_mem(pid, GT7_FREE_CAMERA_NORMAL_ADDR, &normal, sizeof(normal)) ||
-        read_mem(pid, GT7_FREE_CAMERA_FAST_ADDR, &fast, sizeof(fast)) ||
-        camera_vertical_read(pid, displacements, &vertical) ||
-        !camera_multiplier_valid(normal, GT7_FREE_CAMERA_NORMAL_MIN) ||
-        !camera_multiplier_valid(fast, GT7_FREE_CAMERA_FAST_MIN))
+        camera_horizontal_read(pid, 0, &horizontal_disp, &horizontal_slot, &normal) ||
+        camera_horizontal_read(pid, 1, &horizontal_disp, &horizontal_slot, &fast) ||
+        camera_vertical_read(pid, displacements, &vertical))
         return -1;
     *out = (Gt7FreeCamera){pid, (uint32_t)normal, (uint32_t)fast, (uint32_t)vertical};
     return 0;
@@ -1891,39 +1931,62 @@ int gt7_free_camera_set(const Gt7FreeCamera *expected, uint32_t normal_multiplie
         expected->vertical_multiplier != current.vertical_multiplier)
         return -2;
 
-    int32_t displacements[2];
-    float vertical;
-    uint32_t old_slot;
+    int32_t displacements[2], horizontal_disp[2];
+    float vertical, horizontal;
+    uint32_t old_slot, horizontal_slots[2];
     if (camera_vertical_read(current.pid, displacements, &vertical) ||
-        read_mem(current.pid, CAMERA_VERTICAL_SLOT, &old_slot, sizeof(old_slot)))
+        read_mem(current.pid, CAMERA_VERTICAL_SLOT, &old_slot, sizeof(old_slot)) ||
+        camera_horizontal_read(current.pid, 0, &horizontal_disp[0], &horizontal_slots[0], &horizontal) ||
+        camera_horizontal_read(current.pid, 1, &horizontal_disp[1], &horizontal_slots[1], &horizontal))
         return -1;
 
-    float normal = (float)normal_multiplier;
-    float fast = (float)fast_multiplier;
+    const float horizontal_values[] = {(float)normal_multiplier, (float)fast_multiplier};
     float new_vertical = (float)vertical_multiplier;
+    unsigned horizontal_written = 0, horizontal_redirected = 0, vertical_redirected = 0;
+    int restore_vertical_slot = 1;
     if (verified_write(current.pid, CAMERA_VERTICAL_SLOT, &new_vertical, sizeof(new_vertical)))
         goto restore;
     for (unsigned i = 0; i < 2; i++) {
         int32_t displacement = camera_vertical_disp(i, CAMERA_VERTICAL_SLOT);
-        if (displacements[i] != displacement &&
-            verified_write(current.pid, camera_vertical_loads[i] + 4,
+        if (displacements[i] == displacement)
+            continue;
+        vertical_redirected |= 1u << i;
+        if (verified_write(current.pid, camera_vertical_loads[i] + 4,
                            &displacement, sizeof(displacement)))
             goto restore;
     }
-    if (verified_write(current.pid, GT7_FREE_CAMERA_NORMAL_ADDR, &normal, sizeof(normal)) ||
-        verified_write(current.pid, GT7_FREE_CAMERA_FAST_ADDR, &fast, sizeof(fast)))
-        goto restore;
+    for (unsigned i = 0; i < 2; i++) {
+        uintptr_t slot = camera_horizontal_slot(i);
+        int32_t displacement = camera_horizontal_disp(i, slot);
+        horizontal_written |= 1u << i;
+        if (verified_write(current.pid, slot, &horizontal_values[i], sizeof(float)))
+            goto restore;
+        if (horizontal_disp[i] == displacement)
+            continue;
+        horizontal_redirected |= 1u << i;
+        if (verified_write(current.pid, camera_horizontal_loads[i] + 4,
+                           &displacement, sizeof(displacement)))
+            goto restore;
+    }
     return 0;
 
 restore:
     for (unsigned i = 0; i < 2; i++)
-        verified_write(current.pid, camera_vertical_loads[i] + 4,
-                       &displacements[i], sizeof(displacements[i]));
-    verified_write(current.pid, CAMERA_VERTICAL_SLOT, &old_slot, sizeof(old_slot));
-    normal = (float)current.normal_multiplier;
-    fast = (float)current.fast_multiplier;
-    verified_write(current.pid, GT7_FREE_CAMERA_NORMAL_ADDR, &normal, sizeof(normal));
-    verified_write(current.pid, GT7_FREE_CAMERA_FAST_ADDR, &fast, sizeof(fast));
+        if ((vertical_redirected & (1u << i)) &&
+            verified_write(current.pid, camera_vertical_loads[i] + 4,
+                           &displacements[i], sizeof(displacements[i])))
+            restore_vertical_slot = 0;
+    if (restore_vertical_slot)
+        verified_write(current.pid, CAMERA_VERTICAL_SLOT, &old_slot, sizeof(old_slot));
+    for (unsigned i = 0; i < 2; i++) {
+        if ((horizontal_redirected & (1u << i)) &&
+            verified_write(current.pid, camera_horizontal_loads[i] + 4,
+                           &horizontal_disp[i], sizeof(horizontal_disp[i])))
+            continue;
+        if (horizontal_written & (1u << i))
+            verified_write(current.pid, camera_horizontal_slot(i),
+                           &horizontal_slots[i], sizeof(horizontal_slots[i]));
+    }
     return -1;
 }
 
