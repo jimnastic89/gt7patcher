@@ -63,7 +63,7 @@ int parse_config(const char *body,Config *c){
         char *eq=strchr(item,'=');if(!eq)return -1;*eq++=0;
         if(!*eq)return -1;
         char *end;long v=strtol(eq,&end,10);
-        if(*end||v < -1||v>0x7ff)return -1;
+        if(*end||v < -1||v>(long)((1U<<PATCH_COUNT)-1U))return -1;
         const char *keys[]={"mask","preset","units","language","speed","mass","power","torque","temperature","autostart","country","aspect","important"};
         int k;for(k=0;k<13;k++)if(!strcmp(item,keys[k]))break;
         if(k==13||(seen&(1U<<k)))return -1;
@@ -170,6 +170,18 @@ int emit_xml(FILE *f,const Config *c){
 static int save_config_unlocked(const char *root, const Config *c)
 {
     char path[512], temp[520];
+    char patches[512];
+    size_t patch_length = 0;
+    patches[0] = 0;
+    for (unsigned i = 0; i < PATCH_COUNT; i++)
+        if (c->mask & (1U << i))
+        {
+            int written = snprintf(patches + patch_length, sizeof(patches) - patch_length,
+                                   "%s%s", patch_length ? "," : "", feature_source(i));
+            if (written < 0 || (size_t)written >= sizeof(patches) - patch_length)
+                return -1;
+            patch_length += (size_t)written;
+        }
     if (snprintf(path, sizeof(path), "%s/config.json", root) >= (int)sizeof(path))
         return -1;
     snprintf(temp, sizeof(temp), "%s.tmp", path);
@@ -177,11 +189,11 @@ static int save_config_unlocked(const char *root, const Config *c)
     if (!f)
         return -1;
     int r = fprintf(f,
-                    "{\n  \"mask\": %u,\n  \"preset\": %d,\n  \"units\": %d,\n"
+                    "{\n  \"patches\": \"%s\",\n  \"preset\": %d,\n  \"units\": %d,\n"
                     "  \"language\": %d,\n  \"speed\": %d,\n  \"mass\": %d,\n"
                     "  \"power\": %d,\n  \"torque\": %d,\n  \"temperature\": %d,\n"
                     "  \"autostart\": %d,\n  \"country\": %d,\n  \"aspect\": %d,\n  \"important\": %d\n}\n",
-                    c->mask, c->preset, c->units, c->language, c->speed, c->mass, c->power,
+                    patches, c->preset, c->units, c->language, c->speed, c->mass, c->power,
                     c->torque, c->temperature, c->autostart, c->country, c->aspect,
                     c->important_dismissed) < 0;
     if (fflush(f) || fsync(fileno(f)))
@@ -218,7 +230,7 @@ static int load_legacy_config(const char *root,Config *c){
     }
     fclose(f);
     if(r)return r;
-    unsigned normalized=(saved_mask&0x1fU)|(saved_mask&DEBUG_ENVIRONMENT_BIT)|(saved_mask&CLOCK_FIX_BIT)|(saved_mask&MUSIC_JINGLE_FILTER_BIT);
+    unsigned normalized=(saved_mask&0x1fU)|(saved_mask&DEBUG_ENVIRONMENT_BIT)|(saved_mask&CLOCK_FIX_BIT)|(saved_mask&MUSIC_JINGLE_FILTER_BIT)|(saved_mask&FREE_PHOTO_CAMERA_BIT);
     /* Bit 6 is Wheel Offset in HUD snapshots, but was Debug environment in
      * native snapshots. Preserve the independent wheel option; the Debug
      * environment selection round-trips on its own bit above. */
@@ -233,9 +245,73 @@ static int load_legacy_config(const char *root,Config *c){
     if(!valid_config(&loaded))return -1;
     *c=loaded;return 0;
 }
+static int json_number(const char *json, const char *key, long *value)
+{
+    char needle[32];
+    const char *p;
+    char *end;
+    if (snprintf(needle, sizeof(needle), "\"%s\"", key) >= (int)sizeof(needle))
+        return -1;
+    p = strstr(json, needle);
+    if (!p || !(p = strchr(p + strlen(needle), ':')))
+        return -1;
+    p++;
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
+        p++;
+    *value = strtol(p, &end, 10);
+    return end == p ? -1 : 0;
+}
+
+static int json_string(const char *json, const char *key, char *value, size_t size)
+{
+    char needle[32];
+    const char *p, *end;
+    size_t length;
+    if (snprintf(needle, sizeof(needle), "\"%s\"", key) >= (int)sizeof(needle))
+        return -1;
+    p = strstr(json, needle);
+    if (!p || !(p = strchr(p + strlen(needle), ':')))
+        return -1;
+    p++;
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
+        p++;
+    if (*p++ != '"' || !(end = strchr(p, '"')))
+        return -1;
+    length = (size_t)(end - p);
+    if (length >= size)
+        return -1;
+    memcpy(value, p, length);
+    value[length] = 0;
+    return 0;
+}
+
+static int patch_mask_from_sources(const char *sources, unsigned *mask)
+{
+    char copy[512];
+    char *source;
+    if (strlen(sources) >= sizeof(copy))
+        return -1;
+    strcpy(copy, sources);
+    *mask = 0;
+    for (source = strtok(copy, ","); source; source = strtok(NULL, ","))
+    {
+        unsigned i;
+        for (i = 0; i < PATCH_COUNT && strcmp(source, feature_source(i)); i++)
+            ;
+        if (i == PATCH_COUNT)
+            return -1;
+        *mask |= 1U << i;
+    }
+    return 0;
+}
+
 static int load_config_unlocked(const char *root, Config *c)
 {
-    char path[512], json[4096], form[512];
+    char path[512], json[4096], form[512], sources[512];
+    const char *keys[] = {"preset", "units", "language", "speed", "mass", "power",
+                          "torque", "temperature", "autostart", "country", "aspect", "important"};
+    long values[12], old_mask;
+    unsigned mask;
     if (snprintf(path, sizeof(path), "%s/config.json", root) >= (int)sizeof(path))
         return -1;
     FILE *file = fopen(path, "rb");
@@ -247,37 +323,24 @@ static int load_config_unlocked(const char *root, Config *c)
     if (!valid)
         return -1;
     json[size] = 0;
-    const char *p = json + strspn(json, " \t\r\n");
-    if (*p++ != '{')
-        return -1;
-    size_t used = 0;
-    unsigned fields = 0;
-    for (;;)
+    if (!json_string(json, "patches", sources, sizeof(sources)))
     {
-        char key[17];
-        int offset = 0;
-        if (sscanf(p, " \"%16[a-z]\" : %n", key, &offset) != 1 || !offset)
+        if (patch_mask_from_sources(sources, &mask))
             return -1;
-        p += offset;
-        const char *number = p;
-        if (*p == '-')
-            p++;
-        size_t digits = strspn(p, "0123456789");
-        if (!digits || digits > 4 || (digits > 1 && *p == '0'))
-            return -1;
-        p += digits;
-        int count = snprintf(form + used, sizeof(form) - used, "%s%s=%.*s",
-                             fields ? "&" : "", key, (int)(p - number), number);
-        if (count < 0 || (size_t)count >= sizeof(form) - used)
-            return -1;
-        used += (size_t)count;
-        fields++;
-        p += strspn(p, " \t\r\n");
-        if (*p != ',')
-            break;
-        p++;
     }
-    if (fields != 13 || *p++ != '}' || p[strspn(p, " \t\r\n")])
+    else
+    {
+        if (json_number(json, "mask", &old_mask) || old_mask < 0 || old_mask > (long)((1U << PATCH_COUNT) - 1U))
+            return -1;
+        mask = (unsigned)old_mask;
+    }
+    for (unsigned i = 0; i < sizeof(values) / sizeof(values[0]); i++)
+        if (json_number(json, keys[i], &values[i]))
+            return -1;
+    if (snprintf(form, sizeof(form),
+                 "mask=%u&preset=%ld&units=%ld&language=%ld&speed=%ld&mass=%ld&power=%ld&torque=%ld&temperature=%ld&autostart=%ld&country=%ld&aspect=%ld&important=%ld",
+                 mask, values[0], values[1], values[2], values[3], values[4], values[5],
+                 values[6], values[7], values[8], values[9], values[10], values[11]) >= (int)sizeof(form))
         return -1;
     return parse_config(form, c);
 }
@@ -302,5 +365,6 @@ int initialize_config(const char *root, Config *c)
 }
 const char *feature_name(unsigned i){return patch_names[i];}
 const char *feature_note(unsigned i){return patch_notes[i];}
+const char *feature_source(unsigned i){return patch_sources[i];}
 unsigned feature_count(unsigned i){return patch_counts[i];}
 const char *page_html(void){return web_page;}

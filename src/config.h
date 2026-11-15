@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #pragma once
 #include <stdio.h>
-#define PATCH_COUNT 11
+#define PATCH_COUNT 12
 #define LIVE_SETTINGS_BIT (1U << 6)
 #define LIVE_SETTINGS_RELEASE_ENABLED 1
 #define OPENING_MOVIE_SKIP_BIT (1U << 7)
@@ -14,6 +14,8 @@
 #define CLOCK_FIX_BIT (1U << 9)
 /* Silence Short Music Jingles. Byte patch; see patches/music_jingle_filter.S. */
 #define MUSIC_JINGLE_FILTER_BIT (1U << 10)
+/* Free Photo Mode Camera. Byte patch; see patches/free_photo_camera.S. */
+#define FREE_PHOTO_CAMERA_BIT (1U << 11)
 /* Number of selectable player countries exposed by the payload UI. The order
  * of the ISO alpha-2 table in config.c MUST match the <select> options in
  * web/index.html. Index -1 means "leave the game's own value alone". */
@@ -38,5 +40,6 @@ int load_config(const char *root, Config *c);
 int initialize_config(const char *root, Config *c);
 const char *feature_name(unsigned i);
 const char *feature_note(unsigned i);
+const char *feature_source(unsigned i);
 unsigned feature_count(unsigned i);
 const char *page_html(void);

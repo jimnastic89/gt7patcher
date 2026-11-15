@@ -65,5 +65,11 @@
     "note": "Removes the music that plays at the start of a race, after a race, when a car is bought, etc.",
     "source": "music_jingle_filter",
     "built": true
+  },
+  {
+    "name": "Free Photo Mode Camera",
+    "note": "Removes photo-mode camera movement restrictions.",
+    "source": "free_photo_camera",
+    "built": true
   }
 ]

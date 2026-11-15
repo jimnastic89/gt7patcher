@@ -468,9 +468,10 @@ static void *live_pad_thread(void *arg){
         snprintf(msg,sizeof(msg),"Pad: gethandle handle=%d (0x%x)",handle,handle);
         engine_log(msg);
     }
-    if(!read_state||handle<0)return NULL;
+    if(!read_state||handle<0){pad_thread_started=0;return NULL;}
     int previous=0;
-    for(;;){
+    for(;pad_shortcut_enabled;){
+        if(!pad_shortcut_enabled)break;
         _Alignas(16) unsigned char data[0x100];
         memset(data,0,sizeof(data));
         int rc=read_state(handle,data);
@@ -478,7 +479,7 @@ static void *live_pad_thread(void *arg){
         static int first=1;
         if(first){first=0;snprintf(msg,sizeof(msg),"Pad: buttons=0x%x",*(uint32_t*)data);engine_log(msg);}
         int square=(*(uint32_t*)data&0x8000U)!=0;
-        if(square&&!previous){
+        if(pad_shortcut_enabled&&square&&!previous){
             pid_t pid=0;uintptr_t base=0;uint32_t a=0,b=0;int cg,ra,rb,gate,begin;
             cg=credits_game(&pid,&base);
             ra=cg?1:read_mem(pid,(uintptr_t)LIVE_WORLD_MAP_DEPTH_A,&a,4);
@@ -491,6 +492,8 @@ static void *live_pad_thread(void *arg){
         previous=square;
         usleep(20000);
     }
+    pad_thread_started=0;
+    return NULL;
 #else
     (void)arg;return NULL;
 #endif
@@ -1652,6 +1655,11 @@ static uint16_t rev_shift(uint16_t native,uint16_t increase,uint16_t ceiling){
 #define GT7_REV_DIAL_SCAN_START    UINT64_C(0xec04000000)
 #define GT7_REV_DIAL_SCAN_END      UINT64_C(0xec0c000000)
 #define GT7_REV_DIAL_SCAN_CHUNK    0x40000u
+#define GT7_FREE_CAMERA_NORMAL_ADDR UINT64_C(0x4af5c10)
+#define GT7_FREE_CAMERA_FAST_ADDR   UINT64_C(0x4af7568)
+#define GT7_FREE_CAMERA_NORMAL_MIN 6u
+#define GT7_FREE_CAMERA_FAST_MIN   12u
+#define GT7_FREE_CAMERA_MAX        1000u
 static uintptr_t rev_dial_addr;  /* located tach-face record, 0 = unknown */
 static int rev_read_dial(pid_t pid,uint16_t idle,uint16_t *scale_out,uint16_t *red_out){
     uint16_t w[4];
@@ -1793,6 +1801,130 @@ int gt7_rev_limit_tick(void){
         }
     }
     return changed;
+}
+
+/* Aligned padding after the camera integrator's final unconditional jump. */
+#define CAMERA_VERTICAL_SLOT 0x2a10124u
+#define CAMERA_VERTICAL_NATIVE 0x4af5450u
+#define CAMERA_VERTICAL_TEST 0x4af5710u
+
+static const uintptr_t camera_vertical_loads[] = {0x2a0e384, 0x2a0e6ef};
+static const uint32_t camera_vertical_opcodes[] = {0x0d10fac5, 0x1510fac5};
+
+static int32_t camera_vertical_disp(unsigned index, uintptr_t target)
+{
+    return (int32_t)((int64_t)target - (int64_t)camera_vertical_loads[index] - 8);
+}
+
+static int camera_multiplier_valid(float value, unsigned minimum)
+{
+    return value >= (float)minimum && value <= (float)GT7_FREE_CAMERA_MAX &&
+           (float)(uint32_t)value == value;
+}
+
+static int camera_vertical_read(pid_t pid, int32_t displacements[2], float *value)
+{
+    uint32_t slot_bits, padding;
+    if (read_mem(pid, CAMERA_VERTICAL_SLOT, &slot_bits, sizeof(slot_bits)) ||
+        read_mem(pid, CAMERA_VERTICAL_SLOT + 4, &padding, sizeof(padding)) ||
+        padding != UINT32_C(0xcccccccc))
+        return -1;
+    float slot;
+    memcpy(&slot, &slot_bits, sizeof(slot));
+    if (slot_bits != UINT32_C(0xcccccccc) && !camera_multiplier_valid(slot, 1))
+        return -1;
+
+    float values[2];
+    for (unsigned i = 0; i < 2; i++) {
+        uint32_t instruction[2];
+        if (read_mem(pid, camera_vertical_loads[i], instruction, sizeof(instruction)) ||
+            instruction[0] != camera_vertical_opcodes[i])
+            return -1;
+        displacements[i] = (int32_t)instruction[1];
+        if (displacements[i] == camera_vertical_disp(i, CAMERA_VERTICAL_NATIVE))
+            values[i] = 1.0f;
+        else if (displacements[i] == camera_vertical_disp(i, CAMERA_VERTICAL_TEST))
+            values[i] = 8.0f;
+        else if (displacements[i] == camera_vertical_disp(i, CAMERA_VERTICAL_SLOT) &&
+                 camera_multiplier_valid(slot, 1))
+            values[i] = slot;
+        else
+            return -1;
+    }
+    if (values[0] != values[1])
+        return -1;
+    *value = values[0];
+    return 0;
+}
+
+int gt7_free_camera_read(Gt7FreeCamera *out)
+{
+    pid_t pid;
+    uintptr_t base;
+    float normal, fast, vertical;
+    int32_t displacements[2];
+    if (!out || credits_game(&pid, &base) ||
+        read_mem(pid, GT7_FREE_CAMERA_NORMAL_ADDR, &normal, sizeof(normal)) ||
+        read_mem(pid, GT7_FREE_CAMERA_FAST_ADDR, &fast, sizeof(fast)) ||
+        camera_vertical_read(pid, displacements, &vertical) ||
+        !camera_multiplier_valid(normal, GT7_FREE_CAMERA_NORMAL_MIN) ||
+        !camera_multiplier_valid(fast, GT7_FREE_CAMERA_FAST_MIN))
+        return -1;
+    *out = (Gt7FreeCamera){pid, (uint32_t)normal, (uint32_t)fast, (uint32_t)vertical};
+    return 0;
+}
+
+int gt7_free_camera_set(const Gt7FreeCamera *expected, uint32_t normal_multiplier,
+                       uint32_t fast_multiplier, uint32_t vertical_multiplier)
+{
+    Gt7FreeCamera current;
+    if (!expected || normal_multiplier < GT7_FREE_CAMERA_NORMAL_MIN ||
+        normal_multiplier > GT7_FREE_CAMERA_MAX ||
+        fast_multiplier < GT7_FREE_CAMERA_FAST_MIN ||
+        fast_multiplier > GT7_FREE_CAMERA_MAX ||
+        vertical_multiplier < 1 || vertical_multiplier > GT7_FREE_CAMERA_MAX ||
+        gt7_free_camera_read(&current))
+        return -1;
+    if ((expected->pid && expected->pid != current.pid) ||
+        expected->normal_multiplier != current.normal_multiplier ||
+        expected->fast_multiplier != current.fast_multiplier ||
+        expected->vertical_multiplier != current.vertical_multiplier)
+        return -2;
+
+    int32_t displacements[2];
+    float vertical;
+    uint32_t old_slot;
+    if (camera_vertical_read(current.pid, displacements, &vertical) ||
+        read_mem(current.pid, CAMERA_VERTICAL_SLOT, &old_slot, sizeof(old_slot)))
+        return -1;
+
+    float normal = (float)normal_multiplier;
+    float fast = (float)fast_multiplier;
+    float new_vertical = (float)vertical_multiplier;
+    if (verified_write(current.pid, CAMERA_VERTICAL_SLOT, &new_vertical, sizeof(new_vertical)))
+        goto restore;
+    for (unsigned i = 0; i < 2; i++) {
+        int32_t displacement = camera_vertical_disp(i, CAMERA_VERTICAL_SLOT);
+        if (displacements[i] != displacement &&
+            verified_write(current.pid, camera_vertical_loads[i] + 4,
+                           &displacement, sizeof(displacement)))
+            goto restore;
+    }
+    if (verified_write(current.pid, GT7_FREE_CAMERA_NORMAL_ADDR, &normal, sizeof(normal)) ||
+        verified_write(current.pid, GT7_FREE_CAMERA_FAST_ADDR, &fast, sizeof(fast)))
+        goto restore;
+    return 0;
+
+restore:
+    for (unsigned i = 0; i < 2; i++)
+        verified_write(current.pid, camera_vertical_loads[i] + 4,
+                       &displacements[i], sizeof(displacements[i]));
+    verified_write(current.pid, CAMERA_VERTICAL_SLOT, &old_slot, sizeof(old_slot));
+    normal = (float)current.normal_multiplier;
+    fast = (float)current.fast_multiplier;
+    verified_write(current.pid, GT7_FREE_CAMERA_NORMAL_ADDR, &normal, sizeof(normal));
+    verified_write(current.pid, GT7_FREE_CAMERA_FAST_ADDR, &fast, sizeof(fast));
+    return -1;
 }
 
 /* HUD visibility: publish the set of MENU widget keys the bridge should hide.

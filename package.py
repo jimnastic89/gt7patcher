@@ -8,7 +8,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 DIST = HERE / 'dist'
 DIST.mkdir(exist_ok=True)
-VERSION = '0.40'
+VERSION = '00.42.26-11-15_2144'
 name = f'GT7Patcher-v{VERSION}'
 elf = DIST / f'{name}.elf'
 source_version = re.search(r'#define VERSION "([^"]+)"', (HERE / 'src/main.c').read_text())
@@ -48,7 +48,7 @@ manifest = dict(
         ps5_build='passed',
         cleaner='Browser worker reconstruction and ZIP CRC/hash verification against all reference files passed',
         console_conversion_test='User confirmed the seven converted files plus three unchanged clean-reference files boot without the four optional files; vanilla and GT7Patcher offline play both tested',
-        live_settings='Hidden from the release UI; bridge code retained for reactivation in a future build',
+        live_settings='Free Camera includes normal, fast, and shared R1/R2 vertical movement controls',
         release_payload_console_test='Not deployed or tested on console in this task',
     ),
     region='display presets only; full internal region conversion is not implemented',

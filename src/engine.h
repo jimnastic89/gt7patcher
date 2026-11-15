@@ -6,6 +6,10 @@ typedef struct {int pid;uint64_t object;uint32_t amount;} Gt7Credits;
 typedef struct {int pid;uint32_t model_code,sequence;int8_t front,rear;} Gt7WheelWidth;
 typedef struct {int pid;uint32_t model_code;int8_t inch_up;int16_t offset_front,offset_rear,hub_front,hub_rear;} Gt7WheelGeometry;
 typedef struct {int pid;uint32_t model_code;uint8_t category;} Gt7EngineSwap;
+typedef struct {
+    int pid;
+    uint32_t normal_multiplier, fast_multiplier, vertical_multiplier;
+} Gt7FreeCamera;
 /* Physics rev limiter: the u16 maximum-RPM field of the active car's engine
  * spec object. `increase` is the user's requested RPM bump on top of the
  * car's native limit (0 = none); `native_rpm` is that native limit and
@@ -46,6 +50,9 @@ int gt7_rev_limit_read(Gt7RevLimit *out);
 int gt7_rev_limit_set(const Gt7RevLimit *expected,uint16_t increase);
 /* Re-apply a stored increase after a car change; safe to call every tick. */
 int gt7_rev_limit_tick(void);
+int gt7_free_camera_read(Gt7FreeCamera *out);
+int gt7_free_camera_set(const Gt7FreeCamera *expected, uint32_t normal_multiplier,
+                       uint32_t fast_multiplier, uint32_t vertical_multiplier);
 int gt7_live_ready(void);
 int gt7_live_arm_credit_input(void);
 int gt7_live_credit_prompt_begin(void);

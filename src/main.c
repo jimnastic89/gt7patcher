@@ -35,7 +35,7 @@ typedef struct
 } AppInfo;
 extern int sceKernelGetAppInfo(pid_t, AppInfo *);
 #endif
-#define VERSION "0.40"
+#define VERSION "00.42.26-11-15_2245"
 #define WEB_HUD_EDITOR 0
 #ifndef PORT
 #define PORT 7210
@@ -43,6 +43,10 @@ extern int sceKernelGetAppInfo(pid_t, AppInfo *);
 static const char *root = "/data/gt7p";
 static char token[33], message[256] = "";
 static Config config;
+static int live_settings_enabled(void)
+{
+    return (config.mask & LIVE_SETTINGS_BIT) != 0;
+}
 #ifndef PS5
 /* Host preview: the live bridge and its pad shortcut exist only on PS5. */
 static void gt7_live_pad_configure(int enabled) { (void)enabled; }
@@ -1310,6 +1314,20 @@ static void json_status(int fd)
     else
 #endif
         n += (size_t)snprintf(body + n, sizeof(body) - n, "\"available\":false,\"maxRpm\":null,\"idleRpm\":null,\"redRpm\":null,\"nativeRpm\":null,\"increase\":null,\"applied\":false,\"dialAddr\":null,\"dialScale\":null,\"dialRed\":null");
+    n += (size_t)snprintf(body + n, sizeof(body) - n, "},\"freeCamera\":{");
+#ifdef PS5
+    Gt7FreeCamera free_camera;
+    if ((config.mask & (FREE_PHOTO_CAMERA_BIT | LIVE_SETTINGS_BIT)) == (FREE_PHOTO_CAMERA_BIT | LIVE_SETTINGS_BIT) && !atomic_load(&startup_pending) && game_running > 0 && !gt7_free_camera_read(&free_camera))
+        n += (size_t)snprintf(body + n, sizeof(body) - n,
+            "\"available\":true,\"normalMultiplier\":%u,\"fastMultiplier\":%u,\"verticalMultiplier\":%u,"
+            "\"nativeNormalMultiplier\":6,\"nativeFastMultiplier\":12,\"nativeVerticalMultiplier\":1",
+            (unsigned)free_camera.normal_multiplier, (unsigned)free_camera.fast_multiplier,
+            (unsigned)free_camera.vertical_multiplier);
+    else
+#endif
+        n += (size_t)snprintf(body + n, sizeof(body) - n,
+            "\"available\":false,\"normalMultiplier\":null,\"fastMultiplier\":null,\"verticalMultiplier\":null,"
+            "\"nativeNormalMultiplier\":6,\"nativeFastMultiplier\":12,\"nativeVerticalMultiplier\":1");
     snprintf(body + n, sizeof(body) - n, "}}}");
     response(fd, 200, "application/json", body);
 }
@@ -2038,9 +2056,14 @@ static void serve(int fd)
         received += (size_t)r;
     }
     body[length] = 0;
-    if (strncmp(path, "/api/live/probe", 15) && strncmp(path, "/api/live/menu-call", 19) && strcmp(path, "/api/live/snapshot") && strcmp(path, "/api/live/snapshot/clear") && strcmp(path, "/api/config") && strcmp(path, "/api/live/credit-input") && strcmp(path, "/api/live/wheel-width") && strcmp(path, "/api/live/wheel-geometry") && strcmp(path, "/api/live/engine-swap") && strcmp(path, "/api/live/rev-limit") && strncmp(path, "/api/live/hud", 13) && strcmp(path, "/api/start") && strcmp(path, "/api/game/start") && strcmp(path, "/api/shortcut/reinstall") && strcmp(path, "/api/engine/stop") && strcmp(path, "/api/payload/stop"))
+    if (strncmp(path, "/api/live/probe", 15) && strncmp(path, "/api/live/menu-call", 19) && strncmp(path, "/api/live/snapshot", 18) && strcmp(path, "/api/live/snapshot/clear") && strcmp(path, "/api/config") && strcmp(path, "/api/live/credit-input") && strcmp(path, "/api/live/wheel-width") && strcmp(path, "/api/live/wheel-geometry") && strcmp(path, "/api/live/engine-swap") && strcmp(path, "/api/live/rev-limit") && strcmp(path, "/api/live/free-camera") && strncmp(path, "/api/live/hud", 13) && strcmp(path, "/api/start") && strcmp(path, "/api/game/start") && strcmp(path, "/api/shortcut/reinstall") && strcmp(path, "/api/engine/stop") && strcmp(path, "/api/payload/stop"))
     {
         response(fd, 404, "text/plain", "Not found");
+        return;
+    }
+    if (!strncmp(path, "/api/live/", 10) && !live_settings_enabled())
+    {
+        response(fd, 409, "text/plain", "Select and save the Live Settings patch first.");
         return;
     }
 #ifdef PS5
@@ -2149,7 +2172,7 @@ static void serve(int fd)
         return;
 #endif
     }
-    if (!strcmp(path, "/api/live/snapshot"))
+    if (!strncmp(path, "/api/live/snapshot", 18))
     {
         /* Temporary diagnostic: store a memory snapshot in the payload. Remove before release. */
         if (length)
@@ -2473,6 +2496,56 @@ static void serve(int fd)
         return;
 #endif
     }
+    if (!strcmp(path, "/api/live/free-camera"))
+    {
+        unsigned normal_multiplier, fast_multiplier, vertical_multiplier;
+        unsigned expected_normal, expected_fast, expected_vertical;
+        int consumed = 0;
+        char canonical[128];
+        const char *format = "normal=%u&fast=%u&vertical=%u&expectedNormal=%u&expectedFast=%u&expectedVertical=%u";
+        if (length >= sizeof(canonical) ||
+            sscanf(body, "normal=%u&fast=%u&vertical=%u&expectedNormal=%u&expectedFast=%u&expectedVertical=%u%n",
+                   &normal_multiplier, &fast_multiplier, &vertical_multiplier,
+                   &expected_normal, &expected_fast, &expected_vertical, &consumed) != 6 ||
+            consumed != (int)length ||
+            normal_multiplier < 6 || normal_multiplier > 1000 ||
+            fast_multiplier < 12 || fast_multiplier > 1000 ||
+            vertical_multiplier < 1 || vertical_multiplier > 1000 ||
+            expected_normal < 6 || expected_normal > 1000 ||
+            expected_fast < 12 || expected_fast > 1000 ||
+            expected_vertical < 1 || expected_vertical > 1000)
+        {
+            response(fd, 400, "text/plain", "Use normal 6-1000x, fast 12-1000x and vertical 1-1000x with the current camera sample.");
+            return;
+        }
+        snprintf(canonical, sizeof(canonical), format, normal_multiplier, fast_multiplier,
+                 vertical_multiplier, expected_normal, expected_fast, expected_vertical);
+        if (strcmp(body, canonical))
+        {
+            response(fd, 400, "text/plain", "Invalid free-camera request.");
+            return;
+        }
+        if (!(config.mask & FREE_PHOTO_CAMERA_BIT))
+        {
+            response(fd, 409, "text/plain", "Select and save the Free Photo Mode Camera patch first.");
+            return;
+        }
+#ifdef PS5
+        Gt7FreeCamera before = {0, expected_normal, expected_fast, expected_vertical};
+        int result = gt7_free_camera_set(&before, normal_multiplier, fast_multiplier, vertical_multiplier);
+        if (result)
+        {
+            response(fd, 409, "text/plain", result == -2 ? "The camera multiplier changed since the last refresh. Refresh and retry." : "The free-camera multiplier could not be updated. Start GT7 with the camera patch selected.");
+            return;
+        }
+        strcpy(message, "Free-camera movement multipliers applied.");
+        json_status(fd);
+        return;
+#else
+        response(fd, 409, "text/plain", "Free-camera editing is only available while supported GT7 is running on PS5.");
+        return;
+#endif
+    }
     if (!strcmp(path, "/api/payload/stop"))
     {
         if (length)
@@ -2605,7 +2678,14 @@ static void serve(int fd)
             response(fd, 500, "text/plain", "Could not save the patch snapshot; previous settings retained.");
             return;
         }
+#ifdef PS5
+        int had_live_settings = live_settings_enabled();
+#endif
         config = next;
+#ifdef PS5
+        if (had_live_settings && !live_settings_enabled())
+            gt7_live_configure(0);
+#endif
         message[0] = 0;
     }
     json_status(fd);
@@ -2709,16 +2789,22 @@ int main(int argc, char **argv)
             {
                 gt7_live_pad_poll();
                 hud_tick();
-                gt7_live_credit_auto_poll();
-                gt7_rev_limit_tick();
+                if (live_settings_enabled())
+                {
+                    gt7_live_credit_auto_poll();
+                    gt7_rev_limit_tick();
+                }
             }
             else if (game == 0)
                 race_menu_reload();
 #else
             gt7_live_pad_poll();
             hud_tick();
-            gt7_live_credit_auto_poll();
-            gt7_rev_limit_tick();
+            if (live_settings_enabled())
+            {
+                gt7_live_credit_auto_poll();
+                gt7_rev_limit_tick();
+            }
 #endif
             continue;
         }
