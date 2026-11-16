@@ -35,8 +35,7 @@ typedef struct
 } AppInfo;
 extern int sceKernelGetAppInfo(pid_t, AppInfo *);
 #endif
-#define VERSION "00.42.26-11-16_0009"
-#define WEB_HUD_EDITOR 0
+#define VERSION "00.42.26-11-16_1232"
 #ifndef PORT
 #define PORT 7210
 #endif
@@ -448,21 +447,11 @@ static int running_gt7(void)
     return 0;
 #endif
 }
-/* Persisted in-race HUD hide list, one entry per line in <root>/hud.txt. An
- * entry containing '/' is a widget path (RaceDisplay/Container/.../TCS) and
- * matches exactly that widget; an entry without one is a bare widget name and
- * matches every widget with that name. It is re-pushed to the live bridge
- * whenever the game is running so a selection survives races and game restarts.
- * Paths are what let a HUD element be hidden without also hiding a pause-menu
- * row that merely shares its name. */
-static char hud_path[512];
-/* Saved HUD group layout (<root>/hud_layout.json). The page owns the schema and
- * the payload stores it verbatim, so every browser that connects sees the same
- * grouping and the same custom item names. */
-static char hud_layout_path[512];
+#ifdef PS5
+/* The compiled Race Info Display selection is converted into widget paths and
+ * re-pushed to the live bridge whenever the game is running. */
 static char hud_hidden[LIVE_HUD_MAX][LIVE_HUD_PATH];
 static unsigned hud_hidden_count;
-#ifdef PS5
 static Gt7Hud hud_state; /* ~6 KB: kept off the request thread's stack */
 typedef struct
 {
@@ -479,6 +468,7 @@ static unsigned race_menu_count;
 #define RACE_GROUP_COUNT (sizeof(race_menu_groups) / sizeof(race_menu_groups[0]))
 static uint8_t race_group_off[RACE_GROUP_COUNT];
 static char race_group_names[RACE_GROUP_COUNT][LIVE_MENU_LABEL];
+static int race_menu_discard_until_closed;
 static int race_apply_saved(void);
 static int race_menu_save(void);
 
@@ -777,54 +767,8 @@ static void race_menu_load(void)
     notify("Race Info Display: could not read JSON. Using the default menu.");
 }
 #endif
-static void hud_load(void)
-{
-    hud_hidden_count = 0;
-    FILE *f = fopen(hud_path, "rb");
-    if (!f)
-        return;
-    char line[LIVE_HUD_PATH + 8];
-    while (hud_hidden_count < LIVE_HUD_MAX && fgets(line, sizeof(line), f))
-    {
-        size_t n = strlen(line);
-        while (n && (line[n - 1] == '\n' || line[n - 1] == '\r'))
-            line[--n] = 0;
-        if (!n || n >= LIVE_HUD_PATH)
-            continue;
-        memcpy(hud_hidden[hud_hidden_count], line, n + 1);
-        hud_hidden_count++;
-    }
-    fclose(f);
-}
-static int hud_save(const char entries[][LIVE_HUD_PATH], unsigned count)
-{
-    char temp[sizeof(hud_path) + sizeof(".tmp")];
-    snprintf(temp, sizeof(temp), "%s.tmp", hud_path);
-    FILE *f = fopen(temp, "wb");
-    if (!f)
-        return -1;
-    int failed = 0;
-    for (unsigned i = 0; i < count; i++)
-        if (fprintf(f, "%s\n", entries[i]) < 0)
-        {
-            failed = 1;
-            break;
-        }
-    if (fclose(f) || failed || rename(temp, hud_path))
-    {
-        unlink(temp);
-        return -1;
-    }
-    return 0;
-}
-static void hud_push(void)
-{
 #ifdef PS5
-    gt7_hud_set((const char (*)[LIVE_HUD_PATH])hud_hidden, hud_hidden_count);
-#endif
-}
-#ifdef PS5
-/* The web editor considers a key covered when it or a slash-delimited
+/* A key is covered when it or a slash-delimited
  * ancestor is hidden. Group rows use the same rule. */
 static int hud_key_covers(const char *ancestor, const char *key)
 {
@@ -879,6 +823,12 @@ static void race_publish_hud(const HudKeyList *list)
     hud_hidden_count = list->count;
 }
 
+static void race_push_hud(void)
+{
+    if (running_gt7() > 0)
+        (void)gt7_hud_set((const char (*)[LIVE_HUD_PATH])hud_hidden, hud_hidden_count);
+}
+
 static int race_apply_saved(void)
 {
     static HudKeyList list;
@@ -924,6 +874,8 @@ static int race_menu_replace(const char *path, const char *json)
     if (!result)
     {
         race_publish_hud(&list);
+        race_push_hud();
+        race_menu_discard_until_closed = running_gt7() > 0;
         return 0;
     }
 
@@ -970,7 +922,10 @@ static const char *race_menu_toggle(unsigned index)
     if (error)
         race_group_off[group] ^= 1;
     else
+    {
         race_publish_hud(&next);
+        race_push_hud();
+    }
     return error;
 }
 
@@ -992,6 +947,15 @@ static void hud_menu_tick(void)
     {
         pid = hud_state.pid;
         handled = acknowledged;
+    }
+    if (race_menu_discard_until_closed)
+    {
+        handled = sequence;
+        if (!gt7_live_menu_active())
+            race_menu_discard_until_closed = 0;
+        if (handled != acknowledged)
+            gt7_live_menu_acknowledge(pid, handled, hidden, race_menu_count);
+        return;
     }
     if (sequence - handled > LIVE_MENU_EVENTS)
         return;
@@ -1033,52 +997,6 @@ static void hud_tick(void)
         gt7_hud_set((const char (*)[LIVE_HUD_PATH])hud_hidden, hud_hidden_count);
 #endif
 }
-#ifdef PS5
-/* Serialiser for GET /api/live/screen and /api/live/hud/tree. Paths hold only printable ASCII, but
- * a quote or backslash still needs escaping to keep the JSON well formed. */
-typedef struct
-{
-    char *body;
-    size_t cap, at;
-    int first;
-} HudTreeJson;
-static int hud_tree_emit(void *context, const Gt7HudNode *node)
-{
-    HudTreeJson *j = context;
-    if (j->at + 4u * LIVE_HUD_PATH + 128u > j->cap)
-        return 1; /* stop; the page shows what fits */
-    size_t n = j->at;
-    n += (size_t)snprintf(j->body + n, j->cap - n, "%s{\"p\":\"", j->first ? "" : ",");
-    j->first = 0;
-    for (const char *c = node->path; *c; c++)
-    {
-        if (*c == '"' || *c == '\\')
-            j->body[n++] = '\\';
-        j->body[n++] = *c;
-    }
-    n += (size_t)snprintf(j->body + n, j->cap - n, "\",\"d\":%u,\"h\":%d,\"a\":\"%#llx\",\"v\":\"%#llx\",\"c\":\"%#llx\",\"r\":[", node->depth, node->hidden, (unsigned long long)node->address, (unsigned long long)node->vtable, (unsigned long long)node->children);
-    for (unsigned i = 0; i < 8; i++)
-        n += (size_t)snprintf(j->body + n, j->cap - n, "%s%.6g", i ? "," : "", node->rect[i]);
-    n += (size_t)snprintf(j->body + n, j->cap - n, "]");
-    /* The pre-heap-name path, when it differs: the page treats it as an alias
-     * so a group saved earlier still shows its widgets as present. */
-    if (node->alt[0])
-    {
-        n += (size_t)snprintf(j->body + n, j->cap - n, ",\"q\":\"");
-        for (const char *c = node->alt; *c; c++)
-        {
-            if (*c == '"' || *c == '\\')
-                j->body[n++] = '\\';
-            j->body[n++] = *c;
-        }
-        j->body[n++] = '"';
-    }
-    j->body[n++] = '}';
-    j->body[n] = 0;
-    j->at = n;
-    return 0;
-}
-#endif
 static int engine_ready(void)
 {
 #ifdef PS5
@@ -1186,16 +1104,10 @@ static int initialize(void)
             unlink("/data/gt7p/patches/xml_prospero/PPSA01317.xml");
             rmdir(legacy_dirs[1]);
         }
-        unlink("/data/gt7p/patches/hud.txt");
-        unlink("/data/gt7p/patches/hud_layout.json");
         if (rmdir(legacy_dirs[0]) && errno != ENOENT)
             notify("GT7Patcher: legacy patches directory could not be removed.");
     }
 #endif
-    snprintf(hud_path, sizeof(hud_path), "%s/hud.txt", root);
-    snprintf(hud_layout_path, sizeof(hud_layout_path), "%s/hud_layout.json", root);
-    if (WEB_HUD_EDITOR)
-        hud_load();
 #ifdef PS5
     race_menu_load();
     if (!race_apply_saved())
@@ -1482,117 +1394,6 @@ static void serve(int fd)
             json[size] = 0;
             response(fd, valid ? 200 : 409, valid ? "application/json" : "text/plain",
                      valid ? json : "Could not read race-info-display.json.");
-            return;
-        }
-        else if (!strcmp(path, "/api/live/hud"))
-        {
-            /* In-race HUD hide list. Read-only here; the persisted selection is
-             * returned along with whether the live bridge is reachable. */
-            if (!authorized)
-            {
-                response(fd, 403, "text/plain", "Reload this page before reading HUD state.");
-                return;
-            }
-            static char body[LIVE_HUD_MAX * LIVE_HUD_PATH + 512];
-            int at;
-#ifdef PS5
-            int live = running_gt7() > 0 && !gt7_hud_read(&hud_state);
-            at = snprintf(body, sizeof(body), "{\"available\":%s,\"applied\":%u,\"sequence\":%u,\"hidden\":[", live ? "true" : "false", live ? hud_state.applied : 0, live ? hud_state.sequence : 0);
-#else
-            at = snprintf(body, sizeof(body), "{\"available\":false,\"applied\":0,\"sequence\":0,\"hidden\":[");
-#endif
-            for (unsigned i = 0; i < hud_hidden_count && at > 0 && at < (int)sizeof(body) - 128; i++)
-                at += snprintf(body + at, sizeof(body) - at, "%s\"%s\"", i ? "," : "", hud_hidden[i]);
-            if (at > 0 && at < (int)sizeof(body) - 8)
-                snprintf(body + at, sizeof(body) - at, "]}");
-            response(fd, 200, "application/json", body);
-            return;
-        }
-        else if (!strcmp(path, "/api/live/hud/tree") || !strcmp(path, "/api/live/screen"))
-        {
-            /* Live MENU widget tree for the UI's expandable groups. Every named
-             * widget is reported with the full path the bridge matches on, its
-             * depth and whether it is currently hidden. The in-car and bumper
-             * root windows carry the same widgets, so duplicates are expected;
-             * the page merges them by path. */
-            if (!authorized)
-            {
-                response(fd, 403, "text/plain", "Reload this page before reading screen state.");
-                return;
-            }
-#ifdef PS5
-            if (running_gt7() <= 0)
-            {
-                response(fd, 409, "text/plain", "The live widget tree is unavailable while supported GT7 is not running.");
-                return;
-            }
-            size_t cap = 512u * 1024u;
-            char *body = malloc(cap);
-            if (!body)
-            {
-                response(fd, 500, "text/plain", "Out of memory");
-                return;
-            }
-            HudTreeJson j = {body, cap, 0, 1};
-            j.at = (size_t)snprintf(body, cap, "{\"available\":true,\"nodes\":[");
-            if (gt7_hud_tree(hud_tree_emit, &j))
-            {
-                free(body);
-                response(fd, 409, "text/plain", "The live widget tree is unavailable while supported GT7 is not running.");
-                return;
-            }
-            snprintf(body + j.at, cap - j.at, "]}");
-            response(fd, 200, "application/json", body);
-            free(body);
-            return;
-#else
-            response(fd, 409, "text/plain", "The live widget tree is only available while supported GT7 is running on PS5.");
-            return;
-#endif
-        }
-        else if (WEB_HUD_EDITOR && !strcmp(path, "/api/live/hud/layout"))
-        {
-            /* Saved HUD group layout. Returned verbatim so every browser shows
-             * the same grouping; an empty object means nothing is saved yet and
-             * the page should upload what it has. */
-            if (!authorized)
-            {
-                response(fd, 403, "text/plain", "Reload this page before reading the HUD layout.");
-                return;
-            }
-            const char *empty = "{\"groups\":[],\"names\":{}}";
-            FILE *f = fopen(hud_layout_path, "rb");
-            if (!f)
-            {
-                response(fd, 200, "application/json", empty);
-                return;
-            }
-            long len = 0;
-            if (fseek(f, 0, SEEK_END) || (len = ftell(f)) < 0 || len > 262144)
-            {
-                fclose(f);
-                response(fd, 200, "application/json", empty);
-                return;
-            }
-            rewind(f);
-            char *body = malloc((size_t)len + 1);
-            if (!body)
-            {
-                fclose(f);
-                response(fd, 500, "text/plain", "Out of memory");
-                return;
-            }
-            size_t n = fread(body, 1, (size_t)len, f);
-            fclose(f);
-            body[n] = 0;
-            if (!n)
-            {
-                free(body);
-                response(fd, 200, "application/json", empty);
-                return;
-            }
-            response(fd, 200, "application/json", body);
-            free(body);
             return;
         }
         else if (!strncmp(path, "/api/live/dump", 14))
@@ -2056,7 +1857,7 @@ static void serve(int fd)
         received += (size_t)r;
     }
     body[length] = 0;
-    if (strncmp(path, "/api/live/probe", 15) && strncmp(path, "/api/live/menu-call", 19) && strncmp(path, "/api/live/snapshot", 18) && strcmp(path, "/api/live/snapshot/clear") && strcmp(path, "/api/config") && strcmp(path, "/api/live/credit-input") && strcmp(path, "/api/live/wheel-width") && strcmp(path, "/api/live/wheel-geometry") && strcmp(path, "/api/live/engine-swap") && strcmp(path, "/api/live/rev-limit") && strcmp(path, "/api/live/free-camera") && strncmp(path, "/api/live/hud", 13) && strcmp(path, "/api/start") && strcmp(path, "/api/game/start") && strcmp(path, "/api/shortcut/reinstall") && strcmp(path, "/api/engine/stop") && strcmp(path, "/api/payload/stop"))
+    if (strncmp(path, "/api/live/probe", 15) && strncmp(path, "/api/live/menu-call", 19) && strncmp(path, "/api/live/snapshot", 18) && strcmp(path, "/api/live/snapshot/clear") && strcmp(path, "/api/config") && strcmp(path, "/api/live/credit-input") && strcmp(path, "/api/live/wheel-width") && strcmp(path, "/api/live/wheel-geometry") && strcmp(path, "/api/live/engine-swap") && strcmp(path, "/api/live/rev-limit") && strcmp(path, "/api/live/free-camera") && strcmp(path, "/api/live/hud/config") && strcmp(path, "/api/start") && strcmp(path, "/api/game/start") && strcmp(path, "/api/shortcut/reinstall") && strcmp(path, "/api/engine/stop") && strcmp(path, "/api/payload/stop"))
     {
         response(fd, 404, "text/plain", "Not found");
         return;
@@ -2315,11 +2116,6 @@ static void serve(int fd)
     if (!strcmp(path, "/api/live/hud/config"))
     {
 #ifdef PS5
-        if (running_gt7() != 0)
-        {
-            response(fd, 409, "text/plain", "Close GT7 before saving Race Info Display settings.");
-            return;
-        }
         char file_path[512];
         int n = snprintf(file_path, sizeof(file_path), "%s/race-info-display.json", root);
         int result = n < 0 || (size_t)n >= sizeof(file_path) ? -2 :
@@ -2332,92 +2128,6 @@ static void serve(int fd)
 #else
         response(fd, 409, "text/plain", "Saving Race Info Display settings requires the PS5 payload.");
 #endif
-        return;
-    }
-    if (WEB_HUD_EDITOR && !strcmp(path, "/api/live/hud"))
-    {
-        /* Body: newline-separated MENU widget paths or names to hide. An empty
-         * body clears the list. The selection is persisted and pushed live. */
-        static char names[LIVE_HUD_MAX][LIVE_HUD_PATH];
-        unsigned count = 0;
-        int too_many = 0;
-        for (char *p = body; *p;)
-        {
-            char *e = strchr(p, '\n');
-            size_t n = e ? (size_t)(e - p) : strlen(p);
-            while (n && (p[n - 1] == '\r' || p[n - 1] == ' '))
-                n--;
-            if (n && n < LIVE_HUD_PATH)
-            {
-                int ok = 1;
-                for (size_t i = 0; i < n; i++)
-                {
-                    unsigned char c = (unsigned char)p[i];
-                    if (c < 0x20 || c > 0x7e)
-                        ok = 0;
-                }
-                if (ok)
-                {
-                    if (count < LIVE_HUD_MAX)
-                    {
-                        memcpy(names[count], p, n);
-                        names[count][n] = 0;
-                        count++;
-                    }
-                    else
-                        too_many = 1;
-                }
-            }
-            if (!e)
-                break;
-            p = e + 1;
-        }
-        if (too_many)
-        {
-            char m[80];
-            snprintf(m, sizeof(m), "Too many HUD entries; at most %u can be hidden.", (unsigned)LIVE_HUD_MAX);
-            response(fd, 400, "text/plain", m);
-            return;
-        }
-        if (hud_save(names, count))
-        {
-            response(fd, 500, "text/plain", "Could not save the HUD selection.");
-            return;
-        }
-        memcpy(hud_hidden, names, sizeof(hud_hidden));
-        hud_hidden_count = count;
-        hud_push();
-        response(fd, 200, "text/plain", "HUD selection saved.");
-        return;
-    }
-    if (WEB_HUD_EDITOR && !strcmp(path, "/api/live/hud/layout"))
-    {
-        /* Body: the JSON group layout the page keeps ({groups,names}). Stored
-         * verbatim; independent of whether GT7 is running. */
-        if (!length)
-        {
-            response(fd, 400, "text/plain", "Expected a layout body");
-            return;
-        }
-        if (body[0] != '{')
-        {
-            response(fd, 400, "text/plain", "Expected a JSON object");
-            return;
-        }
-        FILE *f = fopen(hud_layout_path, "wb");
-        if (!f)
-        {
-            response(fd, 500, "text/plain", "Could not save the HUD layout.");
-            return;
-        }
-        size_t written = fwrite(body, 1, length, f);
-        int failed = fclose(f) != 0 || written != length;
-        if (failed)
-        {
-            response(fd, 500, "text/plain", "Could not save the HUD layout.");
-            return;
-        }
-        response(fd, 200, "application/json", "{\"saved\":true}");
         return;
     }
     if (!strcmp(path, "/api/live/engine-swap"))

@@ -20,16 +20,6 @@ typedef struct {int pid;uint32_t state,result,amount,chars,dbg_got,dbg_end,dbg_s
 /* HUD visibility: the set of MENU widget keys (paths, or bare names) the
  * bridge is hiding. The field order mirrors the mailbox tail. */
 typedef struct {int pid;uint32_t count,sequence,applied,reserved;char entries[LIVE_HUD_MAX][LIVE_HUD_PATH];} Gt7Hud;
-/* One named widget in the live tree, as published to the web UI. `depth` is the
- * indentation level and `hidden` reports whether its layout rect is zeroed.
- * `alt` is the path an older reader would have built (empty when it matches
- * `path`): it keeps a group saved before heap-allocated widget names were
- * decoded from losing sight of its widgets. */
-typedef struct {
-    char path[LIVE_HUD_PATH];char alt[LIVE_HUD_PATH];unsigned depth;
-    uintptr_t address,vtable,children;
-    float rect[8];int hidden;
-} Gt7HudNode;
 int gt7_credits_read(Gt7Credits *out);
 int gt7_credits_set(const Gt7Credits *expected,uint32_t amount);
 int gt7_wheel_width_read(Gt7WheelWidth *out);
@@ -39,10 +29,6 @@ int gt7_wheel_geometry_set(const Gt7WheelGeometry *expected,int8_t inch_up,int16
 int gt7_engine_swap_read(Gt7EngineSwap *out);
 int gt7_hud_read(Gt7Hud *out);
 int gt7_hud_set(const char (*entries)[LIVE_HUD_PATH],uint32_t count);
-/* Walk the live MENU widget tree and hand every named widget to emit (return
- * non-zero from emit to stop early). Paths are built exactly as the bridge
- * builds them, so a path selected in the UI matches at runtime. */
-int gt7_hud_tree(int (*emit)(void *context,const Gt7HudNode *node),void *context);
 int gt7_engine_swap_set(const Gt7EngineSwap *expected,uint8_t category,int unlock);
 /* Read the active car's rev limiter and set an RPM increase. Only the limiter
  * field (spec+0x298) is ever written; live engine RPM is never modified. */
@@ -89,6 +75,7 @@ int gt7_live_menu_call(uintptr_t target,uintptr_t receiver,unsigned argc,uintptr
 int gt7_live_menu_sync(int expected_pid, const char labels[][LIVE_MENU_LABEL],
                        const uint8_t *hidden, uint32_t count, uint32_t *acknowledged,
                        uint8_t events[LIVE_MENU_EVENTS], uint32_t *sequence);
+int gt7_live_menu_active(void);
 int gt7_live_menu_acknowledge(int expected_pid, uint32_t sequence,
                               const uint8_t *hidden, uint32_t count);
 void gt7_live_configure(int enabled);

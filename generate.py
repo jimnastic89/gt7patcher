@@ -1,6 +1,5 @@
 """Prepare reproducible, embedded assets for GT7Patcher."""
 import base64
-import ast
 import hashlib
 import json
 from pathlib import Path
@@ -45,10 +44,8 @@ REMOVED_RACE_GROUPS = {
 
 def generate_race_menu_groups():
     BUILD.mkdir(exist_ok=True)
-    html = (HERE / 'web/index.html').read_text(encoding='utf-8')
-    source = re.search(r'const HUD_GROUPS_DEFAULT = (\[\n.*?\n    \])', html, re.S)
-    groups = ast.literal_eval(source[1])
-    out = ['/* Generated from the web editor HUD groups. */']
+    groups = json.loads((HERE / 'data/race_menu_groups.json').read_text(encoding='utf-8'))
+    out = ['/* Generated from data/race_menu_groups.json. */']
     total = 0
     entries = []
     catalog = []

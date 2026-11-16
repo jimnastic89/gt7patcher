@@ -1254,6 +1254,8 @@ int gt7_live_menu_call(uintptr_t target, uintptr_t receiver, unsigned argc,
     return -3;
 }
 
+static int live_menu_active;
+
 int gt7_live_menu_sync(int expected_pid, const char labels[][LIVE_MENU_LABEL],
                        const uint8_t *hidden, uint32_t count, uint32_t *acknowledged,
                        uint8_t events[LIVE_MENU_EVENTS], uint32_t *sequence)
@@ -1269,6 +1271,7 @@ int gt7_live_menu_sync(int expected_pid, const char labels[][LIVE_MENU_LABEL],
     static LiveMenuControl current;
     if (read_mem(pid, control, &current, sizeof(current)))
         return -1;
+    live_menu_active = state.menu_active_option != 0;
     if (!state.menu_count)
     {
         if (base != LIVE_IMAGE_BASE || !menu_copy_available(pid) ||
@@ -1301,6 +1304,11 @@ int gt7_live_menu_sync(int expected_pid, const char labels[][LIVE_MENU_LABEL],
         state.menu_call_state != MENU_CALL_QUEUED)
         (void)menu_queue(pid, address, &state, state.menu_candidate, 1);
     return 0;
+}
+
+int gt7_live_menu_active(void)
+{
+    return live_menu_active;
 }
 
 int gt7_live_menu_acknowledge(int expected_pid, uint32_t sequence,
@@ -2015,130 +2023,6 @@ int gt7_hud_set(const char (*entries)[LIVE_HUD_PATH],uint32_t count){
     uint32_t sequence=state.hud_sequence+1;
     if(verified_write(pid,address+offsetof(LiveMailbox,hud_count),&count,4))return -1;
     if(verified_write(pid,address+offsetof(LiveMailbox,hud_sequence),&sequence,4))return -1;
-    return 0;
-}
-/* ---------------------------------------------------------------------------
- * Live widget-tree dump for the web UI. The payload walks the game's MENU tree
- * through the same offsets the bridge uses (hud_tree.h) and reports every named
- * widget with its path, depth and current hidden state. Paths are built exactly
- * as the bridge builds them, so a path selected in the UI matches at runtime.
- */
-#define HUD_TREE_MAX_NODES 2048
-#define HUD_TREE_MAX_VISITS 20000
-typedef struct {
-    pid_t pid;uintptr_t base;
-    int (*emit)(void *context,const Gt7HudNode *node);
-    void *context;int count,visited;
-} HudTreeWalk;
-/* Read a widget name. Returns 0 when there is none, 1 for an inline name and 2
- * for a heap-allocated one: the caller needs the distinction to keep building
- * the compatibility path (see hud_tree_node). The name object is a
- * small-string-optimised string, so a long name is reached through the pointer
- * the object holds rather than sitting at the object itself. Reading only the
- * inline form is what made the SteerAssist_icon / BrakeAssist_icon widgets look
- * unnamed and their layers collide. */
-static int hud_read_name(pid_t pid,uintptr_t p,char *out){
-    if(!hud_ptr(p))return 0;
-    unsigned char blk[HUD_OFF_NAME_CAP+8];
-    if(read_mem(pid,p,blk,sizeof(blk)))return 0;
-    const unsigned char *raw=blk;
-    unsigned char heap[LIVE_HUD_NAME];
-    uint64_t len=*(uint64_t *)(blk+HUD_OFF_NAME_LEN),cap=*(uint64_t *)(blk+HUD_OFF_NAME_CAP);
-    if(len>HUD_NAME_INLINE&&cap>=len&&len<LIVE_HUD_NAME){
-        uintptr_t text=*(uintptr_t *)blk;
-        if(!hud_ptr(text))return 0;
-        if(read_mem(pid,text,heap,sizeof(heap)))return 0;
-        raw=heap;
-    }
-    unsigned i=0;for(;i<LIVE_HUD_NAME-1;i++){if(!raw[i])break;out[i]=(char)raw[i];}
-    out[i]=0;
-    if(!hud_name_ok(out,i))return 0;
-    return (len>HUD_NAME_INLINE)?2:1;
-}
-static void hud_tree_children(HudTreeWalk *w,uintptr_t node,unsigned depth,HudPath *path,HudPath *alias);
-/* `alias` is the path the old reader would have built: the same path with the
- * heap-allocated widget names left out. It is published alongside the real path
- * so a group saved before those names were decoded still recognises its
- * widgets; the bridge matches on it too. */
-static void hud_tree_node(HudTreeWalk *w,uintptr_t node,unsigned depth,HudPath *path,HudPath *alias){
-    if(depth>HUD_MAX_DEPTH||w->count>=HUD_TREE_MAX_NODES||++w->visited>HUD_TREE_MAX_VISITS)return;
-    unsigned char blk[HUD_OFF_RECT+HUD_RECT_LEN];
-    if(read_mem(w->pid,node,blk,sizeof(blk)))return;
-    unsigned save=path->len,asave=alias->len;
-    char nm[LIVE_HUD_NAME];
-    int kind=hud_read_name(w->pid,*(uintptr_t *)(blk+HUD_OFF_NAME),nm);
-    if(kind){
-        /* The bridge skips a subtree whose path will not fit, so the dump must
-         * skip it too or the UI would offer unselectable paths. */
-        if(!hud_path_push(path,nm))return;
-        if(kind==1&&!hud_path_push(alias,nm)){alias->len=asave;alias->buf[asave]=0;}
-        Gt7HudNode out;
-        memset(&out,0,sizeof(out));
-        memcpy(out.path,path->buf,LIVE_HUD_PATH);
-        if(alias->len!=path->len)memcpy(out.alt,alias->buf,LIVE_HUD_PATH);
-        out.depth=depth;out.address=node;out.vtable=*(uintptr_t *)blk;out.children=*(uintptr_t *)(blk+HUD_OFF_CHILDREN);
-        memcpy(out.rect,blk+HUD_OFF_RECT,sizeof(out.rect));
-        int hidden=1;
-        for(unsigned i=0;i<8;i++){float v;memcpy(&v,blk+HUD_OFF_RECT+4*i,4);if(v!=0.0f){hidden=0;break;}}
-        out.hidden=hidden;
-        w->count++;
-        if(w->emit(w->context,&out)){path->len=save;path->buf[save]=0;alias->len=asave;alias->buf[asave]=0;return;}
-    }
-    hud_tree_children(w,node,depth+1,path,alias);
-    path->len=save;path->buf[save]=0;alias->len=asave;alias->buf[asave]=0;
-}
-static void hud_tree_children(HudTreeWalk *w,uintptr_t node,unsigned depth,HudPath *path,HudPath *alias){
-    unsigned char blk[HUD_OFF_CHILDREN+8];
-    if(read_mem(w->pid,node,blk,sizeof(blk)))return;
-    uintptr_t nl=*(uintptr_t *)(blk+HUD_OFF_CHILDREN);
-    if(!hud_ptr(nl))return;
-    unsigned char head[0x48];
-    if(read_mem(w->pid,nl,head,sizeof(head)))return;
-    if(*(uintptr_t *)head!=w->base+HUD_NLW_RVA)return;
-    uintptr_t vb=*(uintptr_t *)(head+0x38),ve=*(uintptr_t *)(head+0x40);
-    if(!hud_ptr(vb)||ve<vb||(ve-vb)>8u*4096u)return;
-    uintptr_t n=(ve-vb)/8;
-    uintptr_t *kids=malloc(n*8);
-    if(!kids)return;
-    if(read_mem(w->pid,vb,kids,n*8)){free(kids);return;}
-    for(uintptr_t i=0;i<n;i++){uintptr_t c=kids[i];if(hud_ptr(c))hud_tree_node(w,c,depth,path,alias);}
-    free(kids);
-}
-int gt7_hud_tree(int (*emit)(void *context,const Gt7HudNode *node),void *context){
-    pid_t pid;uintptr_t base,address;LiveMailbox state;
-    if(!emit||credits_game(&pid,&base)||live_resolve(pid,base,&address,&state)||!state.enabled||!state.heartbeat)return -1;
-    uintptr_t ctx=state.context,ctx_vt;
-    if(!hud_ptr(base)||!hud_ptr(ctx))return -1;
-    if(read_mem(pid,ctx,&ctx_vt,8)||ctx_vt!=base+HUD_UPDATE_VT_RVA)return -1;
-    HudTreeWalk w={pid,base,emit,context,0,0};
-    HudPath path;path.len=0;path.buf[0]=0;
-    HudPath alias;alias.len=0;alias.buf[0]=0;
-    unsigned char rcs[6*8];
-    if(read_mem(pid,ctx+0x698,rcs,sizeof(rcs)))return -1;
-    for(unsigned i=0;i<6;i++){
-        uintptr_t rc=*(uintptr_t *)(rcs+8*i);
-        if(!hud_ptr(rc))continue;
-        uintptr_t vt;
-        if(read_mem(pid,rc,&vt,8))continue;
-        if(vt!=base+HUD_RENDER_VT_RVA)continue;
-        unsigned char vec[0x10];
-        if(read_mem(pid,rc+0x1e8,vec,sizeof(vec)))continue;
-        uintptr_t rb=*(uintptr_t *)vec,re=*(uintptr_t *)(vec+8);
-        if(!hud_ptr(rb)||re<rb||(re-rb)>8u*64u)continue;
-        uintptr_t n=(re-rb)/8;
-        uintptr_t *rws=malloc(n*8);
-        if(!rws)continue;
-        if(read_mem(pid,rb,rws,n*8)){free(rws);continue;}
-        for(uintptr_t k=0;k<n;k++){
-            uintptr_t rw=rws[k];
-            if(!hud_ptr(rw))continue;
-            uintptr_t rvt;
-            if(read_mem(pid,rw,&rvt,8))continue;
-            if(rvt!=base+HUD_ROOT_VT_RVA)continue;
-            hud_tree_children(&w,rw,0,&path,&alias);
-        }
-        free(rws);
-    }
     return 0;
 }
 static int bridge_prepare(void){
