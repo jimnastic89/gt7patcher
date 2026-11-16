@@ -56,7 +56,13 @@ Install [ps5-payload-sdk](https://github.com/ps5-payload-dev/sdk) at `/opt/ps5-p
 make all
 ```
 
-The payload is written to `build/gt7patcher.elf`.
+The normal development build is written to `build/gt7patcher.elf` with the
+optional live-memory inspection and instrumentation API enabled, so the same
+payload can be used while investigating the game.
+
+Before packaging a release, run `make release`. This rebuilds the same
+`build/gt7patcher.elf` path without the diagnostic API, after which
+`python3 package.py` creates the release archive.
 
 To create a release archive:
 

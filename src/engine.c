@@ -906,7 +906,8 @@ int gt7_live_credit_prompt_read(Gt7CreditPrompt *out)
     *out = (Gt7CreditPrompt){pid, state.prompt_state, state.prompt_result, state.prompt_amount, state.prompt_chars, state.prompt_reserved, state.prompt_dbg_end, state.prompt_dbg_status, state.ime_user_id};
     return 0;
 }
-/* Temporary read-only diagnostics. Remove before release. */
+#ifdef GT7_DIAGNOSTICS
+/* Optional live-memory inspection and instrumentation. */
 /* ------------------------------------------------------------------------
  * Hook slots.
  *
@@ -2004,6 +2005,7 @@ int gt7_live_probe_history(uintptr_t *words, uint32_t count, uint32_t *next)
         *next = cursor;
     return 0;
 }
+#endif
 static int menu_clone_name(pid_t pid, uintptr_t node, const char *expected)
 {
     uintptr_t name;
@@ -2244,6 +2246,7 @@ static int menu_queue(pid_t pid, uintptr_t address, const LiveMailbox *state,
     return 0;
 }
 
+#ifdef GT7_DIAGNOSTICS
 int gt7_live_menu_call(uintptr_t target, uintptr_t receiver, unsigned argc,
                        uintptr_t args, unsigned *result)
 {
@@ -2270,6 +2273,7 @@ int gt7_live_menu_call(uintptr_t target, uintptr_t receiver, unsigned argc,
     }
     return -3;
 }
+#endif
 
 static int live_menu_active;
 
@@ -2350,6 +2354,7 @@ int gt7_live_menu_acknowledge(int expected_pid, uint32_t sequence,
     return verified_write(pid, control + offsetof(LiveMenuControl, acknowledged),
                           &sequence, sizeof(sequence));
 }
+#ifdef GT7_DIAGNOSTICS
 int gt7_live_car_pointers(uintptr_t *implementation, uintptr_t *expanded, uintptr_t *style, uint32_t *model_code, uint32_t *sequence)
 {
     pid_t pid;
@@ -2592,6 +2597,7 @@ int gt7_live_peek(uintptr_t address, void *buffer, uint32_t length)
         return -1;
     return read_mem(pid, address, buffer, length) ? -1 : 0;
 }
+#endif
 
 int gt7_live_ready(void)
 {
@@ -2615,7 +2621,7 @@ void gt7_live_configure(int enabled)
     uint32_t value = enabled ? 1U : 0U;
     (void)verified_write(pid, address + offsetof(LiveMailbox, enabled), &value, sizeof(value));
 }
-#ifdef GT7_LIVE_TEST
+#if defined(GT7_LIVE_TEST) && defined(GT7_DIAGNOSTICS)
 int gt7_live_test_attach(void)
 {
     pid_t pid;

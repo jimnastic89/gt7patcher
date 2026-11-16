@@ -35,7 +35,7 @@ typedef struct
 } AppInfo;
 extern int sceKernelGetAppInfo(pid_t, AppInfo *);
 #endif
-#define VERSION "00.42.26-11-16_1312"
+#define VERSION "00.42.26-11-16_1414"
 #ifndef PORT
 #define PORT 7210
 #endif
@@ -116,7 +116,7 @@ static void response(int fd, int code, const char *type, const char *body)
     if (z > 0 && (size_t)z < sizeof(h) && !transfer(fd, h, (size_t)z))
         transfer(fd, body, n);
 }
-#ifdef PS5
+#if defined(PS5) && defined(GT7_DIAGNOSTICS)
 /* Convert the JSON-like property maps embedded in resolved VM binding objects
  * into a small, read-only feed for the PowerShell inspector.  The objects are
  * not assumed to have a fixed C layout: only quoted keys followed by a colon
@@ -373,6 +373,8 @@ static int live_binding_feed(char *out, size_t cap, unsigned *rows, unsigned *ob
     return -1;
 #endif
 }
+#endif
+#ifdef PS5
 /* Decode the text parameter used by the reusable notification endpoint. */
 static size_t decode_query_text(const char *src, char *dst, size_t cap)
 {
@@ -1423,6 +1425,7 @@ static void serve(int fd)
                      valid ? json : "Could not read race-info-display.json.");
             return;
         }
+#ifdef GT7_DIAGNOSTICS
         else if (!strncmp(path, "/api/live/dump", 14))
         {
             /* Temporary read-only diagnostic: hex dump of a region (<=1 MiB). Remove before release. */
@@ -1846,6 +1849,7 @@ static void serve(int fd)
             return;
 #endif
         }
+#endif
         else
             response(fd, 404, "text/plain", "Not found");
         return;
@@ -1884,7 +1888,11 @@ static void serve(int fd)
         received += (size_t)r;
     }
     body[length] = 0;
+#ifdef GT7_DIAGNOSTICS
     if (strncmp(path, "/api/live/probe", 15) && strncmp(path, "/api/live/menu-call", 19) && strncmp(path, "/api/live/snapshot", 18) && strcmp(path, "/api/live/snapshot/clear") && strcmp(path, "/api/config") && strcmp(path, "/api/live/credit-input") && strcmp(path, "/api/live/wheel-width") && strcmp(path, "/api/live/wheel-geometry") && strcmp(path, "/api/live/engine-swap") && strcmp(path, "/api/live/rev-limit") && strcmp(path, "/api/live/free-camera") && strcmp(path, "/api/live/hud/config") && strcmp(path, "/api/live/hud/visibility") && strcmp(path, "/api/start") && strcmp(path, "/api/game/start") && strcmp(path, "/api/shortcut/reinstall") && strcmp(path, "/api/engine/stop") && strcmp(path, "/api/payload/stop"))
+#else
+    if (strcmp(path, "/api/config") && strcmp(path, "/api/live/credit-input") && strcmp(path, "/api/live/wheel-width") && strcmp(path, "/api/live/wheel-geometry") && strcmp(path, "/api/live/engine-swap") && strcmp(path, "/api/live/rev-limit") && strcmp(path, "/api/live/free-camera") && strcmp(path, "/api/live/hud/config") && strcmp(path, "/api/live/hud/visibility") && strcmp(path, "/api/start") && strcmp(path, "/api/game/start") && strcmp(path, "/api/shortcut/reinstall") && strcmp(path, "/api/engine/stop") && strcmp(path, "/api/payload/stop"))
+#endif
     {
         response(fd, 404, "text/plain", "Not found");
         return;
@@ -1901,6 +1909,7 @@ static void serve(int fd)
         return;
     }
 #endif
+#ifdef GT7_DIAGNOSTICS
     if (!strncmp(path, "/api/live/probe", 15))
     {
         /* Temporary diagnostic: install/remove a logging hook. Remove before release. */
@@ -2037,6 +2046,7 @@ static void serve(int fd)
         return;
 #endif
     }
+#endif
     if (!strcmp(path, "/api/live/credit-input"))
     {
         if (length)
