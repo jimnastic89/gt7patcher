@@ -1,4 +1,4 @@
-"""Generate a small reverse-patch manifest; never embed complete game files."""
+"""Generate a file-restoration manifest without embedding complete game files."""
 import argparse
 import hashlib
 import json
