@@ -42,7 +42,7 @@ In **Help**, choose or drop the listed files from a supported older offline-patc
 
 Conversion runs locally in a browser worker. Game files are never uploaded to the payload and the original files are never overwritten. The ZIP contains only verified older files that can be reconstructed, using paths relative to the game root. The three unchanged files (`ampr_emu.index`, `fakelib/libSceAmpr.sprx`, and `fakelib/libScePlayGo.sprx`) are omitted from the converter; leave their existing copies in the installed game. Unknown or modified inputs are rejected. The four additional backport files are optional and are not generated when missing. A desktop browser is recommended for file selection and downloading the roughly 160 MB ZIP.
 
-The compact correction manifest is in `data/cleaner.json`. To regenerate it from private local reference files:
+The file restoration manifest is in `data/cleaner.json`. It identifies supported older patched files and contains the byte-level recipes used to reconstruct clean versions. To regenerate it from private local reference files:
 
 ```sh
 python3 build_cleaner.py --reference /path/to/GRAN_TURISMO_7_Clean_Backport --old /path/to/PPSA01317-app
@@ -58,18 +58,11 @@ make all
 
 The payload is written to `build/gt7patcher.elf`.
 
-To build the host preview, run the regression tests, and create a release archive:
+To create a release archive:
 
 ```sh
-make host
-python3 tests/test_selector.py
-python3 tests/test_hook.py
-python3 tests/test_memory.py
-python3 tools/verify_icon_profiles.py
 python3 package.py
 ```
-
-The tests require Python 3, GCC, and Capstone 5.0.7. `tests/test_selector.py` also expects the clean GT7 executable and source patch XML. When the GT7 workspace is not the repository's parent directory, set `GT7_WORKSPACE` to its path.
 
 ## License and acknowledgements
 
