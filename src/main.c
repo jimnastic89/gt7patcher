@@ -35,7 +35,7 @@ typedef struct
 } AppInfo;
 extern int sceKernelGetAppInfo(pid_t, AppInfo *);
 #endif
-#define VERSION "00.42.26-11-16_1232"
+#define VERSION "00.42.26-11-16_1312"
 #ifndef PORT
 #define PORT 7210
 #endif
@@ -921,6 +921,33 @@ static const char *race_menu_toggle(unsigned index)
         error = "the JSON settings could not be saved";
     if (error)
         race_group_off[group] ^= 1;
+    else
+    {
+        race_publish_hud(&next);
+        race_push_hud();
+    }
+    return error;
+}
+
+static const char *race_menu_set(const char *identifier, int enabled)
+{
+    size_t group = 0;
+    size_t count = sizeof(race_menu_groups) / sizeof(race_menu_groups[0]);
+    while (group < count && strcmp(identifier, race_menu_groups[group].identifier))
+        group++;
+    if (group == count)
+        return "the configured group is unavailable";
+
+    uint8_t previous = race_group_off[group];
+    race_group_off[group] = !enabled;
+    static HudKeyList next;
+    const char *error = NULL;
+    if (!race_compile_hud(&next))
+        error = "the HUD hide-list limits were exceeded";
+    else if (race_menu_save())
+        error = "the JSON settings could not be saved";
+    if (error)
+        race_group_off[group] = previous;
     else
     {
         race_publish_hud(&next);
@@ -1857,7 +1884,7 @@ static void serve(int fd)
         received += (size_t)r;
     }
     body[length] = 0;
-    if (strncmp(path, "/api/live/probe", 15) && strncmp(path, "/api/live/menu-call", 19) && strncmp(path, "/api/live/snapshot", 18) && strcmp(path, "/api/live/snapshot/clear") && strcmp(path, "/api/config") && strcmp(path, "/api/live/credit-input") && strcmp(path, "/api/live/wheel-width") && strcmp(path, "/api/live/wheel-geometry") && strcmp(path, "/api/live/engine-swap") && strcmp(path, "/api/live/rev-limit") && strcmp(path, "/api/live/free-camera") && strcmp(path, "/api/live/hud/config") && strcmp(path, "/api/start") && strcmp(path, "/api/game/start") && strcmp(path, "/api/shortcut/reinstall") && strcmp(path, "/api/engine/stop") && strcmp(path, "/api/payload/stop"))
+    if (strncmp(path, "/api/live/probe", 15) && strncmp(path, "/api/live/menu-call", 19) && strncmp(path, "/api/live/snapshot", 18) && strcmp(path, "/api/live/snapshot/clear") && strcmp(path, "/api/config") && strcmp(path, "/api/live/credit-input") && strcmp(path, "/api/live/wheel-width") && strcmp(path, "/api/live/wheel-geometry") && strcmp(path, "/api/live/engine-swap") && strcmp(path, "/api/live/rev-limit") && strcmp(path, "/api/live/free-camera") && strcmp(path, "/api/live/hud/config") && strcmp(path, "/api/live/hud/visibility") && strcmp(path, "/api/start") && strcmp(path, "/api/game/start") && strcmp(path, "/api/shortcut/reinstall") && strcmp(path, "/api/engine/stop") && strcmp(path, "/api/payload/stop"))
     {
         response(fd, 404, "text/plain", "Not found");
         return;
@@ -2112,6 +2139,23 @@ static void serve(int fd)
         response(fd, 409, "text/plain", "Wheel geometry editing is only available while supported GT7 is running on PS5.");
         return;
 #endif
+    }
+    if (!strcmp(path, "/api/live/hud/visibility"))
+    {
+#ifdef PS5
+        char identifier[96];
+        char value[8] = "";
+        int parsed = sscanf(body, "{\"identifier\":\"%95[^\"]\",\"enabled\":%7[^}]}",
+                            identifier, value);
+        int enabled = !strcmp(value, "true") ? 1 : !strcmp(value, "false") ? 0 : -1;
+        const char *error = parsed == 2 && enabled >= 0 ? race_menu_set(identifier, enabled) :
+                            "invalid HUD visibility request";
+        response(fd, error ? 400 : 200, "text/plain",
+                 error ? error : "HUD visibility saved.");
+#else
+        response(fd, 409, "text/plain", "Saving HUD visibility requires the PS5 payload.");
+#endif
+        return;
     }
     if (!strcmp(path, "/api/live/hud/config"))
     {

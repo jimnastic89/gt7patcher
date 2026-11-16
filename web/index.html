@@ -1233,6 +1233,32 @@ button:not([role="tab"]) {
         }, 300);
     }
 
+    async function raceVisibility(entry, enabled, control) {
+        if (raceLoading || !token) return;
+        raceLoading = true;
+        control.disabled = true;
+        raceEditorStatus();
+        try {
+            const response = await fetch('/api/live/hud/visibility', {
+                method: 'POST',
+                cache: 'no-store',
+                headers: { 'Content-Type': 'application/json', 'X-GT7-Token': token },
+                body: JSON.stringify({ identifier: entry.identifier, enabled })
+            });
+            if (!response.ok) throw Error(await response.text());
+            raceRefreshAfter = Date.now() + 2000;
+            $('race-status').textContent = 'HUD visibility saved.';
+        } catch (error) {
+            entry.enabled = !enabled;
+            control.checked = entry.enabled !== false;
+            $('race-status').textContent = error.message;
+        } finally {
+            raceLoading = false;
+            control.disabled = false;
+            raceEditorStatus();
+        }
+    }
+
     function raceMove(from, entry, to, before) {
         if (raceLoading || !entry || entry === before || (entry.type === 'divider' && to === 'hidden')) return;
         const index = raceDraft[from].indexOf(entry);
@@ -1298,7 +1324,12 @@ button:not([role="tab"]) {
                     enabled.setAttribute('aria-label', 'Enable ' + entry.identifier);
                     enabled.onfocus = () => { raceEditing = true };
                     enabled.onblur = () => { raceEditing = false };
-                    enabled.onchange = () => { entry.enabled = enabled.checked; raceChanged() };
+                    enabled.onchange = () => {
+                        const value = enabled.checked;
+                        entry.enabled = value;
+                        if (raceDirty) raceChanged();
+                        else raceVisibility(entry, value, enabled);
+                    };
                     const name = document.createElement('input');
                     name.type = 'text';
                     name.className = 'text-input';
