@@ -2,6 +2,7 @@
 #pragma once
 #include <stdio.h>
 #define PATCH_COUNT 12
+#define WHEEL_OFFSET_CUSTOM_BIT (1U << 5)
 #define LIVE_SETTINGS_BIT (1U << 6)
 #define LIVE_SETTINGS_RELEASE_ENABLED 1
 #define OPENING_MOVIE_SKIP_BIT (1U << 7)

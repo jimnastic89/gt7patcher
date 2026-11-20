@@ -35,7 +35,7 @@ typedef struct
 } AppInfo;
 extern int sceKernelGetAppInfo(pid_t, AppInfo *);
 #endif
-#define VERSION "00.42.26-11-16_1414"
+#define VERSION "26.11.20-11-20_2005"
 #ifndef PORT
 #define PORT 7210
 #endif
@@ -1966,6 +1966,40 @@ static void serve(int fd)
         return;
 #endif
     }
+    if (!strncmp(path, "/api/live/menu-call/wheel-clone?source=",
+                 sizeof("/api/live/menu-call/wheel-clone?source=") - 1))
+    {
+#ifdef PS5
+        unsigned long long source = 0;
+        unsigned phase = 0;
+        int consumed = 0;
+        int parsed = sscanf(path, "/api/live/menu-call/wheel-clone?source=%llx&phase=%u%n",
+                            &source, &phase, &consumed);
+        if (parsed != 2)
+        {
+            phase = 0;
+            parsed = sscanf(path, "/api/live/menu-call/wheel-clone?source=%llx%n",
+                            &source, &consumed);
+        }
+        if (length || parsed < 1 || !consumed || path[consumed] || phase > 9)
+        {
+            response(fd, 400, "text/plain", "Specify the closed Offset container source address.");
+            return;
+        }
+        uintptr_t copy = 0;
+        unsigned state = 0;
+        int result = gt7_live_wheel_clone((uintptr_t)source, phase, &copy, &state);
+        char report[160];
+        snprintf(report, sizeof(report),
+                 "{\"rc\":%d,\"state\":%u,\"copy\":\"0x%llx\",\"attached\":%s}",
+                 result, state, (unsigned long long)copy,
+                 phase >= 2 && phase <= 3 && !result ? "true" : "false");
+        response(fd, result ? 409 : 200, "application/json", report);
+#else
+        response(fd, 409, "text/plain", "Wheel control cloning requires PS5.");
+#endif
+        return;
+    }
     if (!strncmp(path, "/api/live/menu-call", 19) && (!path[19] || path[19] == '?'))
     {
 #ifdef PS5
@@ -2448,7 +2482,7 @@ static void serve(int fd)
         config = next;
 #ifdef PS5
         if (had_live_settings && !live_settings_enabled())
-            gt7_live_configure(0);
+            gt7_live_configure((config.mask & WHEEL_OFFSET_CUSTOM_BIT) != 0);
 #endif
         message[0] = 0;
     }

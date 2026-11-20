@@ -12,12 +12,12 @@
 #define LIVE_BOOT_RVA 0x03f0e940u
 #define LIVE_BOOT_RESERVED 0x000000c8u
 /* The bootstrap maps this allocation. The bridge image occupies its start. */
-#define LIVE_PROMPT_PARAM 0x00014000u
-#define LIVE_PROMPT_TEXT  0x00014200u
-#define LIVE_PROMPT_WORK  0x00015000u
+#define LIVE_PROMPT_PARAM 0x00015000u
+#define LIVE_PROMPT_TEXT  0x00015200u
+#define LIVE_PROMPT_WORK  0x00016000u
 #define LIVE_PROMPT_WORK_SIZE 0x5000u
 #define LIVE_PROMPT_TEXT_CHARS 32u
-#define LIVE_PROBE_LOG  0x0001c000u
+#define LIVE_PROBE_LOG  0x0001b000u
 #define LIVE_PROBE_LOG_SIZE 0x0000c000u
 #define LIVE_PROBE_ADDR 0x00028000u
 #define LIVE_PROBE_STUB 0x00028400u
@@ -160,6 +160,12 @@ typedef struct {
     uint64_t menu_install_option, menu_active_option, menu_active_box, menu_active_row;
     uint64_t menu_candidate;
     uint32_t menu_count, menu_active_count;
+    /* Detached GT Auto blueprint structure, copied on the UI thread without
+     * script initialization. Retained once per game session for inspection.
+     * reserved records factory entry (1) and successful return (2). */
+    uint32_t wheel_clone_state, wheel_clone_reserved;
+    uint64_t wheel_clone_source, wheel_clone_result;
+    uint64_t wheel_event_result;
 } LiveMailbox;
 /* The mailbox is defined file-local in live_bridge.c. It must NOT be a global
  * symbol: the PS5 clang toolchain marks every global GLOBAL DEFAULT (ignoring

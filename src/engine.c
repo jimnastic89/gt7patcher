@@ -408,7 +408,9 @@ typedef struct
     uint64_t entry;
 } LiveBoot;
 _Static_assert(sizeof(LiveBoot) == 56, "bootstrap ABI");
-_Static_assert(sizeof(LiveMailbox) == 6712, "mailbox ABI");
+_Static_assert(sizeof(LiveMailbox) == 6744, "mailbox ABI");
+_Static_assert(offsetof(LiveMailbox, wheel_clone_state) == 6712,
+               "wheel clone fields must follow the existing mailbox ABI");
 _Static_assert(sizeof(live_boot_blob) <= LIVE_BOOT_RESERVED, "live bootstrap exceeds reserved region");
 /* Import jump-table slots (see the module's GOT). The IME slots sit next to
  * one another: sceImeOpen, sceImeUpdate and sceImeClose. */
@@ -2247,6 +2249,50 @@ static int menu_queue(pid_t pid, uintptr_t address, const LiveMailbox *state,
 }
 
 #ifdef GT7_DIAGNOSTICS
+int gt7_live_wheel_clone(uintptr_t source, unsigned phase, uintptr_t *copy, unsigned *result)
+{
+    pid_t pid;
+    uintptr_t base, address, type;
+    LiveMailbox state;
+    if (!copy || !result || phase > 9)
+        return -1;
+    *copy = 0;
+    *result = MENU_CALL_REJECTED;
+    if (source < LIVE_ARENA_LOW || source >= LIVE_ARENA_HIGH - 0x430u ||
+        (source & 7u) || credits_game(&pid, &base) ||
+        live_resolve(pid, base, &address, &state) || !state.enabled ||
+        !state.heartbeat || read_mem(pid, source, &type, sizeof(type)) ||
+        type != LIVE_MENU_ITEM_VA)
+        return -1;
+    if (state.wheel_clone_state == MENU_CALL_QUEUED ||
+        state.wheel_clone_state == MENU_CALL_RUNNING ||
+        (!phase && state.wheel_clone_result) ||
+        (phase && (!state.wheel_clone_result ||
+                   state.wheel_clone_reserved != (phase == 9 ? 15u : phase * 2u) ||
+                   state.wheel_clone_source != source)))
+        return -2;
+    uint32_t queued = MENU_CALL_QUEUED;
+    uint32_t operation = phase ? 10u + phase : 0u;
+    if (verified_write(pid, address + offsetof(LiveMailbox, wheel_clone_source),
+                       &source, sizeof(source)) ||
+        verified_write(pid, address + offsetof(LiveMailbox, wheel_clone_reserved),
+                       &operation, sizeof(operation)) ||
+        verified_write(pid, address + offsetof(LiveMailbox, wheel_clone_state),
+                       &queued, sizeof(queued)))
+        return -1;
+    for (unsigned i = 0; i < 150; i++)
+    {
+        usleep(10000);
+        if (read_mem(pid, address, &state, sizeof(state)))
+            return -3;
+        *result = state.wheel_clone_state;
+        *copy = phase >= 4 ? state.wheel_event_result : state.wheel_clone_result;
+        if (*result >= MENU_CALL_DONE && *result <= MENU_CALL_FAILED)
+            return *result == MENU_CALL_DONE ? 0 : -1;
+    }
+    return -3;
+}
+
 int gt7_live_menu_call(uintptr_t target, uintptr_t receiver, unsigned argc,
                        uintptr_t args, unsigned *result)
 {
@@ -3761,7 +3807,7 @@ static int apply_gt7(pid_t pid, int final_attempt)
         patched = 1;
     }
     fclose(f);
-    if (!failed && (config.mask & LIVE_SETTINGS_BIT) && live_install(pid, game.mapbase))
+    if (!failed && (config.mask & (LIVE_SETTINGS_BIT | WHEEL_OFFSET_CUSTOM_BIT)) && live_install(pid, game.mapbase))
     {
         atomic_store(&launch_stage, LAUNCH_LIVE);
         if (final_attempt)
