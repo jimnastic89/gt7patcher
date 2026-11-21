@@ -118,19 +118,36 @@ def main():
     header += ['static const char *patch_names[]={' + ','.join(cstring(m['name']) for m in metas) + '};']
     header += ['static const char *patch_notes[]={' + ','.join(cstring(m['note']) for m in metas) + '};']
     header += ['static const char *patch_sources[]={' + ','.join(cstring(m['source']) for m in metas) + '};']
-    header += ['static const char *patch_lines[]={']
+    header += ['']
     counts = []
-    for _, stem in PATCH_SOURCES:
+    definitions = []
+    for feature_index, (_, stem) in enumerate(PATCH_SOURCES):
         if stem == 'live_settings':
             counts.append(0)
-            header.append(cstring('') + ',')
+            definitions.append([])
             continue
         lines = object_patch_lines(BUILD / f'{stem}.o')
         counts.append(len(lines))
-        xml = ''.join(f'<Line Type="bytes" Address="0x{address:08x}" Value="{data.hex()}" />\n'
-                      for address, data in lines)
-        header.append(cstring(xml) + ',')
+        definitions.append([])
+        for line_index, (address, data) in enumerate(lines):
+            symbol = f'patch_{feature_index}_{line_index}'
+            header.append(f'static const unsigned char {symbol}[]={{')
+            for offset in range(0, len(data), 16):
+                header.append('    ' + ','.join(f'0x{byte:02x}' for byte in data[offset:offset + 16]) + ',')
+            header.append('};')
+            definitions[-1].append((address, symbol))
+        header.append('')
+    header += ['static const PatchDefinition patch_definitions[]={']
+    for feature_index, definitions_for_feature in enumerate(definitions):
+        if not definitions_for_feature:
+            continue
+        for address, symbol in definitions_for_feature:
+            header.append(f'    {{0x{address:08x}u, {symbol}, sizeof({symbol})}},')
     header += ['};', 'static const unsigned patch_counts[]={' + ','.join(map(str, counts)) + '};']
+    offsets = [0]
+    for count in counts:
+        offsets.append(offsets[-1] + count)
+    header.append('static const unsigned patch_offsets[]={' + ','.join(map(str, offsets)) + '};')
     html = (HERE / 'web/index.html').read_text(encoding='utf-8')
     credits_icon = base64.b64encode((HERE / 'assets/CreditsIcon.png').read_bytes()).decode('ascii')
     html = html.replace('__CREDITS_ICON_DATA__', credits_icon)

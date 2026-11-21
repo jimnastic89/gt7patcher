@@ -86,6 +86,7 @@ static atomic_int launch_stage;
 static pthread_t thread;
 static unsigned char expected_bridge[sizeof(hook_blob)];
 static const char *state_root = "/data/gt7p";
+enum { COUNTRY_CAVE = 0x430ea10, ASPECT_CAVE = 0x430eaa0 };
 enum
 {
     LAUNCH_NONE,
@@ -3541,6 +3542,38 @@ static int bridge_prepare(void)
                 pointers++;
             }
         }
+    if (matches == 1 && pointers != 1)
+    {
+        unsigned char stale[sizeof(hook_blob)];
+        uintptr_t stale_original = 0, stale_entry = module.eh_frame + HOOK_LAUNCH;
+        unsigned stale_slots = 0;
+        int stale_bridge = !read_mem(shell, module.eh_frame, stale, sizeof(stale)) &&
+            !memcmp(stale, hook_blob, HOOK_IMPORTS) &&
+            !memcmp(stale + HOOK_IMPORTS + sizeof(uintptr_t) * 9,
+                    hook_blob + HOOK_IMPORTS + sizeof(uintptr_t) * 9,
+                    sizeof(stale) - HOOK_IMPORTS - sizeof(uintptr_t) * 9);
+        if (stale_bridge)
+        {
+            memcpy(&stale_original, stale + HOOK_IMPORTS, sizeof(stale_original));
+            for (size_t i = 0; i + 8 <= module.mapsize; i += 8)
+            {
+                uintptr_t address = module.mapbase + i;
+                int in_frame = address >= module.eh_frame &&
+                    address - module.eh_frame < module.eh_frame_size;
+                if (!in_frame && !memcmp(image + i, &stale_entry, 8))
+                {
+                    slot = address;
+                    stale_slots++;
+                }
+            }
+        }
+        if (stale_bridge && stale_original == original && stale_slots == 1 &&
+            !verified_write(shell, slot, &stale_original, sizeof(stale_original)))
+        {
+            engine_log("Bridge: restored callback from stale bridge");
+            pointers = 1;
+        }
+    }
     free(image);
     if (matches != 1 || pointers != 1)
         return -1;
@@ -3588,21 +3621,6 @@ static int bridge_prepare(void)
     }
     return 0;
 }
-static int apply_line(pid_t pid, uintptr_t base, unsigned address, const char *hex)
-{
-    size_t len = strlen(hex);
-    if (!len || (len & 1) || len > 8192 || address < 0x400000)
-        return -1;
-    unsigned char bytes[4096];
-    for (size_t i = 0; i < len / 2; i++)
-    {
-        unsigned v;
-        if (sscanf(hex + i * 2, "%2x", &v) != 1)
-            return -1;
-        bytes[i] = (unsigned char)v;
-    }
-    return verified_write(pid, base + (address - 0x400000), bytes, len / 2);
-}
 /* The build-environment string ("release") is not at a fixed address and, on
  * 01.710.000, is no longer preceded by the 16 zero bytes older builds used.
  * It lives in the module's string table as an entry {len,strptr} immediately
@@ -3611,9 +3629,8 @@ static int apply_line(pid_t pid, uintptr_t base, unsigned address, const char *h
  * zero padding. Older images instead padded 16 zero bytes directly before the
  * string. Accept either fingerprint, restricted to the module image, and
  * require exactly one unambiguous hit before rewriting it to "debug". */
-static int apply_debug_environment(pid_t pid, const Module *game)
+static int resolve_debug_environment(pid_t pid, const Module *game, uintptr_t *target_out)
 {
-    static const unsigned char replacement[] = {'d', 'e', 'b', 'u', 'g', 0, 0};
     if (!game->mapsize || game->mapsize > 128u * 1024 * 1024)
         return -1;
     unsigned char *image = malloc(game->mapsize);
@@ -3652,7 +3669,10 @@ static int apply_debug_environment(pid_t pid, const Module *game)
         }
     }
     free(image);
-    return matches == 1 ? verified_write(pid, target, replacement, sizeof(replacement)) : -1;
+    if (matches != 1)
+        return -1;
+    *target_out = target;
+    return 0;
 }
 /* GT7 draws the world-map clock from sceRtcGetCurrentTick, which libSceRtc
  * implements with clock_gettime(clock id 0x10). On this console that clock runs
@@ -3663,7 +3683,7 @@ static int apply_debug_environment(pid_t pid, const Module *game)
  * `bf 10 00 00 00` (mov edi,0x10) is at libSceRtc+0x5b5; a signature around it
  * is verified so an unexpected firmware layout is skipped, never corrupted.
  * The syscall itself is fine, so no import or GOT surgery is needed. */
-static int apply_clock_fix(pid_t pid)
+static int resolve_clock_fix(pid_t pid, uintptr_t *target_out)
 {
     static const unsigned char signature[] = {
         0x48, 0x89, 0x45, 0xe8, 0x48, 0x85, 0xff, 0x74, 0x35, 0x48, 0x89, 0xfb, 0x48, 0x8d, 0x75, 0xd8,
@@ -3680,12 +3700,160 @@ static int apply_clock_fix(pid_t pid)
             {
                 if (memcmp(bytes, signature, sizeof(signature)))
                     return -1;
-                unsigned char insn[5] = {0xbf, 0x00, 0x00, 0x00, 0x00}; /* mov edi,0 */
-                return verified_write(pid, rtc.mapbase + clock_id, insn, sizeof(insn));
+                *target_out = rtc.mapbase + clock_id;
+                return 0;
             }
         }
         usleep(50000);
     }
+    return -1;
+}
+typedef struct
+{
+    uintptr_t address;
+    const unsigned char *replacement;
+    const unsigned char *expected;
+    unsigned char *original;
+    size_t length;
+    const char *name;
+} PatchRecord;
+static int transaction_record(pid_t pid, PatchRecord *record, uintptr_t address,
+                              const unsigned char *expected, const unsigned char *replacement,
+                              size_t length, const char *name)
+{
+    if (!length || length > 8192 || !replacement)
+        return -1;
+    record->original = malloc(length);
+    if (!record->original || read_mem(pid, address, record->original, length))
+    {
+        free(record->original);
+        record->original = NULL;
+        return -1;
+    }
+    if (expected && memcmp(record->original, expected, length))
+    {
+        free(record->original);
+        record->original = NULL;
+        return -1;
+    }
+    record->address = address;
+    record->replacement = replacement;
+    record->expected = expected;
+    record->length = length;
+    record->name = name;
+    return 0;
+}
+static void transaction_free(PatchRecord *records, size_t count)
+{
+    for (size_t i = 0; i < count; i++)
+        free(records[i].original);
+}
+static int transaction_rollback(pid_t pid, PatchRecord *records, size_t count)
+{
+    int result = 0;
+    while (count)
+    {
+        count--;
+        if (verified_write(pid, records[count].address, records[count].original, records[count].length))
+            result = -1;
+    }
+    return result;
+}
+static int apply_patch_plan(pid_t pid, const Module *game, const PatchPlan *plan,
+                            const char **failed_name, int *patched)
+{
+    static const unsigned char debug_bytes[] = {'d', 'e', 'b', 'u', 'g', 0, 0};
+    static const unsigned char clock_bytes[] = {0xbf, 0, 0, 0, 0};
+    PatchRecord *records = calloc(PATCH_PLAN_MAX_OPERATIONS * 3, sizeof(*records));
+    size_t count = 0, applied = 0;
+    int committing = 0;
+    if (!records)
+        return -1;
+    for (size_t i = 0; i < plan->count; i++)
+    {
+        const PatchOperation *op = &plan->operations[i];
+        uintptr_t address = op->address;
+        const unsigned char *replacement = op->replacement;
+        size_t length = op->length;
+        if (op->type == PATCH_OPERATION_BYTES)
+        {
+            records[count].name = op->name;
+            if (address < 0x400000 || transaction_record(pid, &records[count],
+                    game->mapbase + address - 0x400000, op->expected, replacement,
+                    length, op->name))
+                goto fail;
+            count++;
+        }
+        else if (op->type == PATCH_OPERATION_DEBUG_ENVIRONMENT)
+        {
+            records[count].name = op->name;
+            if (resolve_debug_environment(pid, game, &address) || transaction_record(pid,
+                    &records[count], address, (const unsigned char *)"release\0", debug_bytes,
+                    sizeof(debug_bytes), op->name))
+                goto fail;
+            count++;
+        }
+        else if (op->type == PATCH_OPERATION_CLOCK_FIX)
+        {
+            records[count].name = op->name;
+            if (resolve_clock_fix(pid, &address))
+            {
+                engine_log_result("Clock fix result", -1);
+                continue;
+            }
+            if (transaction_record(pid, &records[count], address,
+                    (const unsigned char *)"\xbf\x10\0\0\0", clock_bytes,
+                    sizeof(clock_bytes), op->name))
+                goto fail;
+            count++;
+        }
+        else if (op->type == PATCH_OPERATION_COUNTRY)
+        {
+            records[count].name = op->name;
+            if (game->mapbase != LIVE_IMAGE_BASE || transaction_record(pid, &records[count],
+                    COUNTRY_CAVE, NULL, op->replacement, op->length, op->name))
+                goto fail;
+            count++;
+            records[count].name = op->name;
+            if (transaction_record(pid, &records[count], op->address, op->expected,
+                    op->replacement + op->length, 10, op->name))
+                goto fail;
+            count++;
+        }
+        else if (op->type == PATCH_OPERATION_ASPECT)
+        {
+            records[count].name = op->name;
+            if (transaction_record(pid, &records[count], op->address, NULL,
+                    op->replacement, 4, op->name))
+                goto fail;
+            count++;
+            records[count].name = op->name;
+            if (transaction_record(pid, &records[count], 0x921915, NULL,
+                    op->replacement + 4, 4, op->name))
+                goto fail;
+            count++;
+            records[count].name = op->name;
+            if (transaction_record(pid, &records[count], ASPECT_CAVE, NULL,
+                    op->replacement + 8, 8, op->name))
+                goto fail;
+            count++;
+        }
+    }
+    committing = 1;
+    for (applied = 0; applied < count; applied++)
+        if (verified_write(pid, records[applied].address, records[applied].replacement,
+                           records[applied].length))
+            goto fail;
+    transaction_free(records, count);
+    free(records);
+    *patched = count != 0;
+    return 0;
+fail:
+    if (*failed_name == NULL)
+        *failed_name = (count < PATCH_PLAN_MAX_OPERATIONS * 3 && records[count].name) ? records[count].name : "Unknown patch";
+    transaction_rollback(pid, records, committing && applied < count ? applied + 1 : count);
+    transaction_free(records, count);
+    free(records);
     return -1;
 }
 static int apply_gt7(pid_t pid, int final_attempt)
@@ -3720,107 +3888,35 @@ static int apply_gt7(pid_t pid, int final_attempt)
             notify("GT7: could not read saved patch choices. Close GT7 and save again.");
         return 0;
     }
-    /* Generate from validated settings and built-in patch data. Never execute
-     * arbitrary XML supplied on disk; only the config comment is consumed. */
-    FILE *f = fopen("/data/gt7p/launch.tmp", "w+");
-    if (f)
-        unlink("/data/gt7p/launch.tmp");
-    if (!f || emit_xml(f, &config))
+    PatchPlan *plan = malloc(sizeof(*plan));
+    if (!plan || build_patch_plan(&config, plan))
     {
+        free(plan);
         atomic_store(&launch_stage, LAUNCH_PREPARE);
-        if (f)
-            fclose(f);
         if (final_attempt)
             notify("GT7: could not prepare patches.");
         return 0;
     }
-    rewind(f);
-    char line[16384], hex[8193];
-    unsigned address;
-    int failed = 0, patched = 0;
-    const char *current_name = "Unknown patch";
-    while (fgets(line, sizeof(line), f))
+    int patched = 0;
+    const char *failed_name = NULL;
+    int failed = apply_patch_plan(pid, &game, plan, &failed_name, &patched);
+    if (!failed && plan->live_bridge && live_install(pid, game.mapbase))
     {
-        unsigned feature;
-        if (sscanf(line, "<!-- GT7FEATURE %u -->", &feature) == 1)
-        {
-            current_name = feature < PATCH_COUNT ? feature_name(feature) : "Unknown patch";
-            continue;
-        }
-        if (strstr(line, "<!-- GT7FEATURE units -->"))
-        {
-            current_name = "Display units";
-            continue;
-        }
-        if (strstr(line, "<!-- GT7FEATURE language -->"))
-        {
-            current_name = "Game language";
-            continue;
-        }
-        if (strstr(line, "<!-- GT7FEATURE country -->"))
-        {
-            static const unsigned char expected[] = {
-                0xc4, 0xa1, 0x7c, 0x11, 0x84, 0x20, 0xd8, 0x03, 0x00, 0x00};
-            unsigned char actual[sizeof(expected)];
-            current_name = "Player country";
-            if (game.mapbase != LIVE_IMAGE_BASE ||
-                read_mem(pid, 0x3b97047, actual, sizeof(actual)) ||
-                memcmp(actual, expected, sizeof(expected)))
-            {
-                failed = 1;
-                break;
-            }
-            continue;
-        }
-        if (strstr(line, "<!-- GT7FEATURE aspect -->"))
-        {
-            current_name = "Video aspect ratio";
-            continue;
-        }
-        if (strncmp(line, "<Line ", 6))
-            continue;
-        if (sscanf(line, "<Line Type=\"bytes\" Address=\"0x%x\" Value=\"%8192[0123456789abcdefABCDEF]\"", &address, hex) != 2)
-        {
-            failed = 1;
-            break;
-        }
-        if (address == 0x060e83b0)
-        {
-            if (apply_debug_environment(pid, &game))
-            {
-                failed = 1;
-                break;
-            }
-        }
-        else if (address == 0x060e83c0)
-        {
-            /* Not a byte patch: resolve libSceRtc and retarget its clock source.
-             * Its failure is non-fatal so a firmware with an unexpected layout
-             * cannot stop the byte patches from applying. */
-            engine_log_result("Clock fix result", apply_clock_fix(pid));
-        }
-        else if (apply_line(pid, game.mapbase, address, hex))
-        {
-            failed = 1;
-            break;
-        }
-        patched = 1;
-    }
-    fclose(f);
-    if (!failed && (config.mask & (LIVE_SETTINGS_BIT | WHEEL_OFFSET_CUSTOM_BIT)) && live_install(pid, game.mapbase))
-    {
+        free(plan);
         atomic_store(&launch_stage, LAUNCH_LIVE);
         if (final_attempt)
             notify("GT7: could not install the optional Live Settings bridge. Close GT7 before retrying.");
         return 0;
     }
-    if (!failed && (config.mask & LIVE_SETTINGS_BIT))
+    if (!failed && plan->live_bridge)
         patched = 1;
+    free(plan);
     if (failed)
     {
         atomic_store(&launch_stage, LAUNCH_PATCH);
         if (final_attempt)
-            notify("GT7: Patch failed: %s. Close the game before retrying.", current_name);
+            notify("GT7: Patch failed: %s. Close the game before retrying.",
+                   failed_name ? failed_name : "Unknown patch");
         return 0;
     }
     else if (patched)

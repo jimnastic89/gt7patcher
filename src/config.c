@@ -93,7 +93,35 @@ static void store(unsigned char *b,uint32_t a,uint32_t target,uint32_t value){
     memcpy(b+2,&displacement,4);memcpy(b+6,&value,4);
 }
 static void put32(unsigned char *b,int32_t v){memcpy(b,&v,4);}
-static void emit_race_country(FILE *file, int country)
+static int plan_add(PatchPlan *plan, PatchOperationType type, uintptr_t address,
+                    const unsigned char *expected, const unsigned char *replacement,
+                    size_t length, unsigned feature, const char *name)
+{
+    if (plan->count >= PATCH_PLAN_MAX_OPERATIONS)
+        return -1;
+    plan->operations[plan->count++] = (PatchOperation){type, address, expected,
+                                                       replacement, length, feature, name};
+    return 0;
+}
+static unsigned char *plan_bytes(PatchPlan *plan, size_t length)
+{
+    unsigned char *result;
+    if (length > sizeof(plan->generated) - plan->generated_used)
+        return NULL;
+    result = plan->generated + plan->generated_used;
+    plan->generated_used += length;
+    return result;
+}
+static int add_generated(PatchPlan *plan, uintptr_t address, const unsigned char *bytes,
+                         size_t length, unsigned feature, const char *name)
+{
+    unsigned char *copy = plan_bytes(plan, length);
+    if (!copy)
+        return -1;
+    memcpy(copy, bytes, length);
+    return plan_add(plan, PATCH_OPERATION_BYTES, address, NULL, copy, length, feature, name);
+}
+static int add_country(PatchPlan *plan, int country)
 {
     static const char codes[][3] = {
         "AU","AT","BE","BR","CA","CH","CL","CN","CZ","DE","DK","ES","FI","FR","GB",
@@ -102,6 +130,8 @@ static void emit_race_country(FILE *file, int country)
     };
     _Static_assert(sizeof(codes) / sizeof(codes[0]) == COUNTRY_COUNT, "country table");
     const uint32_t site = 0x3b97047;
+    static const unsigned char expected[] = {
+        0xc4, 0xa1, 0x7c, 0x11, 0x84, 0x20, 0xd8, 0x03, 0x00, 0x00};
     unsigned char stub[] = {
         0xc4,0xa1,0x7c,0x11,0x84,0x20,0xd8,0x03,0x00,0x00, /* displaced store */
         0x9c,                                               /* pushfq */
@@ -118,50 +148,131 @@ static void emit_race_country(FILE *file, int country)
     put32(stub + sizeof(stub) - 4,
           (int32_t)(site + sizeof(jump) - (COUNTRY_CAVE + sizeof(stub))));
     put32(jump + 1, (int32_t)(COUNTRY_CAVE - (site + 5)));
-    line(file, COUNTRY_CAVE, stub, sizeof(stub));
-    line(file, site, jump, sizeof(jump));
+    unsigned char *payload = plan_bytes(plan, sizeof(stub) + sizeof(jump));
+    if (!payload)
+        return -1;
+    memcpy(payload, stub, sizeof(stub));
+    memcpy(payload + sizeof(stub), jump, sizeof(jump));
+    return plan_add(plan, PATCH_OPERATION_COUNTRY, site, expected, payload, sizeof(stub),
+                    PATCH_COUNT + 2, "Player country");
+}
+int build_patch_plan(const Config *c, PatchPlan *plan)
+{
+    if (!c || !plan || !valid_config(c))
+        return -1;
+    memset(plan, 0, sizeof(*plan));
+    for (unsigned i = 0; i < PATCH_COUNT; i++)
+        if (c->mask & (1U << i))
+        {
+            if (i == 6)
+                plan->live_bridge = 1;
+            else if (i == 8)
+            {
+                if (plan_add(plan, PATCH_OPERATION_DEBUG_ENVIRONMENT, 0, NULL, NULL, 0,
+                             i, feature_name(i)))
+                    return -1;
+            }
+            else if (i == 9)
+            {
+                if (plan_add(plan, PATCH_OPERATION_CLOCK_FIX, 0, NULL, NULL, 0,
+                             i, feature_name(i)))
+                    return -1;
+            }
+            else
+                for (unsigned j = patch_offsets[i]; j < patch_offsets[i] + patch_counts[i]; j++)
+                    if (plan_add(plan, PATCH_OPERATION_BYTES, patch_definitions[j].address, NULL,
+                                 patch_definitions[j].replacement, patch_definitions[j].length,
+                                 i, feature_name(i)))
+                        return -1;
+        }
+    plan->live_bridge = (c->mask & (LIVE_SETTINGS_BIT | WHEEL_OFFSET_CUSTOM_BIT)) != 0;
+    if (c->units)
+    {
+        unsigned char bytes[71];
+        uint32_t values[] = {c->speed, c->power, c->torque, 3, c->temperature, 0, c->mass};
+        for (unsigned i = 0; i < 7; i++)
+            store(bytes + i * 10, 0xc22060 + i * 10, 0x611aecc + i * 4, values[i]);
+        bytes[70] = 0xc3;
+        if (add_generated(plan, 0xc22060, bytes, sizeof(bytes), PATCH_COUNT, "Display units"))
+            return -1;
+        const uint32_t addresses[] = {0x1c4e7f0, 0x1c4e800, 0x1c4e810, 0x1c4e820};
+        const uint32_t targets[] = {0x611aed0, 0x611aedc, 0x611aed4, 0x611aecc};
+        const uint32_t values2[] = {c->power, c->temperature, c->torque, c->speed};
+        for (unsigned i = 0; i < 4; i++)
+        {
+            unsigned char value[11];
+            store(value, addresses[i], targets[i], values2[i]);
+            value[10] = 0xc3;
+            if (add_generated(plan, addresses[i], value, sizeof(value), PATCH_COUNT, "Display units"))
+                return -1;
+        }
+    }
+    if (c->language >= 0)
+    {
+        unsigned char bytes[] = {0xbf, 0, 0, 0, 0};
+        uint32_t language = (uint32_t)c->language;
+        memcpy(bytes + 1, &language, sizeof(language));
+        if (add_generated(plan, 0xc21e93, bytes, sizeof(bytes), PATCH_COUNT + 1, "Game language"))
+            return -1;
+        bytes[0] = 0xeb;
+        bytes[1] = 3;
+        if (add_generated(plan, 0xc21e98, bytes, 2, PATCH_COUNT + 1, "Game language"))
+            return -1;
+    }
+    if (c->country >= 0 && add_country(plan, c->country))
+        return -1;
+    if (c->aspect >= 0)
+    {
+        const uint32_t site_pos = 0x92190d, site_neg = 0x921915;
+        unsigned char payload[16];
+        float aspect = aspect_value(c->aspect), negative = -aspect;
+        put32(payload, (int32_t)(ASPECT_CAVE - (site_pos + 4)));
+        put32(payload + 4, (int32_t)((ASPECT_CAVE + 4) - (site_neg + 4)));
+        memcpy(payload + 8, &aspect, 4);
+        memcpy(payload + 12, &negative, 4);
+        unsigned char *copy = plan_bytes(plan, sizeof(payload));
+        if (!copy || (memcpy(copy, payload, sizeof(payload)), plan_add(plan, PATCH_OPERATION_ASPECT,
+                    site_pos, NULL, copy, sizeof(payload), PATCH_COUNT + 3, "Video aspect ratio")))
+            return -1;
+    }
+    return 0;
 }
 int emit_xml(FILE *f,const Config *c){
-    if(!valid_config(c))return -1;
+    PatchPlan plan;
+    if(build_patch_plan(c, &plan))return -1;
     fputs("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Patch><TitleID><ID>PPSA01317</ID></TitleID>\n"
         "<Metadata Title=\"Gran Turismo 7\" Name=\"GT7 selected patches\" Author=\"AI-generated; based on High-Speed007 and PSVIETHOA; GT7Patcher\" PatchVer=\"1.0\" AppVer=\"01.710.000\" ImageBase=\"0x00400000\" AppElf=\"eboot.bin\"><PatchList>\n",f);
-    for(unsigned i=0;i<PATCH_COUNT;i++)if(c->mask&(1U<<i)){
-        fprintf(f,"<!-- GT7FEATURE %u -->\n",i);fputs(patch_lines[i],f);
+    unsigned last_feature = ~0U;
+    for (size_t i = 0; i < plan.count; i++)
+    {
+        PatchOperation *op = &plan.operations[i];
+        if (op->feature != last_feature)
+        {
+            if (op->feature < PATCH_COUNT)
+                fprintf(f, "<!-- GT7FEATURE %u -->\n", op->feature);
+            else
+                fprintf(f, "<!-- GT7FEATURE %s -->\n", op->name);
+            last_feature = op->feature;
+        }
+        if (op->type == PATCH_OPERATION_BYTES)
+            line(f, (uint32_t)op->address, op->replacement, op->length);
+        else if (op->type == PATCH_OPERATION_DEBUG_ENVIRONMENT)
+            line(f, 0x060e83b0, (const unsigned char *)"debug\0\0", 7);
+        else if (op->type == PATCH_OPERATION_CLOCK_FIX)
+            line(f, 0x060e83c0, NULL, 0);
+        else if (op->type == PATCH_OPERATION_COUNTRY)
+        {
+            line(f, COUNTRY_CAVE, op->replacement, op->length);
+            line(f, (uint32_t)op->address, op->replacement + op->length, 10);
+        }
+        else if (op->type == PATCH_OPERATION_ASPECT)
+        {
+            line(f, (uint32_t)op->address, op->replacement, 4);
+            line(f, 0x921915, op->replacement + 4, 4);
+            line(f, ASPECT_CAVE, op->replacement + 8, 8);
+        }
     }
-    if(c->mask&LIVE_SETTINGS_BIT)fputs("<!-- GT7LIVEHOOK 1 -->\n",f);
-    if(c->units){
-        fputs("<!-- GT7FEATURE units -->\n",f);
-        unsigned char b[71];uint32_t values[]={c->speed,c->power,c->torque,3,c->temperature,0,c->mass};
-        for(unsigned i=0;i<7;i++)store(b+i*10,0xc22060+i*10,0x611aecc+i*4,values[i]);
-        b[70]=0xc3;line(f,0xc22060,b,sizeof(b));
-        const uint32_t addresses[]={0x1c4e7f0,0x1c4e800,0x1c4e810,0x1c4e820};
-        const uint32_t targets[]={0x611aed0,0x611aedc,0x611aed4,0x611aecc};
-        const uint32_t v[]={c->power,c->temperature,c->torque,c->speed};
-        for(unsigned i=0;i<4;i++){store(b,addresses[i],targets[i],v[i]);b[10]=0xc3;line(f,addresses[i],b,11);}
-    }
-    if(c->language>=0){
-        fputs("<!-- GT7FEATURE language -->\n",f);
-        unsigned char b[]={0xbf,0,0,0,0};uint32_t lang=(uint32_t)c->language;memcpy(b+1,&lang,4);
-        line(f,0xc21e93,b,5);b[0]=0xeb;b[1]=3;line(f,0xc21e98,b,2);
-    }
-    if(c->country>=0){
-        fputs("<!-- GT7FEATURE country -->\n",f);
-        emit_race_country(f, c->country);
-    }
-    if(c->aspect>=0){
-        fputs("<!-- GT7FEATURE aspect -->\n",f);
-        /* Only the 3D projection consumes the +/-16:9 pair symmetrically, at
-         * 0x921909/0x921911. Redirect just those two operands to a private
-         * cave and leave the shared literal at 16:9: that literal also sizes
-         * the render target (0x51bec9) and normalises screen-space scales, so
-         * changing it globally resizes the target and blanks the output. */
-        const uint32_t site_pos=0x92190d,site_neg=0x921915,cave=ASPECT_CAVE;
-        unsigned char d[4];
-        put32(d,(int32_t)(cave-(site_pos+4)));line(f,site_pos,d,4);
-        put32(d,(int32_t)((cave+4)-(site_neg+4)));line(f,site_neg,d,4);
-        float aspect=aspect_value(c->aspect),neg=-aspect;unsigned char cv[8];
-        memcpy(cv,&aspect,4);memcpy(cv+4,&neg,4);line(f,cave,cv,8);
-    }
+    if (plan.live_bridge)fputs("<!-- GT7LIVEHOOK 1 -->\n",f);
     fputs("</PatchList></Metadata>\n",f);
     fprintf(f,"<!-- GT7CONFIG %u %d %d %d %d %d %d %d %d %d %d %d %d -->\n",c->mask,c->preset,c->units,c->language,c->speed,c->mass,c->power,c->torque,c->temperature,c->autostart,c->country,c->aspect,c->important_dismissed);
     fputs("</Patch>\n",f);
