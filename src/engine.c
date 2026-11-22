@@ -463,6 +463,16 @@ static int live_boot_read(pid_t pid, uintptr_t base, LiveBoot *boot)
                ? -1
                : 0;
 }
+static int live_publish(pid_t pid, uintptr_t control, uintptr_t entry)
+{
+    uint32_t published = 3, observed = 0;
+    if (verified_write(pid, control + offsetof(LiveBoot, entry), &entry, sizeof(entry)) ||
+        write_mem(pid, control + offsetof(LiveBoot, state), &published, sizeof(published)) ||
+        read_mem(pid, control + offsetof(LiveBoot, state), &observed, sizeof(observed)))
+        return -1;
+    /* The game can enter the published image before the verification read. */
+    return observed == 3 || observed == 4 ? 0 : -1;
+}
 static int live_install(pid_t pid, uintptr_t base)
 {
     uintptr_t current = 0;
@@ -678,10 +688,7 @@ static int live_resolve_impl(pid_t pid, uintptr_t base, uintptr_t *address, Live
         }
         uintptr_t entry = boot.allocation + LIVE_FRAME;
         uintptr_t control = base + LIVE_BOOT_RVA + LIVE_BOOT_CONTROL;
-        if (verified_write(pid, control + offsetof(LiveBoot, entry), &entry, 8))
-            return -1;
-        uint32_t published = 3;
-        if (verified_write(pid, control + offsetof(LiveBoot, state), &published, 4))
+        if (live_publish(pid, control, entry))
             return -1;
         ime_hook = boot.allocation + IME_OPEN_HOOK;
         if (verified_write(pid, base + IME_GOT_RVA, &ime_hook, 8))
@@ -799,9 +806,7 @@ static int wheel_install_finish(void)
         goto finish;
     uintptr_t entry = target + WHEEL_FRAME;
     uintptr_t control = base + LIVE_BOOT_RVA + LIVE_BOOT_CONTROL;
-    uint32_t published = 3;
-    if (verified_write(pid, control + offsetof(LiveBoot, entry), &entry, sizeof(entry)) ||
-        verified_write(pid, control + offsetof(LiveBoot, state), &published, sizeof(published)))
+    if (live_publish(pid, control, entry))
         goto finish;
     result = 0;
 finish:

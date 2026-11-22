@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Replacement for GT7 01.710.000 GetWheelOffsetPulldownInfo at 0x3896010.
  * Backing rows for the independent front/rear controls in src/wheel_patch.c.
- * Builds Standard and eleven car-relative pairs based on the native Wide value.
+ * Builds Standard and eleven pairs based on Wide, or Standard when unavailable.
  */
 .intel_syntax noprefix
 .section .patch.0000.03896010,"a",@progbits
@@ -45,12 +45,20 @@ wheel_offset_options:
     mov eax, 0x304fef0
     call rax
     test al, al
-    je .done
+    je .standard_base
     movsx r14d, byte ptr [rbp - 0x4c]
     movsx r15d, byte ptr [rbp - 0x4b]
-
     /* Add Wide itself, then ten progressively wider pairs through Wide - 50. */
     xor r13d, r13d
+    mov r12d, 55
+    jmp .pair_loop
+
+.standard_base:
+    /* No Wide option: keep Standard unique and add eleven 5 mm steps. */
+    xor r14d, r14d
+    xor r15d, r15d
+    mov r13d, 5
+    mov r12d, 60
 .pair_loop:
     mov eax, r14d
     sub eax, r13d
@@ -93,7 +101,7 @@ wheel_offset_options:
     call rax
 
     add r13d, 5
-    cmp r13d, 55
+    cmp r13d, r12d
     jne .pair_loop
 
 .done:

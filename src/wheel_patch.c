@@ -407,28 +407,27 @@ static struct
     unsigned enabled, front_index, rear_index, rear_open, was_visible;
 } wheel_split;
 
+static uintptr_t wheel_visible_source(void);
+
 static int wheel_split_visible(void)
 {
     volatile WheelRuntime *m = &wheel_runtime;
     if (!wheel_split.enabled || !m->enabled || !hud_update_context(m->base, m->context))
         return 0;
-    for (unsigned i = 0; i < 6; i++)
-    {
-        uintptr_t render = *(const uintptr_t *)(m->context + 0x698 + 8u * i);
-        if (!hud_object(render, 0x1f8) || *(const uintptr_t *)render != m->base + HUD_RENDER_VT_RVA)
-            continue;
-        uintptr_t begin = *(const uintptr_t *)(render + 0x1e8);
-        uintptr_t end = *(const uintptr_t *)(render + 0x1f0);
-        if (!hud_vector(begin, end, 64))
-            continue;
-        for (uintptr_t node = begin; node < end; node += 8)
-            if (*(const uintptr_t *)node == wheel_split.root)
-                return *(const uintptr_t *)wheel_split.root == m->base + HUD_ROOT_VT_RVA &&
-                       *(const uintptr_t *)wheel_split.layer == LIVE_MENU_ITEM_VA &&
-                       *(const uintptr_t *)(wheel_split.layer + 0x30) == wheel_split.root &&
-                       (*(const uint32_t *)(wheel_split.layer + 0x214) & menu_visible_flag);
-    }
-    return 0;
+    /* Native screen teardown can free a layer while its root remains mounted. */
+    uintptr_t source = wheel_visible_source();
+    if (!source || source != m->wheel_clone_source)
+        return 0;
+    uintptr_t parent = *(const uintptr_t *)(source + 0x30);
+    uintptr_t layer = *(const uintptr_t *)(parent + 0x30);
+    if (layer != wheel_split.layer || *(const uintptr_t *)(layer + 0x30) != wheel_split.root ||
+        wheel_find_option(source) != wheel_split.front_option)
+        return 0;
+    uintptr_t rear = *(const uintptr_t *)(source + 0xa8);
+    return rear && rear == m->wheel_clone_result && menu_pointer(rear) &&
+           *(const uintptr_t *)rear == LIVE_MENU_ITEM_VA &&
+           *(const uintptr_t *)(rear + 0x30) == parent &&
+           wheel_find_option(rear) == wheel_split.rear_option;
 }
 
 static void wheel_split_tick(int after_frame)
