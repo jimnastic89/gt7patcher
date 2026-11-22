@@ -35,7 +35,7 @@ typedef struct
 } AppInfo;
 extern int sceKernelGetAppInfo(pid_t, AppInfo *);
 #endif
-#define VERSION "00.41.26-11-22_1208"
+#define VERSION "0.41"
 #ifndef PORT
 #define PORT 7210
 #endif
