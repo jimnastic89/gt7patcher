@@ -619,6 +619,8 @@ button:not([role="tab"]) {
         <div class="card important-card" id="important-warning">
             <h2>Important</h2>
             <p>
+                <b>This payload will only work with unpatched backport files. See the help tab for more information.</b>
+                <br><br>
                 When starting a new game, ensure you only enable <span id="warning-offline"></span> and (optional) <span id="warning-intro"></span>.
                 <br><br>
                 The game will go through initial setup and then load into a Music Rally event. You can either finish or quit this race, then you can begin career mode.
@@ -701,11 +703,11 @@ button:not([role="tab"]) {
             <p class="detail">Select the credits icon <img class="credits-icon" src="data:image/png;base64,__CREDITS_ICON_DATA__" alt="Credits icon"> in the in-game menu to open the credit editor</p>
         </div>
         <div class="card" id="free-camera-card" hidden>
-            <h2>Free Camera Movement</h2>
-            <p class="detail">Adjust the normal and L3-activated movement multipliers used by Free Photo Mode Camera. Native values are the minimums: 6× normal and 12× fast.</p>
-            <div class="field"><label for="free-camera-normal">Normal movement multiplier: <output id="free-camera-normal-value">6×</output></label><input id="free-camera-normal" type="range" min="6" max="1000" step="1" value="6"></div>
-            <div class="field"><label for="free-camera-fast">Fast movement multiplier: <output id="free-camera-fast-value">12×</output></label><input id="free-camera-fast" type="range" min="12" max="1000" step="1" value="12"></div>
-            <div class="field"><label for="free-camera-vertical">Vertical movement (R1/R2): <output id="free-camera-vertical-value">1×</output></label><input id="free-camera-vertical" type="range" min="1" max="1000" step="1" value="1"></div>
+            <h2>Free Cam in Replays</h2>
+            <p class="detail">Removes boundary restrictions when using photo mode in race replays</p>
+            <div class="field"><label for="free-camera-normal">Normal movement multiplier: <output id="free-camera-normal-value">6×</output></label><input id="free-camera-normal" type="range" min="6" max="256" step="1" value="6"></div>
+            <div class="field"><label for="free-camera-fast">Fast movement multiplier: <output id="free-camera-fast-value">12×</output></label><input id="free-camera-fast" type="range" min="12" max="256" step="1" value="12"></div>
+            <div class="field"><label for="free-camera-vertical">Vertical movement: <output id="free-camera-vertical-value">1×</output></label><input id="free-camera-vertical" type="range" min="1" max="256" step="1" value="1"></div>
             <div class="actions"><button type="button" id="apply-free-camera">Apply multipliers</button><button type="button" id="reset-free-camera">Restore native</button></div>
             <p id="free-camera-status" class="detail" role="status">Free-camera settings unavailable until GT7 is running.</p>
             <p id="free-camera-feedback" class="detail" role="status"></p>
@@ -1061,13 +1063,13 @@ button:not([role="tab"]) {
         'Quick Store Rotation': '<path d="M5 12a7 7 0 0 1 12-5l2 2m0 0V5m0 4h-4M19 12a7 7 0 0 1-12 5l-2-2m0 0v4m0-4h4"/>',
         'Unlock Power Pack': '<path d="m13 2-8 11h6l-1 9 8-12h-6l1-8Z"/>',
         'Unlock Vehicle DLC': '<path d="M3 15h18v4H3v-4Z"/><path d="m5 15 2-5h8l4 5"/><circle cx="7" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/>',
-        'Wheel Offset Presets': '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 12V4M12 12l6.93-4M12 12l6.93 4M12 12v8M12 12l-6.93 4M12 12 5.07 8"/>',
+        'Wheel Offsets': '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 12V4M12 12l6.93-4M12 12l6.93 4M12 12v8M12 12l-6.93 4M12 12 5.07 8"/>',
         'Live Settings': '<path d="M3 12h3l2-5 4 10 2-5h7"/>',
         'New Game Intro Movie Skip': '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 8.5 12 12l-5 3.5v-7Zm7 0 5 3.5-5 3.5v-7Z"/>',
         'Debug Environment': '<path d="M8 8 4 12l4 4M16 8l4 4-4 4M14 5l-4 14"/>',
         'Sync Game Clock to System': '<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2M12 2v2M12 20v2M2 12h2m16 0h2"/>',
         'Disable Short Music Tracks': '<path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/><path d="m4 4 16 16"/>',
-        'Free Photo Mode Camera': '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7l1.5-3h5L16 7"/><circle cx="12" cy="13.5" r="4"/><path d="M12 1v3M12 20v3M1 13h3M20 13h3"/>'
+        'Free Cam in Replays': '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7l1.5-3h5L16 7"/><circle cx="12" cy="13.5" r="4"/><path d="M12 1v3M12 20v3M1 13h3M20 13h3"/>'
     };
     function featureIcon(name) { return `<svg viewBox="0 0 24 24" aria-hidden="true">${featureIcons[name] || '<circle cx="12" cy="12" r="8"/>'}</svg>` }
     function mark() { dirty = true; liveTab(Boolean($('patch-6')?.checked)); buttons(); scheduleSave() }
