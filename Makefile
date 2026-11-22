@@ -25,7 +25,7 @@ build/notify.o: vendor/notify/notify.c
 	$(CC) -Wall -Werror -O2 -c $< -o $@
 build/live_boot.o: src/live_boot.S src/live_bridge.h
 	$(CC) -c $< -o $@
-build/live_bridge.o: src/live_bridge.c src/live_bridge.h src/hud_tree.h
+build/live_bridge.o: src/live_bridge.c src/live_bridge.h src/hud_tree.h src/menu_runtime.h
 	$(CC) -c -Os -fPIC -ffreestanding -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tables -fvisibility=hidden $< -o $@
 build/live_trace.o: src/live_trace.c src/live_bridge.h
 	$(CC) -c -Os -fPIC -ffreestanding -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tables -fvisibility=hidden -mgeneral-regs-only $< -o $@
@@ -37,9 +37,15 @@ build/live_%.elf: build/live_%.o src/live_bridge.ld
 	$(LD) --static -e live_frame -T src/live_bridge.ld $< -o $@
 build/live_%.bin: build/live_%.elf
 	$(OBJCOPY) -O binary --only-section=.blob $< $@
-build/live_blob.h: build/live_boot.bin build/live_bridge.bin build/live_boot.elf build/live_bridge.elf build_live_bridge.py src/live_trace.c
+build/wheel_patch.o: src/wheel_patch.c src/wheel_patch.h src/menu_runtime.h src/hud_tree.h src/live_bridge.h
+	$(CC) -c -Os -fPIC -ffreestanding -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tables -fvisibility=hidden $< -o $@
+build/wheel_patch.elf: build/wheel_patch.o src/live_bridge.ld
+	$(LD) --static -e wheel_frame -T src/live_bridge.ld $< -o $@
+build/wheel_patch.bin: build/wheel_patch.elf
+	$(OBJCOPY) -O binary --only-section=.blob $< $@
+build/live_blob.h: build/wheel_patch.bin build/wheel_patch.elf build/live_boot.bin build/live_bridge.bin build/live_boot.elf build/live_bridge.elf build_live_bridge.py src/live_trace.c
 	python3 build_live_bridge.py $(NM)
-build/gt7patcher.elf: src/main.c src/config.c src/config.h src/engine.c src/engine.h src/engine_diagnostics.h src/live_bridge.h src/hud_tree.h build/assets.h build/race_menu_groups.h build/hook_blob.h build/live_blob.h build/notify.o
+build/gt7patcher.elf: src/main.c src/config.c src/config.h src/engine.c src/wheel_patch.h src/engine.h src/engine_diagnostics.h src/live_bridge.h src/hud_tree.h build/assets.h build/race_menu_groups.h build/hook_blob.h build/live_blob.h build/notify.o
 	$(CC) $(CFLAGS) $(DEVELOPMENT_CFLAGS) -DPS5 src/main.c src/config.c src/engine.c build/notify.o -lSceSystemService -lSceUserService -o $@
 host: build/assets.h
 	gcc $(CFLAGS) -D_DEFAULT_SOURCE src/main.c src/config.c -o build/gt7patcher-host

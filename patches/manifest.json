@@ -30,14 +30,14 @@
     "built": true
   },
   {
-    "name": "Wheel Offset Presets",
-    "note": "Shows the native Wide wheel offsets and adds ten 5 mm wider pairs.",
+    "name": "Wheel Offsets",
+    "note": "Additional wheel offset options in GT Auto",
     "source": "wheel_offset_custom",
     "built": true
   },
   {
     "name": "Live Settings",
-    "note": "Enables the in-game credit editor and HUD visibility controls",
+    "note": "Enable in-game credit editor, HUD visibility controls, and free cam movement speed",
     "source": "live_settings",
     "built": true,
     "runtime": true
@@ -67,8 +67,8 @@
     "built": true
   },
   {
-    "name": "Free Photo Mode Camera",
-    "note": "Removes photo-mode camera movement restrictions.",
+    "name": "Free Cam in Replays",
+    "note": "Removes boundary restrictions when using photo mode in race replays",
     "source": "free_photo_camera",
     "built": true
   }

@@ -12,6 +12,7 @@
 #include "live_bridge.h"
 #include "hud_tree.h"
 #include "live_blob.h"
+#include "wheel_patch.h"
 #include <ps5/kernel.h>
 #include <ps5/mdbg.h>
 #include <sys/sysctl.h>
@@ -86,7 +87,11 @@ static atomic_int launch_stage;
 static pthread_t thread;
 static unsigned char expected_bridge[sizeof(hook_blob)];
 static const char *state_root = "/data/gt7p";
-enum { COUNTRY_CAVE = 0x430ea10, ASPECT_CAVE = 0x430eaa0 };
+enum
+{
+    COUNTRY_CAVE = 0x430ea10,
+    ASPECT_CAVE = 0x430eaa0
+};
 enum
 {
     LAUNCH_NONE,
@@ -98,13 +103,15 @@ enum
     LAUNCH_PREPARE,
     LAUNCH_PATCH,
     LAUNCH_LIVE,
+    LAUNCH_RUNTIME,
     LAUNCH_APPLIED,
     LAUNCH_UNCHANGED
 };
 static const char *const launch_stages[] = {
     "waiting for a launch request", "launch request received", "not GT7",
     "unsupported game version", "game module unavailable", "saved configuration unavailable",
-    "patch generation failed", "patch write failed", "live bridge install failed",
+    "patch generation failed", "patch write failed", "runtime loader install failed",
+    "installing split wheel offsets",
     "saved patches applied", "all patches disabled"};
 static unsigned firmware_version(void);
 /* The public TitleDir registration entry point is available before firmware
@@ -546,7 +553,7 @@ static int live_install(pid_t pid, uintptr_t base)
     engine_log("Live: install complete");
     return 0;
 }
-static int live_resolve(pid_t pid, uintptr_t base, uintptr_t *address, LiveMailbox *state)
+static int live_resolve_impl(pid_t pid, uintptr_t base, uintptr_t *address, LiveMailbox *state)
 {
     LiveBoot boot;
     uintptr_t slot = 0;
@@ -682,7 +689,8 @@ static int live_resolve(pid_t pid, uintptr_t base, uintptr_t *address, LiveMailb
         ime_slot = base + IME_GOT_RVA;
         ime_original = ime_target;
     }
-    else if (boot.entry != boot.allocation + LIVE_FRAME)
+    else if (boot.entry != boot.allocation + LIVE_FRAME &&
+             boot.entry != boot.allocation + WHEEL_RUNTIME_OFFSET + WHEEL_FRAME)
         return -1;
     if (read_mem(pid, mailbox, state, sizeof(*state)) || state->magic != LIVE_MAGIC || state->base != base || state->original != boot.original)
     {
@@ -720,6 +728,88 @@ static int live_resolve(pid_t pid, uintptr_t base, uintptr_t *address, LiveMailb
     *address = mailbox;
     return 0;
 }
+static pthread_mutex_t runtime_install_lock = PTHREAD_MUTEX_INITIALIZER;
+static int live_resolve(pid_t pid, uintptr_t base, uintptr_t *address, LiveMailbox *state)
+{
+    pthread_mutex_lock(&runtime_install_lock);
+    int result = live_resolve_impl(pid, base, address, state);
+    pthread_mutex_unlock(&runtime_install_lock);
+    return result;
+}
+
+/* The launch callback must return before GT7 can run the allocation bootstrap.
+ * Finish installation after acknowledging launch, before accepting another job.
+ * Engine shutdown joins this thread, so unloading cannot abandon a write. */
+static struct
+{
+    pid_t pid;
+    uintptr_t base;
+    int live_settings;
+} pending_wheel;
+
+static int wheel_install_finish(void)
+{
+    pid_t pid = pending_wheel.pid;
+    uintptr_t base = pending_wheel.base;
+    LiveBoot boot;
+    int result = -1;
+    pthread_mutex_lock(&runtime_install_lock);
+    for (unsigned i = 0; i < 300; i++)
+    {
+        if (live_boot_read(pid, base, &boot))
+            goto finish;
+        if (boot.state >= 2)
+            break;
+        usleep(100000);
+    }
+    if (boot.state < 2 || boot.state > 4 || boot.original != base + LIVE_ORIGINAL_RVA ||
+        boot.allocation < 0x10000 || boot.allocation > 0x00007fffffff8000ULL ||
+        (boot.allocation & 0x3fff))
+        goto finish;
+    uintptr_t target = boot.allocation + WHEEL_RUNTIME_OFFSET;
+    if (boot.state >= 3 && boot.entry == target + WHEEL_FRAME)
+    {
+        WheelRuntime installed;
+        if (!read_mem(pid, target + WHEEL_RUNTIME, &installed, sizeof(installed)) &&
+            installed.magic == WHEEL_RUNTIME_MAGIC && installed.base == base && installed.enabled &&
+            (installed.original == boot.original || installed.original == boot.allocation + LIVE_FRAME))
+            result = 0;
+        goto finish;
+    }
+    uintptr_t next = boot.original;
+    if (pending_wheel.live_settings)
+    {
+        uintptr_t address;
+        LiveMailbox state;
+        if (live_resolve_impl(pid, base, &address, &state))
+            goto finish;
+        next = boot.allocation + LIVE_FRAME;
+    }
+    WheelRuntime initial = {
+        .magic = WHEEL_RUNTIME_MAGIC,
+        .base = base,
+        .original = next,
+        .enabled = 1,
+    };
+    _Static_assert(sizeof(wheel_patch_blob) <= WHEEL_RUNTIME_RESERVED, "wheel image size");
+    _Static_assert(WHEEL_RUNTIME_OFFSET + WHEEL_RUNTIME_RESERVED <= LIVE_ALLOCATION, "wheel allocation size");
+    if (kernel_mprotect(pid, target, WHEEL_RUNTIME_RESERVED, PROT_READ | PROT_WRITE | PROT_EXEC) ||
+        verified_write(pid, target, wheel_patch_blob, sizeof(wheel_patch_blob)) ||
+        verified_write(pid, target + WHEEL_RUNTIME, &initial, sizeof(initial)))
+        goto finish;
+    uintptr_t entry = target + WHEEL_FRAME;
+    uintptr_t control = base + LIVE_BOOT_RVA + LIVE_BOOT_CONTROL;
+    uint32_t published = 3;
+    if (verified_write(pid, control + offsetof(LiveBoot, entry), &entry, sizeof(entry)) ||
+        verified_write(pid, control + offsetof(LiveBoot, state), &published, sizeof(published)))
+        goto finish;
+    result = 0;
+finish:
+    pending_wheel.pid = 0;
+    pthread_mutex_unlock(&runtime_install_lock);
+    return result;
+}
+
 int gt7_live_arm_credit_input(void)
 {
     pid_t pid;
@@ -2250,50 +2340,6 @@ static int menu_queue(pid_t pid, uintptr_t address, const LiveMailbox *state,
 }
 
 #ifdef GT7_DIAGNOSTICS
-int gt7_live_wheel_clone(uintptr_t source, unsigned phase, uintptr_t *copy, unsigned *result)
-{
-    pid_t pid;
-    uintptr_t base, address, type;
-    LiveMailbox state;
-    if (!copy || !result || phase > 9)
-        return -1;
-    *copy = 0;
-    *result = MENU_CALL_REJECTED;
-    if (source < LIVE_ARENA_LOW || source >= LIVE_ARENA_HIGH - 0x430u ||
-        (source & 7u) || credits_game(&pid, &base) ||
-        live_resolve(pid, base, &address, &state) || !state.enabled ||
-        !state.heartbeat || read_mem(pid, source, &type, sizeof(type)) ||
-        type != LIVE_MENU_ITEM_VA)
-        return -1;
-    if (state.wheel_clone_state == MENU_CALL_QUEUED ||
-        state.wheel_clone_state == MENU_CALL_RUNNING ||
-        (!phase && state.wheel_clone_result) ||
-        (phase && (!state.wheel_clone_result ||
-                   state.wheel_clone_reserved != (phase == 9 ? 15u : phase * 2u) ||
-                   state.wheel_clone_source != source)))
-        return -2;
-    uint32_t queued = MENU_CALL_QUEUED;
-    uint32_t operation = phase ? 10u + phase : 0u;
-    if (verified_write(pid, address + offsetof(LiveMailbox, wheel_clone_source),
-                       &source, sizeof(source)) ||
-        verified_write(pid, address + offsetof(LiveMailbox, wheel_clone_reserved),
-                       &operation, sizeof(operation)) ||
-        verified_write(pid, address + offsetof(LiveMailbox, wheel_clone_state),
-                       &queued, sizeof(queued)))
-        return -1;
-    for (unsigned i = 0; i < 150; i++)
-    {
-        usleep(10000);
-        if (read_mem(pid, address, &state, sizeof(state)))
-            return -3;
-        *result = state.wheel_clone_state;
-        *copy = phase >= 4 ? state.wheel_event_result : state.wheel_clone_result;
-        if (*result >= MENU_CALL_DONE && *result <= MENU_CALL_FAILED)
-            return *result == MENU_CALL_DONE ? 0 : -1;
-    }
-    return -3;
-}
-
 int gt7_live_menu_call(uintptr_t target, uintptr_t receiver, unsigned argc,
                        uintptr_t args, unsigned *result)
 {
@@ -3548,10 +3594,10 @@ static int bridge_prepare(void)
         uintptr_t stale_original = 0, stale_entry = module.eh_frame + HOOK_LAUNCH;
         unsigned stale_slots = 0;
         int stale_bridge = !read_mem(shell, module.eh_frame, stale, sizeof(stale)) &&
-            !memcmp(stale, hook_blob, HOOK_IMPORTS) &&
-            !memcmp(stale + HOOK_IMPORTS + sizeof(uintptr_t) * 9,
-                    hook_blob + HOOK_IMPORTS + sizeof(uintptr_t) * 9,
-                    sizeof(stale) - HOOK_IMPORTS - sizeof(uintptr_t) * 9);
+                           !memcmp(stale, hook_blob, HOOK_IMPORTS) &&
+                           !memcmp(stale + HOOK_IMPORTS + sizeof(uintptr_t) * 9,
+                                   hook_blob + HOOK_IMPORTS + sizeof(uintptr_t) * 9,
+                                   sizeof(stale) - HOOK_IMPORTS - sizeof(uintptr_t) * 9);
         if (stale_bridge)
         {
             memcpy(&stale_original, stale + HOOK_IMPORTS, sizeof(stale_original));
@@ -3559,7 +3605,7 @@ static int bridge_prepare(void)
             {
                 uintptr_t address = module.mapbase + i;
                 int in_frame = address >= module.eh_frame &&
-                    address - module.eh_frame < module.eh_frame_size;
+                               address - module.eh_frame < module.eh_frame_size;
                 if (!in_frame && !memcmp(image + i, &stale_entry, 8))
                 {
                     slot = address;
@@ -3779,8 +3825,8 @@ static int apply_patch_plan(pid_t pid, const Module *game, const PatchPlan *plan
         {
             records[count].name = op->name;
             if (address < 0x400000 || transaction_record(pid, &records[count],
-                    game->mapbase + address - 0x400000, op->expected, replacement,
-                    length, op->name))
+                                                         game->mapbase + address - 0x400000, op->expected, replacement,
+                                                         length, op->name))
                 goto fail;
             count++;
         }
@@ -3788,8 +3834,8 @@ static int apply_patch_plan(pid_t pid, const Module *game, const PatchPlan *plan
         {
             records[count].name = op->name;
             if (resolve_debug_environment(pid, game, &address) || transaction_record(pid,
-                    &records[count], address, (const unsigned char *)"release\0", debug_bytes,
-                    sizeof(debug_bytes), op->name))
+                                                                                     &records[count], address, (const unsigned char *)"release\0", debug_bytes,
+                                                                                     sizeof(debug_bytes), op->name))
                 goto fail;
             count++;
         }
@@ -3802,8 +3848,8 @@ static int apply_patch_plan(pid_t pid, const Module *game, const PatchPlan *plan
                 continue;
             }
             if (transaction_record(pid, &records[count], address,
-                    (const unsigned char *)"\xbf\x10\0\0\0", clock_bytes,
-                    sizeof(clock_bytes), op->name))
+                                   (const unsigned char *)"\xbf\x10\0\0\0", clock_bytes,
+                                   sizeof(clock_bytes), op->name))
                 goto fail;
             count++;
         }
@@ -3811,12 +3857,12 @@ static int apply_patch_plan(pid_t pid, const Module *game, const PatchPlan *plan
         {
             records[count].name = op->name;
             if (game->mapbase != LIVE_IMAGE_BASE || transaction_record(pid, &records[count],
-                    COUNTRY_CAVE, NULL, op->replacement, op->length, op->name))
+                                                                       COUNTRY_CAVE, NULL, op->replacement, op->length, op->name))
                 goto fail;
             count++;
             records[count].name = op->name;
             if (transaction_record(pid, &records[count], op->address, op->expected,
-                    op->replacement + op->length, 10, op->name))
+                                   op->replacement + op->length, 10, op->name))
                 goto fail;
             count++;
         }
@@ -3824,17 +3870,17 @@ static int apply_patch_plan(pid_t pid, const Module *game, const PatchPlan *plan
         {
             records[count].name = op->name;
             if (transaction_record(pid, &records[count], op->address, NULL,
-                    op->replacement, 4, op->name))
+                                   op->replacement, 4, op->name))
                 goto fail;
             count++;
             records[count].name = op->name;
             if (transaction_record(pid, &records[count], 0x921915, NULL,
-                    op->replacement + 4, 4, op->name))
+                                   op->replacement + 4, 4, op->name))
                 goto fail;
             count++;
             records[count].name = op->name;
             if (transaction_record(pid, &records[count], ASPECT_CAVE, NULL,
-                    op->replacement + 8, 8, op->name))
+                                   op->replacement + 8, 8, op->name))
                 goto fail;
             count++;
         }
@@ -3900,15 +3946,21 @@ static int apply_gt7(pid_t pid, int final_attempt)
     int patched = 0;
     const char *failed_name = NULL;
     int failed = apply_patch_plan(pid, &game, plan, &failed_name, &patched);
-    if (!failed && plan->live_bridge && live_install(pid, game.mapbase))
+    if (!failed && (plan->live_bridge || plan->wheel_runtime) && live_install(pid, game.mapbase))
     {
         free(plan);
         atomic_store(&launch_stage, LAUNCH_LIVE);
         if (final_attempt)
-            notify("GT7: could not install the optional Live Settings bridge. Close GT7 before retrying.");
+            notify("GT7: could not install the selected runtime patches. Close GT7 before retrying.");
         return 0;
     }
-    if (!failed && plan->live_bridge)
+    if (!failed && plan->wheel_runtime)
+    {
+        pending_wheel.pid = pid;
+        pending_wheel.base = game.mapbase;
+        pending_wheel.live_settings = plan->live_bridge;
+    }
+    if (!failed && (plan->live_bridge || plan->wheel_runtime))
         patched = 1;
     free(plan);
     if (failed)
@@ -3918,6 +3970,10 @@ static int apply_gt7(pid_t pid, int final_attempt)
             notify("GT7: Patch failed: %s. Close the game before retrying.",
                    failed_name ? failed_name : "Unknown patch");
         return 0;
+    }
+    else if (pending_wheel.pid)
+    {
+        atomic_store(&launch_stage, LAUNCH_RUNTIME);
     }
     else if (patched)
     {
@@ -3965,6 +4021,19 @@ static void *patch_service(void *unused)
             send(fd, &ack, 1, 0);
         }
         close(fd);
+        if (pending_wheel.pid)
+        {
+            if (wheel_install_finish())
+            {
+                atomic_store(&launch_stage, LAUNCH_PATCH);
+                notify("GT7: split wheel offset installation failed. Close GT7 before retrying.");
+            }
+            else
+            {
+                atomic_store(&launch_stage, LAUNCH_APPLIED);
+                notify("GT7Patcher: Saved patches applied.");
+            }
+        }
     }
     atomic_store(&live, 0);
     return NULL;

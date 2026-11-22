@@ -29,24 +29,28 @@
  * <select id="aspect"> options in web/index.html. Index -1 leaves the game's
  * own 16:9 projection constant untouched. */
 #define ASPECT_COUNT 9
-typedef struct {
+typedef struct
+{
     unsigned mask;
     int preset, units, language, country, speed, mass, power, torque, temperature, autostart, important_dismissed;
     int aspect;
 } Config;
-typedef struct {
+typedef struct
+{
     uintptr_t address;
     const unsigned char *replacement;
     size_t length;
 } PatchDefinition;
-typedef enum {
+typedef enum
+{
     PATCH_OPERATION_BYTES,
     PATCH_OPERATION_DEBUG_ENVIRONMENT,
     PATCH_OPERATION_CLOCK_FIX,
     PATCH_OPERATION_COUNTRY,
     PATCH_OPERATION_ASPECT
 } PatchOperationType;
-typedef struct {
+typedef struct
+{
     PatchOperationType type;
     uintptr_t address;
     const unsigned char *expected;
@@ -56,10 +60,11 @@ typedef struct {
     const char *name;
 } PatchOperation;
 #define PATCH_PLAN_MAX_OPERATIONS 1024
-typedef struct {
+typedef struct
+{
     PatchOperation operations[PATCH_PLAN_MAX_OPERATIONS];
     size_t count;
-    int live_bridge;
+    int live_bridge, wheel_runtime;
     unsigned char generated[1024];
     size_t generated_used;
 } PatchPlan;

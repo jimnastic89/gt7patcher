@@ -7,7 +7,8 @@ import sys
 
 out=[]
 metadata={}
-for name,required,limit in [('live_boot',['live_boot_entry','live_boot_control'],0xf0),
+for name,required,limit in [('wheel_patch',['wheel_frame','wheel_runtime'],0x8000),
+                            ('live_boot',['live_boot_entry','live_boot_control'],0xf0),
                             ('live_bridge',['live_frame','live_mailbox','ime_open_hook','live_trace','live_menu_close'],0x16000)]:
     elf=Path(f'build/{name}.elf').read_bytes()
     offset=struct.unpack_from('<Q',elf,40)[0]

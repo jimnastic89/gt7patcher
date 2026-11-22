@@ -15,13 +15,13 @@ PATCH_SOURCES = [
     ('Quick Store Rotation', 'quick_store_rotation'),
     ('Unlock Power Pack', 'unlock_power_pack'),
     ('Unlock Vehicle DLC', 'unlock_vehicle_dlcs'),
-    ('Wheel Offset Presets', 'wheel_offset_custom'),
+    ('Wheel Offsets', 'wheel_offset_custom'),
     ('Live Settings', 'live_settings'),
     ('New Game Intro Movie Skip', 'opening_movie_skip'),
     ('Debug Environment', 'debug_environment'),
     ('Sync Game Clock to System', 'clock_fix'),
     ('Disable Short Music Tracks', 'music_jingle_filter'),
-    ('Free Photo Mode Camera', 'free_photo_camera'),
+    ('Free Cam in Replays', 'free_photo_camera'),
 ]
 # Previous release note retained for easy restoration:
 # "Enable the optional live settings bridge for the next game launch."

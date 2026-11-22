@@ -4,12 +4,12 @@
  * only after its complete body has been written; CAS claims it exactly once. */
 #include "live_bridge.h"
 #include "hud_tree.h"
+#include "menu_runtime.h"
 #include <stddef.h>
 /* Must stay static: a global symbol would be addressed through the GOT, which
  * GNU ld relaxes to an absolute (link-time VMA) address for the `add` form.
  * See the note in live_bridge.h. */
-static volatile LiveMailbox live_mailbox={.magic=LIVE_MAGIC};
-typedef struct {char text[16];uint64_t size,capacity;} GameString;
+static volatile LiveMailbox live_mailbox = {.magic = LIVE_MAGIC};
 /* ------------------------------------------------------------------------
  * In-race HUD visibility.
  * The MENU widget tree is rebuilt at every race start and process restart, so
@@ -45,17 +45,30 @@ typedef struct {char text[16];uint64_t size,capacity;} GameString;
  * would not fit. A collision would restore one widget's rect onto another;
  * with ~700 live paths over 64 bits that is about 1e-14. */
 #define HUD_SAVED_MAX 1024u
-typedef struct {unsigned long long hash;unsigned char rect[HUD_RECT_LEN];unsigned char have,seen,used;} HudSaved;
+typedef struct
+{
+    unsigned long long hash;
+    unsigned char rect[HUD_RECT_LEN];
+    unsigned char have, seen, used;
+} HudSaved;
 static HudSaved hud_saved[HUD_SAVED_MAX];
-static unsigned long long hud_hash(const char *s){
-    unsigned long long h=14695981039346656037ull; /* FNV-1a 64 */
-    for(;*s;s++){h^=(unsigned char)*s;h*=1099511628211ull;}
+static unsigned long long hud_hash(const char *s)
+{
+    unsigned long long h = 14695981039346656037ull; /* FNV-1a 64 */
+    for (; *s; s++)
+    {
+        h ^= (unsigned char)*s;
+        h *= 1099511628211ull;
+    }
     return h;
 }
-static void hud_fill(void *d,unsigned char v,unsigned n){unsigned char *a=d;for(unsigned i=0;i<n;i++)a[i]=v;}
-static void hud_copy(void *d,const void *s,unsigned n){unsigned char *a=d;const unsigned char *b=s;for(unsigned i=0;i<n;i++)a[i]=b[i];}
-static int hud_same(const char *a,const char *b){for(;;a++,b++){if(*a!=*b)return 0;if(!*a)return 1;}}
-static int hud_is_path(const char *e){for(;*e;e++)if(*e=='/')return 1;return 0;}
+static int hud_is_path(const char *e)
+{
+    for (; *e; e++)
+        if (*e == '/')
+            return 1;
+    return 0;
+}
 /* The game mounts the race HUD twice, under RaceDisplay/Container/objective and
  * RaceDisplay/Container/subjective, and both copies carry the same widget
  * names. The camera decides which copy is drawn: bumper cam draws the
@@ -63,80 +76,48 @@ static int hud_is_path(const char *e){for(;*e;e++)if(*e=='/')return 1;return 0;}
  * against whichever copy the UI happened to list, so matching has to treat the
  * two container names as the same or an element hidden in one camera stays on
  * screen in the other. */
-static int hud_seg_is(const char *s,unsigned n,const char *lit,unsigned ln){
-    if(n!=ln)return 0;
-    for(unsigned i=0;i<n;i++)if(s[i]!=lit[i])return 0;
+static int hud_seg_is(const char *s, unsigned n, const char *lit, unsigned ln)
+{
+    if (n != ln)
+        return 0;
+    for (unsigned i = 0; i < n; i++)
+        if (s[i] != lit[i])
+            return 0;
     return 1;
 }
-static int hud_seg_same(const char *a,unsigned an,const char *b,unsigned bn){
-    if(an==bn){for(unsigned i=0;i<an;i++)if(a[i]!=b[i])return 0;return 1;}
-    if(hud_seg_is(a,an,"objective",9u)&&hud_seg_is(b,bn,"subjective",10u))return 1;
-    if(hud_seg_is(a,an,"subjective",10u)&&hud_seg_is(b,bn,"objective",9u))return 1;
+static int hud_seg_same(const char *a, unsigned an, const char *b, unsigned bn)
+{
+    if (an == bn)
+    {
+        for (unsigned i = 0; i < an; i++)
+            if (a[i] != b[i])
+                return 0;
+        return 1;
+    }
+    if (hud_seg_is(a, an, "objective", 9u) && hud_seg_is(b, bn, "subjective", 10u))
+        return 1;
+    if (hud_seg_is(a, an, "subjective", 10u) && hud_seg_is(b, bn, "objective", 9u))
+        return 1;
     return 0;
 }
-static int hud_same_view(const char *a,const char *b){
-    for(;;){
-        unsigned an=0,bn=0;
-        while(a[an]&&a[an]!='/')an++;
-        while(b[bn]&&b[bn]!='/')bn++;
-        if(!hud_seg_same(a,an,b,bn))return 0;
-        if(!a[an]&&!b[bn])return 1;
-        if(!a[an]||!b[bn])return 0;
-        a+=an+1;b+=bn+1;
+static int hud_same_view(const char *a, const char *b)
+{
+    for (;;)
+    {
+        unsigned an = 0, bn = 0;
+        while (a[an] && a[an] != '/')
+            an++;
+        while (b[bn] && b[bn] != '/')
+            bn++;
+        if (!hud_seg_same(a, an, b, bn))
+            return 0;
+        if (!a[an] && !b[bn])
+            return 1;
+        if (!a[an] || !b[bn])
+            return 0;
+        a += an + 1;
+        b += bn + 1;
     }
-}
-/* Widget allocations live in the game's MENU arena. A generic user address
- * check also accepts sentinels and packed name bytes found during transitions. */
-static int hud_arena_span(uintptr_t address, uintptr_t size)
-{
-    return address >= LIVE_ARENA_LOW && address < LIVE_ARENA_HIGH &&
-           size <= LIVE_ARENA_HIGH - address;
-}
-
-static int hud_object(uintptr_t address, uintptr_t size)
-{
-    return !(address & (sizeof(uintptr_t) - 1)) && hud_arena_span(address, size);
-}
-
-static int hud_vector(uintptr_t begin, uintptr_t end, unsigned limit)
-{
-    return end > begin && !(end & (sizeof(uintptr_t) - 1)) &&
-           end - begin <= sizeof(uintptr_t) * limit && hud_object(begin, end - begin);
-}
-
-/* The native frame callback supplies the update context from a separate
- * allocation. Widget arena checks apply to objects read from that context. */
-static int hud_update_context(uintptr_t base, uintptr_t context)
-{
-    return hud_ptr(base) && hud_ptr(context) &&
-           !(context & (sizeof(uintptr_t) - 1)) &&
-           *(const uintptr_t *)context == base + HUD_UPDATE_VT_RVA;
-}
-
-/* Read a widget name: 0 when there is none, 1 for an inline name, 2 for a
- * heap-allocated one. The name object is a small-string-optimised string, so a
- * long name is reached through the pointer the object holds rather than sitting
- * at the object itself. The payload's hud_read_name decodes it the same way: a
- * widget the two disagree about can never be hidden from the UI. */
-static int hud_name(uintptr_t node, char *out)
-{
-    uintptr_t p = *(uintptr_t *)(node + HUD_OFF_NAME);
-    if (!hud_object(p, HUD_OFF_NAME_CAP + sizeof(uint64_t))) return 0;
-    const unsigned char *raw = (const unsigned char *)p;
-    uint64_t len = *(const uint64_t *)(p + HUD_OFF_NAME_LEN);
-    uint64_t cap = *(const uint64_t *)(p + HUD_OFF_NAME_CAP);
-    if (!len || len >= LIVE_HUD_NAME || cap < len) return 0;
-    if (len > HUD_NAME_INLINE) {
-        uintptr_t text = *(const uintptr_t *)p;
-        if (!hud_arena_span(text, len)) return 0;
-        raw = (const unsigned char *)text;
-    }
-    unsigned i = 0;
-    for (; i < len && raw[i]; i++)
-        out[i] = (char)raw[i];
-    out[i] = 0;
-    if (!hud_name_ok(out, i)) return 0;
-    return len > HUD_NAME_INLINE ? 2 : 1;
 }
 /* A widget matches by its path, or - so a selection made before heap-allocated
  * widget names were decoded keeps working - by `alias`, the path the old reader
@@ -144,48 +125,77 @@ static int hud_name(uintptr_t node, char *out)
  * camera's copy of the HUD (see hud_same_view): hiding an element must not
  * depend on which camera happened to be active when it was selected. A bare
  * name already matches every widget with that name, in either copy. */
-static int hud_match(volatile LiveMailbox *m,uint32_t count,const char *name,const char *path,const char *alias){
-    for(uint32_t i=0;i<count;i++){
-        const char *e=(const char *)m->hud_entries[i];
-        if(!e[0])continue;
-        if(hud_is_path(e)){
-            if(!path[0])continue;
-            if(hud_same(e,path)||hud_same(e,alias))return 1;
-            if(hud_same_view(e,path)||hud_same_view(e,alias))return 1;
+static int hud_match(volatile LiveMailbox *m, uint32_t count, const char *name, const char *path, const char *alias)
+{
+    for (uint32_t i = 0; i < count; i++)
+    {
+        const char *e = (const char *)m->hud_entries[i];
+        if (!e[0])
+            continue;
+        if (hud_is_path(e))
+        {
+            if (!path[0])
+                continue;
+            if (hud_same(e, path) || hud_same(e, alias))
+                return 1;
+            if (hud_same_view(e, path) || hud_same_view(e, alias))
+                return 1;
         }
-        else if(hud_same(e,name))return 1;
+        else if (hud_same(e, name))
+            return 1;
     }
     return 0;
 }
-static void hud_children(uintptr_t node,volatile LiveMailbox *m,uintptr_t base,unsigned depth,HudPath *path,HudPath *alias,int hidden);
-static void hud_walk(uintptr_t node,volatile LiveMailbox *m,uintptr_t base,unsigned depth,HudPath *path,HudPath *alias,int hidden){
-    if (depth > HUD_MAX_DEPTH || !hud_object(node, HUD_OFF_RECT + HUD_RECT_LEN)) return;
+static void hud_children(uintptr_t node, volatile LiveMailbox *m, uintptr_t base, unsigned depth, HudPath *path, HudPath *alias, int hidden);
+static void hud_walk(uintptr_t node, volatile LiveMailbox *m, uintptr_t base, unsigned depth, HudPath *path, HudPath *alias, int hidden)
+{
+    if (depth > HUD_MAX_DEPTH || !hud_object(node, HUD_OFF_RECT + HUD_RECT_LEN))
+        return;
     char nm[LIVE_HUD_NAME];
-    int named=hud_name(node,nm);
-    unsigned save=path->len,asave=alias->len;
-    int pushed=named?hud_path_push(path,nm):0;
-    if(named&&!pushed)return; /* path limit reached: skip the subtree so no widget is given a path missing an ancestor */
+    int named = hud_name(node, nm);
+    unsigned save = path->len, asave = alias->len;
+    int pushed = named ? hud_path_push(path, nm) : 0;
+    if (named && !pushed)
+        return; /* path limit reached: skip the subtree so no widget is given a path missing an ancestor */
     /* Only names the old reader could see go into the compatibility path. */
-    if(named==1&&!hud_path_push(alias,nm)){alias->len=asave;alias->buf[asave]=0;}
-    if(named){
-        uint32_t count=__atomic_load_n(&m->hud_count,__ATOMIC_RELAXED);
-        if(count>LIVE_HUD_MAX)count=LIVE_HUD_MAX;
-        const char *key=pushed?path->buf:nm;
-        unsigned long long key_hash=hud_hash(key);
+    if (named == 1 && !hud_path_push(alias, nm))
+    {
+        alias->len = asave;
+        alias->buf[asave] = 0;
+    }
+    if (named)
+    {
+        uint32_t count = __atomic_load_n(&m->hud_count, __ATOMIC_RELAXED);
+        if (count > LIVE_HUD_MAX)
+            count = LIVE_HUD_MAX;
+        const char *key = pushed ? path->buf : nm;
+        unsigned long long key_hash = hud_hash(key);
         /* A widget is hidden when it is selected itself or when an ancestor
          * is. Hiding a group therefore hides every layer drawn inside it, so
          * one tick covers an element built from several child layers (a panel
          * background plus its indicator). Selecting a layer on its own still
          * hides only that layer, which is what lets a background be dropped
          * while the indicator stays. */
-        if(!hidden&&hud_match(m,count,nm,pushed?path->buf:"",alias->buf))hidden=1;
-        if(hidden){
-            int slot=-1,spare=-1;
-            for(unsigned i=0;i<HUD_SAVED_MAX;i++){
-                if(hud_saved[i].have){if(hud_saved[i].hash==key_hash){slot=(int)i;break;}}
-                else if(spare<0)spare=(int)i;
+        if (!hidden && hud_match(m, count, nm, pushed ? path->buf : "", alias->buf))
+            hidden = 1;
+        if (hidden)
+        {
+            int slot = -1, spare = -1;
+            for (unsigned i = 0; i < HUD_SAVED_MAX; i++)
+            {
+                if (hud_saved[i].have)
+                {
+                    if (hud_saved[i].hash == key_hash)
+                    {
+                        slot = (int)i;
+                        break;
+                    }
+                }
+                else if (spare < 0)
+                    spare = (int)i;
             }
-            if(slot<0&&spare>=0){
+            if (slot < 0 && spare >= 0)
+            {
                 /* A widget can exist before GT7 has laid it out. Wait
                  * for that layout before saving a rectangle to restore. */
                 const float *rect = (const float *)(node + HUD_OFF_RECT);
@@ -202,57 +212,89 @@ static void hud_walk(uintptr_t node,volatile LiveMailbox *m,uintptr_t base,unsig
             }
             /* Only hide what can be restored. When the cache is full the
              * widget is left visible rather than hidden for good. */
-            if(slot>=0){
-                hud_saved[slot].seen=1;hud_saved[slot].used=1;
-                hud_fill((void *)(node+HUD_OFF_RECT),0,HUD_RECT_LEN);
+            if (slot >= 0)
+            {
+                hud_saved[slot].seen = 1;
+                hud_saved[slot].used = 1;
+                hud_fill((void *)(node + HUD_OFF_RECT), 0, HUD_RECT_LEN);
             }
-        }else{
+        }
+        else
+        {
             /* Restore every instance of the key. The cache entry is dropped by
              * apply_hud once the whole tree has been visited, so duplicates (the
              * in-car and bumper root windows carry the same names) are all
              * restored. Clearing `have` here would leave the second instance
              * hidden and would later re-cache its zeroed rect, making the widget
              * permanently un-restorable. */
-            for(unsigned i=0;i<HUD_SAVED_MAX;i++)if(hud_saved[i].have&&hud_saved[i].hash==key_hash){
-                hud_copy((void *)(node+HUD_OFF_RECT),hud_saved[i].rect,HUD_RECT_LEN);
-                hud_saved[i].seen=1;break;
-            }
+            for (unsigned i = 0; i < HUD_SAVED_MAX; i++)
+                if (hud_saved[i].have && hud_saved[i].hash == key_hash)
+                {
+                    hud_copy((void *)(node + HUD_OFF_RECT), hud_saved[i].rect, HUD_RECT_LEN);
+                    hud_saved[i].seen = 1;
+                    break;
+                }
         }
     }
-    hud_children(node,m,base,depth+1,path,alias,hidden);
-    path->len=save;path->buf[save]=0;
-    alias->len=asave;alias->buf[asave]=0;
+    hud_children(node, m, base, depth + 1, path, alias, hidden);
+    path->len = save;
+    path->buf[save] = 0;
+    alias->len = asave;
+    alias->buf[asave] = 0;
 }
-static void hud_children(uintptr_t node,volatile LiveMailbox *m,uintptr_t base,unsigned depth,HudPath *path,HudPath *alias,int hidden){
-    uintptr_t nl=*(uintptr_t *)(node+HUD_OFF_CHILDREN);
-    if (!hud_object(nl, 0x48) || *(uintptr_t *)nl != base + HUD_NLW_RVA) return;
-    uintptr_t vb=*(uintptr_t *)(nl+0x38),ve=*(uintptr_t *)(nl+0x40);
-    if (!hud_vector(vb, ve, 4096)) return;
+static void hud_children(uintptr_t node, volatile LiveMailbox *m, uintptr_t base, unsigned depth, HudPath *path, HudPath *alias, int hidden)
+{
+    uintptr_t nl = *(uintptr_t *)(node + HUD_OFF_CHILDREN);
+    if (!hud_object(nl, 0x48) || *(uintptr_t *)nl != base + HUD_NLW_RVA)
+        return;
+    uintptr_t vb = *(uintptr_t *)(nl + 0x38), ve = *(uintptr_t *)(nl + 0x40);
+    if (!hud_vector(vb, ve, 4096))
+        return;
     for (uintptr_t v = vb; v < ve; v += sizeof(uintptr_t))
         hud_walk(*(uintptr_t *)v, m, base, depth, path, alias, hidden);
 }
-static void apply_hud(void){
-    volatile LiveMailbox *m=&live_mailbox;
-    uint32_t count=__atomic_load_n(&m->hud_count,__ATOMIC_RELAXED);
-    if(count>LIVE_HUD_MAX)count=LIVE_HUD_MAX;
-    int any=0;
-    for(unsigned i=0;i<HUD_SAVED_MAX;i++)if(hud_saved[i].have){any=1;break;}
+static void apply_hud(void)
+{
+    volatile LiveMailbox *m = &live_mailbox;
+    uint32_t count = __atomic_load_n(&m->hud_count, __ATOMIC_RELAXED);
+    if (count > LIVE_HUD_MAX)
+        count = LIVE_HUD_MAX;
+    int any = 0;
+    for (unsigned i = 0; i < HUD_SAVED_MAX; i++)
+        if (hud_saved[i].have)
+        {
+            any = 1;
+            break;
+        }
     if (!count && !any)
     {
         __atomic_store_n(&m->hud_applied, 0, __ATOMIC_RELAXED);
         return;
     }
-    uintptr_t base=m->base,ctx=m->context;
-    if (!hud_update_context(base, ctx)) return;
-    HudPath path;path.len=0;path.buf[0]=0;
-    HudPath alias;alias.len=0;alias.buf[0]=0;
-    for(unsigned i=0;i<HUD_SAVED_MAX;i++){hud_saved[i].seen=0;hud_saved[i].used=0;}
-    for(unsigned i=0;i<6;i++){
-        uintptr_t rc=*(uintptr_t *)(ctx+0x698+8*i);
-        if (!hud_object(rc, 0x1f8) || *(uintptr_t *)rc != base + HUD_RENDER_VT_RVA) continue;
-        uintptr_t rb=*(uintptr_t *)(rc+0x1e8),re=*(uintptr_t *)(rc+0x1f0);
-        if (!hud_vector(rb, re, 64)) continue;
-        for (uintptr_t v = rb; v < re; v += sizeof(uintptr_t)) {
+    uintptr_t base = m->base, ctx = m->context;
+    if (!hud_update_context(base, ctx))
+        return;
+    HudPath path;
+    path.len = 0;
+    path.buf[0] = 0;
+    HudPath alias;
+    alias.len = 0;
+    alias.buf[0] = 0;
+    for (unsigned i = 0; i < HUD_SAVED_MAX; i++)
+    {
+        hud_saved[i].seen = 0;
+        hud_saved[i].used = 0;
+    }
+    for (unsigned i = 0; i < 6; i++)
+    {
+        uintptr_t rc = *(uintptr_t *)(ctx + 0x698 + 8 * i);
+        if (!hud_object(rc, 0x1f8) || *(uintptr_t *)rc != base + HUD_RENDER_VT_RVA)
+            continue;
+        uintptr_t rb = *(uintptr_t *)(rc + 0x1e8), re = *(uintptr_t *)(rc + 0x1f0);
+        if (!hud_vector(rb, re, 64))
+            continue;
+        for (uintptr_t v = rb; v < re; v += sizeof(uintptr_t))
+        {
             uintptr_t rw = *(uintptr_t *)v;
             if (hud_object(rw, HUD_OFF_CHILDREN + sizeof(uintptr_t)) &&
                 *(uintptr_t *)rw == base + HUD_ROOT_VT_RVA)
@@ -264,10 +306,14 @@ static void apply_hud(void){
      * absent this frame - for example between races - is kept, so a selection
      * survives a race change or a game restart. A cascade entry stays while
      * `used` is set, even though its own path is not in the list. */
-    for(unsigned i=0;i<HUD_SAVED_MAX;i++)if(hud_saved[i].have&&hud_saved[i].seen&&!hud_saved[i].used)hud_saved[i].have=0;
-    uint32_t applied=0;
-    for(unsigned i=0;i<HUD_SAVED_MAX;i++)if(hud_saved[i].have&&hud_saved[i].used)applied++;
-    __atomic_store_n(&m->hud_applied,applied,__ATOMIC_RELAXED);
+    for (unsigned i = 0; i < HUD_SAVED_MAX; i++)
+        if (hud_saved[i].have && hud_saved[i].seen && !hud_saved[i].used)
+            hud_saved[i].have = 0;
+    uint32_t applied = 0;
+    for (unsigned i = 0; i < HUD_SAVED_MAX; i++)
+        if (hud_saved[i].have && hud_saved[i].used)
+            applied++;
+    __atomic_store_n(&m->hud_applied, applied, __ATOMIC_RELAXED);
 }
 
 /* ---- Credits popup auto-trigger ---------------------------------------- *
@@ -293,281 +339,384 @@ static uintptr_t menu_divider_template;
  * The view popup is therefore the one with an HBox directly under GTCredit/SBox;
  * the purchase popup nests its HBox one level deeper under Balance, so it is
  * excluded. Track the two enclosing widget names to tell the shapes apart. */
-static int credit_find(uintptr_t node,uintptr_t base,unsigned depth,const char *parent,const char *grand){
-    if (depth > HUD_MAX_DEPTH || !hud_object(node, HUD_OFF_CHILDREN + sizeof(uintptr_t))) return 0;
+static int credit_find(uintptr_t node, uintptr_t base, unsigned depth, const char *parent, const char *grand)
+{
+    if (depth > HUD_MAX_DEPTH || !hud_object(node, HUD_OFF_CHILDREN + sizeof(uintptr_t)))
+        return 0;
     char nm[LIVE_HUD_NAME];
-    int named=hud_name(node,nm)==1; /* inline names only: this walk predates heap-name decoding */
-    const char *name=named?nm:"";
+    int named = hud_name(node, nm) == 1; /* inline names only: this walk predates heap-name decoding */
+    const char *name = named ? nm : "";
     if (live_mailbox.menu_count && named && hud_same(name, "line_top") &&
         hud_same(parent, "VideoSettings") && *(const uintptr_t *)node == 0x0558c238u)
         menu_divider_template = node;
     if (live_mailbox.menu_count && named && hud_same(name, "OptionMenu") &&
         hud_same(parent, "RaceInfo"))
         menu_observe(node);
-    if(named&&hud_same(nm,"HBox")&&hud_same(parent,"SBox")&&hud_same(grand,"GTCredit"))return 1;
-    uintptr_t nl=*(uintptr_t *)(node+HUD_OFF_CHILDREN);
-    if (!hud_object(nl, 0x48) || *(uintptr_t *)nl != base + HUD_NLW_RVA) return 0;
-    uintptr_t vb=*(uintptr_t *)(nl+0x38),ve=*(uintptr_t *)(nl+0x40);
-    if (!hud_vector(vb, ve, 4096)) return 0;
+    if (named && hud_same(nm, "HBox") && hud_same(parent, "SBox") && hud_same(grand, "GTCredit"))
+        return 1;
+    uintptr_t nl = *(uintptr_t *)(node + HUD_OFF_CHILDREN);
+    if (!hud_object(nl, 0x48) || *(uintptr_t *)nl != base + HUD_NLW_RVA)
+        return 0;
+    uintptr_t vb = *(uintptr_t *)(nl + 0x38), ve = *(uintptr_t *)(nl + 0x40);
+    if (!hud_vector(vb, ve, 4096))
+        return 0;
     for (uintptr_t v = vb; v < ve; v += sizeof(uintptr_t))
-        if (credit_find(*(uintptr_t *)v, base, depth + 1, name, parent)) return 1;
+        if (credit_find(*(uintptr_t *)v, base, depth + 1, name, parent))
+            return 1;
     return 0;
 }
-static int credit_visible(void){
-    volatile LiveMailbox *m=&live_mailbox;
-    uintptr_t base=m->base,ctx=m->context;
-    if (!hud_update_context(base, ctx)) return 0;
-    for(unsigned i=0;i<6;i++){
-        uintptr_t rc=*(uintptr_t *)(ctx+0x698+8*i);
-        if (!hud_object(rc, 0x1f8) || *(uintptr_t *)rc != base + HUD_RENDER_VT_RVA) continue;
-        uintptr_t rb=*(uintptr_t *)(rc+0x1e8),re=*(uintptr_t *)(rc+0x1f0);
-        if (!hud_vector(rb, re, 64)) continue;
-        for (uintptr_t v = rb; v < re; v += sizeof(uintptr_t)) {
+static int credit_visible(void)
+{
+    volatile LiveMailbox *m = &live_mailbox;
+    uintptr_t base = m->base, ctx = m->context;
+    if (!hud_update_context(base, ctx))
+        return 0;
+    for (unsigned i = 0; i < 6; i++)
+    {
+        uintptr_t rc = *(uintptr_t *)(ctx + 0x698 + 8 * i);
+        if (!hud_object(rc, 0x1f8) || *(uintptr_t *)rc != base + HUD_RENDER_VT_RVA)
+            continue;
+        uintptr_t rb = *(uintptr_t *)(rc + 0x1e8), re = *(uintptr_t *)(rc + 0x1f0);
+        if (!hud_vector(rb, re, 64))
+            continue;
+        for (uintptr_t v = rb; v < re; v += sizeof(uintptr_t))
+        {
             uintptr_t rw = *(uintptr_t *)v;
             if (hud_object(rw, HUD_OFF_CHILDREN + sizeof(uintptr_t)) &&
                 *(uintptr_t *)rw == base + HUD_ROOT_VT_RVA &&
-                credit_find(rw, base, 0, "", "")) return 1;
+                credit_find(rw, base, 0, "", ""))
+                return 1;
         }
     }
     return 0;
 }
-static void credit_watch(void){
-    volatile LiveMailbox *m=&live_mailbox;
+static void credit_watch(void)
+{
+    volatile LiveMailbox *m = &live_mailbox;
     m->menu_candidate = 0;
     menu_divider_template = 0;
-    int visible=credit_visible();
-    uint32_t st=m->prompt_state;
-    if(visible&&!credit_popup_prev&&st==PROMPT_IDLE)m->credit_request=1;
-    if(!visible&&st!=PROMPT_QUEUED&&st!=PROMPT_RUNNING&&st!=PROMPT_OPEN&&st!=PROMPT_IDLE)m->prompt_state=PROMPT_IDLE;
-    credit_popup_prev=visible;
+    int visible = credit_visible();
+    uint32_t st = m->prompt_state;
+    if (visible && !credit_popup_prev && st == PROMPT_IDLE)
+        m->credit_request = 1;
+    if (!visible && st != PROMPT_QUEUED && st != PROMPT_RUNNING && st != PROMPT_OPEN && st != PROMPT_IDLE)
+        m->prompt_state = PROMPT_IDLE;
+    credit_popup_prev = visible;
 }
 /* GT7 passes its OrbisImeParam in rdi and the extended-parameter pointer in
  * rsi at its sceImeOpen call site (the game rebuilds the struct on every
  * open).  OrbisImeParam::type lives at +0x04; OrbisImeType::Number is 4. */
-__attribute__((visibility("hidden"))) int ime_open_hook(void *param, void *work){
-    volatile LiveMailbox *m=&live_mailbox;
-    uint32_t *type=(uint32_t *)((unsigned char *)param+0x04);
-    uint32_t saved=*type;
-    int armed=m->ime_hook_enabled&&__atomic_exchange_n(&m->credit_input_pending,0,__ATOMIC_ACQ_REL);
-    if(armed)*type=4;
-    int result=((int (*)(void *,void *))(uintptr_t)m->ime_original)(param,work);
-    if(armed)*type=saved;
+__attribute__((visibility("hidden"))) int ime_open_hook(void *param, void *work)
+{
+    volatile LiveMailbox *m = &live_mailbox;
+    uint32_t *type = (uint32_t *)((unsigned char *)param + 0x04);
+    uint32_t saved = *type;
+    int armed = m->ime_hook_enabled && __atomic_exchange_n(&m->credit_input_pending, 0, __ATOMIC_ACQ_REL);
+    if (armed)
+        *type = 4;
+    int result = ((int (*)(void *, void *))(uintptr_t)m->ime_original)(param, work);
+    if (armed)
+        *type = saved;
     return result;
 }
-static void sample_car(void){
-    volatile LiveMailbox *m=&live_mailbox;
-    uint32_t queued=CAR_QUEUED;
-    if(!__atomic_compare_exchange_n(&m->car_state,&queued,CAR_RUNNING,0,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED))return;
-    uint32_t result=CAR_UNAVAILABLE;
-    m->car_object=0;m->car_implementation=0;m->car_expanded=0;m->car_style=0;
+static void sample_car(void)
+{
+    volatile LiveMailbox *m = &live_mailbox;
+    uint32_t queued = CAR_QUEUED;
+    if (!__atomic_compare_exchange_n(&m->car_state, &queued, CAR_RUNNING, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+        return;
+    uint32_t result = CAR_UNAVAILABLE;
+    m->car_object = 0;
+    m->car_implementation = 0;
+    m->car_expanded = 0;
+    m->car_style = 0;
     _Alignas(16) unsigned char car[0x30];
-    if(!m->enabled||!m->car_ctor||!m->get_riding_car||!m->car_dtor)goto finish;
+    if (!m->enabled || !m->car_ctor || !m->get_riding_car || !m->car_dtor)
+        goto finish;
     ((void (*)(void *))(uintptr_t)m->car_ctor)(car);
-    if(((int (*)(void *))(uintptr_t)m->get_riding_car)(car)){
-        uintptr_t implementation=*(uintptr_t *)car;
-        uintptr_t style=implementation?*(uintptr_t *)(implementation+0x18):0;
-        if(implementation>=LIVE_ARENA_LOW&&implementation+0x20<LIVE_ARENA_HIGH&&
-           style>=LIVE_ARENA_LOW&&style+0x6c<LIVE_ARENA_HIGH){
+    if (((int (*)(void *))(uintptr_t)m->get_riding_car)(car))
+    {
+        uintptr_t implementation = *(uintptr_t *)car;
+        uintptr_t style = implementation ? *(uintptr_t *)(implementation + 0x18) : 0;
+        if (implementation >= LIVE_ARENA_LOW && implementation + 0x20 < LIVE_ARENA_HIGH &&
+            style >= LIVE_ARENA_LOW && style + 0x6c < LIVE_ARENA_HIGH)
+        {
             /* GT7's axle argument is rear=0, front=1. */
-            m->wheel_width_front=*(int8_t *)(style+0x25);
-            m->wheel_width_rear=*(int8_t *)(style+0x26);
-            m->wheel_inch_up=*(int8_t *)(style+0x24);
-            m->wheel_offset_front=*(int16_t *)(style+0x20);m->wheel_offset_rear=*(int16_t *)(style+0x22);
-            m->hub_offset_front=*(int16_t *)(style+0x28);m->hub_offset_rear=*(int16_t *)(style+0x2a);
-            uintptr_t expanded=*(uintptr_t *)(implementation+0x10);
-            if(expanded>=LIVE_ARENA_LOW&&expanded+0x0d<LIVE_ARENA_HIGH)
-                m->engine_swap_category=*(uint8_t *)(expanded+0x0c);
+            m->wheel_width_front = *(int8_t *)(style + 0x25);
+            m->wheel_width_rear = *(int8_t *)(style + 0x26);
+            m->wheel_inch_up = *(int8_t *)(style + 0x24);
+            m->wheel_offset_front = *(int16_t *)(style + 0x20);
+            m->wheel_offset_rear = *(int16_t *)(style + 0x22);
+            m->hub_offset_front = *(int16_t *)(style + 0x28);
+            m->hub_offset_rear = *(int16_t *)(style + 0x2a);
+            uintptr_t expanded = *(uintptr_t *)(implementation + 0x10);
+            if (expanded >= LIVE_ARENA_LOW && expanded + 0x0d < LIVE_ARENA_HIGH)
+                m->engine_swap_category = *(uint8_t *)(expanded + 0x0c);
             else
-                m->engine_swap_category=0;
-            m->car_implementation=implementation;m->car_expanded=expanded;m->car_style=style;
-            m->car_model_code=*(uint32_t *)(style+0x68);
+                m->engine_swap_category = 0;
+            m->car_implementation = implementation;
+            m->car_expanded = expanded;
+            m->car_style = style;
+            m->car_model_code = *(uint32_t *)(style + 0x68);
             m->car_sequence++;
-            result=CAR_READY;
+            result = CAR_READY;
         }
     }
     ((void (*)(void *))(uintptr_t)m->car_dtor)(car);
 finish:
-    __atomic_store_n(&m->car_state,result,__ATOMIC_RELEASE);
+    __atomic_store_n(&m->car_state, result, __ATOMIC_RELEASE);
 }
-typedef struct {void *car;const uint8_t *value;} WheelInchArgs;
-typedef struct {void *car;const uint8_t *axle;const int16_t *value;} HubOffsetArgs;
-static void set_wheel_geometry(void){
-    volatile LiveMailbox *m=&live_mailbox;uint32_t queued=GEOMETRY_QUEUED;
-    if(!__atomic_compare_exchange_n(&m->geometry_state,&queued,GEOMETRY_RUNNING,0,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED))return;
-    uint32_t result=GEOMETRY_UNAVAILABLE;_Alignas(16) unsigned char car[0x30];int constructed=0,locked=0;uintptr_t root=0,garage=0,implementation=0,style=0;uint16_t index=0;
-    if(!m->enabled||!m->garage_root||!m->garage_lock||!m->garage_unlock||!m->garage_riding_id||!m->garage_get_car||!m->garage_set_car||!m->set_wheel_inch_up||!m->add_wheel_offset||!m->set_hub_offset)goto finish;
-    root=((uintptr_t (*)(void))(uintptr_t)m->garage_root)();if(!root||((int (*)(void *))(uintptr_t)m->garage_lock)((void *)(root+0x68)))goto finish;locked=1;garage=*(uintptr_t *)(root+0x70);if(!garage)goto finish;
-    ((void (*)(void *,uint16_t *))(uintptr_t)m->garage_riding_id)((void *)garage,&index);((void (*)(void *))(uintptr_t)m->car_ctor)(car);constructed=1;
-    if(!((int (*)(void *,unsigned,void *,void *))(uintptr_t)m->garage_get_car)((void *)garage,index,car,0))goto finish;
-    implementation=*(uintptr_t *)car;style=implementation?*(uintptr_t *)(implementation+0x18):0;if(!style)goto finish;
-    if(m->car_model_code!=m->geometry_expected_model_code||*(int8_t *)(style+0x24)!=m->geometry_expected_inch_up||*(int16_t *)(style+0x20)!=m->geometry_expected_offset_front||*(int16_t *)(style+0x22)!=m->geometry_expected_offset_rear||*(int16_t *)(style+0x28)!=m->geometry_expected_hub_front||*(int16_t *)(style+0x2a)!=m->geometry_expected_hub_rear){result=GEOMETRY_STALE;goto finish;}
-    uint8_t inch=(uint8_t)m->geometry_requested_inch_up,front_axle=1,rear_axle=0;int16_t front_hub_value=m->geometry_requested_hub_front,rear_hub_value=m->geometry_requested_hub_rear;WheelInchArgs inch_args={car,&inch};HubOffsetArgs front_hub={car,&front_axle,&front_hub_value},rear_hub={car,&rear_axle,&rear_hub_value};
-    ((void (*)(void *,const WheelInchArgs *))(uintptr_t)m->set_wheel_inch_up)(0,&inch_args);
-    ((void (*)(void *,unsigned,int))(uintptr_t)m->add_wheel_offset)(car,1,(int)m->geometry_requested_offset_front-*(int16_t *)(style+0x20));
-    ((void (*)(void *,unsigned,int))(uintptr_t)m->add_wheel_offset)(car,0,(int)m->geometry_requested_offset_rear-*(int16_t *)(style+0x22));
-    ((void (*)(void *,const HubOffsetArgs *))(uintptr_t)m->set_hub_offset)(0,&front_hub);((void (*)(void *,const HubOffsetArgs *))(uintptr_t)m->set_hub_offset)(0,&rear_hub);
-    if(!((int (*)(void *,unsigned,void *))(uintptr_t)m->garage_set_car)((void *)garage,index,car))goto finish;
-    m->wheel_inch_up=*(int8_t *)(style+0x24);m->wheel_offset_front=*(int16_t *)(style+0x20);m->wheel_offset_rear=*(int16_t *)(style+0x22);m->hub_offset_front=*(int16_t *)(style+0x28);m->hub_offset_rear=*(int16_t *)(style+0x2a);m->car_model_code=*(uint32_t *)(style+0x68);m->car_sequence++;result=GEOMETRY_DONE;
-finish:if(constructed)((void (*)(void *))(uintptr_t)m->car_dtor)(car);if(locked)((void (*)(void *))(uintptr_t)m->garage_unlock)((void *)(root+0x68));__atomic_store_n(&m->geometry_state,result,__ATOMIC_RELEASE);
-}
-static void set_engine_swap(void){
-    volatile LiveMailbox *m=&live_mailbox;uint32_t queued=ENGINE_QUEUED;
-    if(!__atomic_compare_exchange_n(&m->engine_state,&queued,ENGINE_RUNNING,0,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED))return;
-    uint32_t result=ENGINE_UNAVAILABLE;_Alignas(16) unsigned char car[0x30];int constructed=0,locked=0;uintptr_t root=0,garage=0,implementation=0,style=0;uint16_t index=0;
-    if(!m->enabled||!m->garage_root||!m->garage_lock||!m->garage_unlock||!m->garage_riding_id||!m->garage_get_car||!m->garage_set_car||!m->get_engine_swap||!m->add_engine_swap||!m->set_engine_swap||!m->reset_engine_swap)goto finish;
-    root=((uintptr_t (*)(void))(uintptr_t)m->garage_root)();if(!root||((int (*)(void *))(uintptr_t)m->garage_lock)((void *)(root+0x68)))goto finish;locked=1;garage=*(uintptr_t *)(root+0x70);if(!garage)goto finish;
-    ((void (*)(void *,uint16_t *))(uintptr_t)m->garage_riding_id)((void *)garage,&index);((void (*)(void *))(uintptr_t)m->car_ctor)(car);constructed=1;
-    if(!((int (*)(void *,unsigned,void *,void *))(uintptr_t)m->garage_get_car)((void *)garage,index,car,0))goto finish;
-    implementation=*(uintptr_t *)car;style=implementation?*(uintptr_t *)(implementation+0x18):0;if(!style||m->car_model_code!=m->engine_expected_model_code)goto stale;
-    uint8_t current=((uint8_t (*)(void *))(uintptr_t)m->get_engine_swap)(car);
-    if(current!=m->engine_expected_category)goto stale;
-    if(m->engine_requested_category==0){((void (*)(void *))(uintptr_t)m->reset_engine_swap)(car);}
-    else {if(current)((void (*)(void *))(uintptr_t)m->reset_engine_swap)(car);if(m->engine_unlock)((void (*)(void *,unsigned))(uintptr_t)m->add_engine_swap)(car,m->engine_requested_category);if(!((int (*)(void *,unsigned))(uintptr_t)m->set_engine_swap)(car,m->engine_requested_category))goto finish;}
-    if(!((int (*)(void *,unsigned,void *))(uintptr_t)m->garage_set_car)((void *)garage,index,car))goto finish;
-    m->engine_swap_category=((uint8_t (*)(void *))(uintptr_t)m->get_engine_swap)(car);m->car_sequence++;result=ENGINE_DONE;goto finish;
-stale:result=ENGINE_STALE;
-finish:if(constructed)((void (*)(void *))(uintptr_t)m->car_dtor)(car);if(locked)((void (*)(void *))(uintptr_t)m->garage_unlock)((void *)(root+0x68));__atomic_store_n(&m->engine_state,result,__ATOMIC_RELEASE);
-}
-typedef struct {void *car;const uint8_t *axle;const uint8_t *value;} WheelWidthArgs;
-static void set_wheel_width(void){
-    volatile LiveMailbox *m=&live_mailbox;
-    uint32_t queued=WHEEL_QUEUED;
-    if(!__atomic_compare_exchange_n(&m->wheel_state,&queued,WHEEL_RUNNING,0,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED))return;
-    uint32_t result=WHEEL_UNAVAILABLE;
+typedef struct
+{
+    void *car;
+    const uint8_t *value;
+} WheelInchArgs;
+typedef struct
+{
+    void *car;
+    const uint8_t *axle;
+    const int16_t *value;
+} HubOffsetArgs;
+static void set_wheel_geometry(void)
+{
+    volatile LiveMailbox *m = &live_mailbox;
+    uint32_t queued = GEOMETRY_QUEUED;
+    if (!__atomic_compare_exchange_n(&m->geometry_state, &queued, GEOMETRY_RUNNING, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+        return;
+    uint32_t result = GEOMETRY_UNAVAILABLE;
     _Alignas(16) unsigned char car[0x30];
-    int constructed=0,locked=0;
-    uintptr_t root=0,garage=0,implementation=0,style=0;
-    uint16_t index=0;
-    if(!m->enabled||!m->garage_root||!m->garage_lock||!m->garage_unlock||!m->garage_riding_id||!m->garage_get_car||!m->garage_set_car||!m->set_wheel_width)goto finish;
-    root=((uintptr_t (*)(void))(uintptr_t)m->garage_root)();
-    if(!root||((int (*)(void *))(uintptr_t)m->garage_lock)((void *)(root+0x68)))goto finish;
-    locked=1;garage=*(uintptr_t *)(root+0x70);if(!garage)goto finish;
-    ((void (*)(void *,uint16_t *))(uintptr_t)m->garage_riding_id)((void *)garage,&index);
-    ((void (*)(void *))(uintptr_t)m->car_ctor)(car);constructed=1;
-    if(!((int (*)(void *,unsigned,void *,void *))(uintptr_t)m->garage_get_car)((void *)garage,index,car,0))goto finish;
-    implementation=*(uintptr_t *)car;style=implementation?*(uintptr_t *)(implementation+0x18):0;
-    if(!style)goto finish;
-    if(m->car_model_code!=m->wheel_expected_model_code||
-       *(int8_t *)(style+0x25)!=m->wheel_expected_front||*(int8_t *)(style+0x26)!=m->wheel_expected_rear){result=WHEEL_STALE;goto finish;}
-    uint8_t front_axle=1,rear_axle=0,front=(uint8_t)m->wheel_requested_front,rear=(uint8_t)m->wheel_requested_rear;
-    WheelWidthArgs front_args={car,&front_axle,&front},rear_args={car,&rear_axle,&rear};
-    ((void (*)(void *,const WheelWidthArgs *))(uintptr_t)m->set_wheel_width)(0,&front_args);
-    ((void (*)(void *,const WheelWidthArgs *))(uintptr_t)m->set_wheel_width)(0,&rear_args);
-    if(!((int (*)(void *,unsigned,void *))(uintptr_t)m->garage_set_car)((void *)garage,index,car))goto finish;
-    m->wheel_width_front=*(int8_t *)(style+0x25);m->wheel_width_rear=*(int8_t *)(style+0x26);
-    m->car_model_code=*(uint32_t *)(style+0x68);m->car_sequence++;
-    result=WHEEL_DONE;
+    int constructed = 0, locked = 0;
+    uintptr_t root = 0, garage = 0, implementation = 0, style = 0;
+    uint16_t index = 0;
+    if (!m->enabled || !m->garage_root || !m->garage_lock || !m->garage_unlock || !m->garage_riding_id || !m->garage_get_car || !m->garage_set_car || !m->set_wheel_inch_up || !m->add_wheel_offset || !m->set_hub_offset)
+        goto finish;
+    root = ((uintptr_t (*)(void))(uintptr_t)m->garage_root)();
+    if (!root || ((int (*)(void *))(uintptr_t)m->garage_lock)((void *)(root + 0x68)))
+        goto finish;
+    locked = 1;
+    garage = *(uintptr_t *)(root + 0x70);
+    if (!garage)
+        goto finish;
+    ((void (*)(void *, uint16_t *))(uintptr_t)m->garage_riding_id)((void *)garage, &index);
+    ((void (*)(void *))(uintptr_t)m->car_ctor)(car);
+    constructed = 1;
+    if (!((int (*)(void *, unsigned, void *, void *))(uintptr_t)m->garage_get_car)((void *)garage, index, car, 0))
+        goto finish;
+    implementation = *(uintptr_t *)car;
+    style = implementation ? *(uintptr_t *)(implementation + 0x18) : 0;
+    if (!style)
+        goto finish;
+    if (m->car_model_code != m->geometry_expected_model_code || *(int8_t *)(style + 0x24) != m->geometry_expected_inch_up || *(int16_t *)(style + 0x20) != m->geometry_expected_offset_front || *(int16_t *)(style + 0x22) != m->geometry_expected_offset_rear || *(int16_t *)(style + 0x28) != m->geometry_expected_hub_front || *(int16_t *)(style + 0x2a) != m->geometry_expected_hub_rear)
+    {
+        result = GEOMETRY_STALE;
+        goto finish;
+    }
+    uint8_t inch = (uint8_t)m->geometry_requested_inch_up, front_axle = 1, rear_axle = 0;
+    int16_t front_hub_value = m->geometry_requested_hub_front, rear_hub_value = m->geometry_requested_hub_rear;
+    WheelInchArgs inch_args = {car, &inch};
+    HubOffsetArgs front_hub = {car, &front_axle, &front_hub_value}, rear_hub = {car, &rear_axle, &rear_hub_value};
+    ((void (*)(void *, const WheelInchArgs *))(uintptr_t)m->set_wheel_inch_up)(0, &inch_args);
+    ((void (*)(void *, unsigned, int))(uintptr_t)m->add_wheel_offset)(car, 1, (int)m->geometry_requested_offset_front - *(int16_t *)(style + 0x20));
+    ((void (*)(void *, unsigned, int))(uintptr_t)m->add_wheel_offset)(car, 0, (int)m->geometry_requested_offset_rear - *(int16_t *)(style + 0x22));
+    ((void (*)(void *, const HubOffsetArgs *))(uintptr_t)m->set_hub_offset)(0, &front_hub);
+    ((void (*)(void *, const HubOffsetArgs *))(uintptr_t)m->set_hub_offset)(0, &rear_hub);
+    if (!((int (*)(void *, unsigned, void *))(uintptr_t)m->garage_set_car)((void *)garage, index, car))
+        goto finish;
+    m->wheel_inch_up = *(int8_t *)(style + 0x24);
+    m->wheel_offset_front = *(int16_t *)(style + 0x20);
+    m->wheel_offset_rear = *(int16_t *)(style + 0x22);
+    m->hub_offset_front = *(int16_t *)(style + 0x28);
+    m->hub_offset_rear = *(int16_t *)(style + 0x2a);
+    m->car_model_code = *(uint32_t *)(style + 0x68);
+    m->car_sequence++;
+    result = GEOMETRY_DONE;
 finish:
-    if(constructed)((void (*)(void *))(uintptr_t)m->car_dtor)(car);
-    if(locked)((void (*)(void *))(uintptr_t)m->garage_unlock)((void *)(root+0x68));
-    __atomic_store_n(&m->wheel_state,result,__ATOMIC_RELEASE);
+    if (constructed)
+        ((void (*)(void *))(uintptr_t)m->car_dtor)(car);
+    if (locked)
+        ((void (*)(void *))(uintptr_t)m->garage_unlock)((void *)(root + 0x68));
+    __atomic_store_n(&m->geometry_state, result, __ATOMIC_RELEASE);
 }
-static void pump(void){
-    volatile LiveMailbox *m=&live_mailbox;
-    uint32_t queued=LIVE_QUEUED;
-    if(!__atomic_compare_exchange_n(&m->state,&queued,LIVE_RUNNING,0,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED))return;
-    uint32_t result=LIVE_INVALID;
-    if(!m->enabled){result=LIVE_CANCELLED;goto finish;}
-    if(m->magic!=LIVE_MAGIC||m->amount>LIVE_MAX_CREDITS)goto finish;
-    uintptr_t object=*(volatile uintptr_t *)(m->base+0x066e9648);
-    if(!object||object!=m->expected_object||*(volatile uintptr_t *)object!=m->base+0x053edca8){result=LIVE_STALE;goto finish;}
-    uint32_t before=*(volatile uint32_t *)(object+0x14c);
-    if(before!=m->expected_amount){result=LIVE_STALE;goto finish;}
-    if(before!=m->amount){
+static void set_engine_swap(void)
+{
+    volatile LiveMailbox *m = &live_mailbox;
+    uint32_t queued = ENGINE_QUEUED;
+    if (!__atomic_compare_exchange_n(&m->engine_state, &queued, ENGINE_RUNNING, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+        return;
+    uint32_t result = ENGINE_UNAVAILABLE;
+    _Alignas(16) unsigned char car[0x30];
+    int constructed = 0, locked = 0;
+    uintptr_t root = 0, garage = 0, implementation = 0, style = 0;
+    uint16_t index = 0;
+    if (!m->enabled || !m->garage_root || !m->garage_lock || !m->garage_unlock || !m->garage_riding_id || !m->garage_get_car || !m->garage_set_car || !m->get_engine_swap || !m->add_engine_swap || !m->set_engine_swap || !m->reset_engine_swap)
+        goto finish;
+    root = ((uintptr_t (*)(void))(uintptr_t)m->garage_root)();
+    if (!root || ((int (*)(void *))(uintptr_t)m->garage_lock)((void *)(root + 0x68)))
+        goto finish;
+    locked = 1;
+    garage = *(uintptr_t *)(root + 0x70);
+    if (!garage)
+        goto finish;
+    ((void (*)(void *, uint16_t *))(uintptr_t)m->garage_riding_id)((void *)garage, &index);
+    ((void (*)(void *))(uintptr_t)m->car_ctor)(car);
+    constructed = 1;
+    if (!((int (*)(void *, unsigned, void *, void *))(uintptr_t)m->garage_get_car)((void *)garage, index, car, 0))
+        goto finish;
+    implementation = *(uintptr_t *)car;
+    style = implementation ? *(uintptr_t *)(implementation + 0x18) : 0;
+    if (!style || m->car_model_code != m->engine_expected_model_code)
+        goto stale;
+    uint8_t current = ((uint8_t (*)(void *))(uintptr_t)m->get_engine_swap)(car);
+    if (current != m->engine_expected_category)
+        goto stale;
+    if (m->engine_requested_category == 0)
+    {
+        ((void (*)(void *))(uintptr_t)m->reset_engine_swap)(car);
+    }
+    else
+    {
+        if (current)
+            ((void (*)(void *))(uintptr_t)m->reset_engine_swap)(car);
+        if (m->engine_unlock)
+            ((void (*)(void *, unsigned))(uintptr_t)m->add_engine_swap)(car, m->engine_requested_category);
+        if (!((int (*)(void *, unsigned))(uintptr_t)m->set_engine_swap)(car, m->engine_requested_category))
+            goto finish;
+    }
+    if (!((int (*)(void *, unsigned, void *))(uintptr_t)m->garage_set_car)((void *)garage, index, car))
+        goto finish;
+    m->engine_swap_category = ((uint8_t (*)(void *))(uintptr_t)m->get_engine_swap)(car);
+    m->car_sequence++;
+    result = ENGINE_DONE;
+    goto finish;
+stale:
+    result = ENGINE_STALE;
+finish:
+    if (constructed)
+        ((void (*)(void *))(uintptr_t)m->car_dtor)(car);
+    if (locked)
+        ((void (*)(void *))(uintptr_t)m->garage_unlock)((void *)(root + 0x68));
+    __atomic_store_n(&m->engine_state, result, __ATOMIC_RELEASE);
+}
+typedef struct
+{
+    void *car;
+    const uint8_t *axle;
+    const uint8_t *value;
+} WheelWidthArgs;
+static void set_wheel_width(void)
+{
+    volatile LiveMailbox *m = &live_mailbox;
+    uint32_t queued = WHEEL_QUEUED;
+    if (!__atomic_compare_exchange_n(&m->wheel_state, &queued, WHEEL_RUNNING, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+        return;
+    uint32_t result = WHEEL_UNAVAILABLE;
+    _Alignas(16) unsigned char car[0x30];
+    int constructed = 0, locked = 0;
+    uintptr_t root = 0, garage = 0, implementation = 0, style = 0;
+    uint16_t index = 0;
+    if (!m->enabled || !m->garage_root || !m->garage_lock || !m->garage_unlock || !m->garage_riding_id || !m->garage_get_car || !m->garage_set_car || !m->set_wheel_width)
+        goto finish;
+    root = ((uintptr_t (*)(void))(uintptr_t)m->garage_root)();
+    if (!root || ((int (*)(void *))(uintptr_t)m->garage_lock)((void *)(root + 0x68)))
+        goto finish;
+    locked = 1;
+    garage = *(uintptr_t *)(root + 0x70);
+    if (!garage)
+        goto finish;
+    ((void (*)(void *, uint16_t *))(uintptr_t)m->garage_riding_id)((void *)garage, &index);
+    ((void (*)(void *))(uintptr_t)m->car_ctor)(car);
+    constructed = 1;
+    if (!((int (*)(void *, unsigned, void *, void *))(uintptr_t)m->garage_get_car)((void *)garage, index, car, 0))
+        goto finish;
+    implementation = *(uintptr_t *)car;
+    style = implementation ? *(uintptr_t *)(implementation + 0x18) : 0;
+    if (!style)
+        goto finish;
+    if (m->car_model_code != m->wheel_expected_model_code ||
+        *(int8_t *)(style + 0x25) != m->wheel_expected_front || *(int8_t *)(style + 0x26) != m->wheel_expected_rear)
+    {
+        result = WHEEL_STALE;
+        goto finish;
+    }
+    uint8_t front_axle = 1, rear_axle = 0, front = (uint8_t)m->wheel_requested_front, rear = (uint8_t)m->wheel_requested_rear;
+    WheelWidthArgs front_args = {car, &front_axle, &front}, rear_args = {car, &rear_axle, &rear};
+    ((void (*)(void *, const WheelWidthArgs *))(uintptr_t)m->set_wheel_width)(0, &front_args);
+    ((void (*)(void *, const WheelWidthArgs *))(uintptr_t)m->set_wheel_width)(0, &rear_args);
+    if (!((int (*)(void *, unsigned, void *))(uintptr_t)m->garage_set_car)((void *)garage, index, car))
+        goto finish;
+    m->wheel_width_front = *(int8_t *)(style + 0x25);
+    m->wheel_width_rear = *(int8_t *)(style + 0x26);
+    m->car_model_code = *(uint32_t *)(style + 0x68);
+    m->car_sequence++;
+    result = WHEEL_DONE;
+finish:
+    if (constructed)
+        ((void (*)(void *))(uintptr_t)m->car_dtor)(car);
+    if (locked)
+        ((void (*)(void *))(uintptr_t)m->garage_unlock)((void *)(root + 0x68));
+    __atomic_store_n(&m->wheel_state, result, __ATOMIC_RELEASE);
+}
+static void pump(void)
+{
+    volatile LiveMailbox *m = &live_mailbox;
+    uint32_t queued = LIVE_QUEUED;
+    if (!__atomic_compare_exchange_n(&m->state, &queued, LIVE_RUNNING, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+        return;
+    uint32_t result = LIVE_INVALID;
+    if (!m->enabled)
+    {
+        result = LIVE_CANCELLED;
+        goto finish;
+    }
+    if (m->magic != LIVE_MAGIC || m->amount > LIVE_MAX_CREDITS)
+        goto finish;
+    uintptr_t object = *(volatile uintptr_t *)(m->base + 0x066e9648);
+    if (!object || object != m->expected_object || *(volatile uintptr_t *)object != m->base + 0x053edca8)
+    {
+        result = LIVE_STALE;
+        goto finish;
+    }
+    uint32_t before = *(volatile uint32_t *)(object + 0x14c);
+    if (before != m->expected_amount)
+    {
+        result = LIVE_STALE;
+        goto finish;
+    }
+    if (before != m->amount)
+    {
         /* An administrative set is not earned/spent currency: set through the
          * native accessor, then submit a zero-delta native event to refresh
          * observers without adding the requested balance to earned totals. */
         _Alignas(32) unsigned char event[0x160];
-        const GameString label={{'G','T','7','P','a','t','c','h','e','r',0},10,15};
-        ((void (*)(void *,int,const GameString *,const GameString *))(uintptr_t)m->make_event)(event,0,&label,&label);
-        uint32_t amount=m->amount;
-        ((void (*)(void *,const uint32_t *))(uintptr_t)m->set_credits)((void *)object,&amount);
+        const GameString label = {{'G', 'T', '7', 'P', 'a', 't', 'c', 'h', 'e', 'r', 0}, 10, 15};
+        ((void (*)(void *, int, const GameString *, const GameString *))(uintptr_t)m->make_event)(event, 0, &label, &label);
+        uint32_t amount = m->amount;
+        ((void (*)(void *, const uint32_t *))(uintptr_t)m->set_credits)((void *)object, &amount);
         ((int (*)(void *))(uintptr_t)m->acquire)(event);
         ((void (*)(void *))(uintptr_t)m->destroy_event)(event);
     }
-    if(*(volatile uintptr_t *)(m->base+0x066e9648)!=object){result=LIVE_STALE;goto finish;}
-    m->observed=*(volatile uint32_t *)(object+0x14c);
-    result=m->observed==m->amount?LIVE_DONE:LIVE_INVALID;
+    if (*(volatile uintptr_t *)(m->base + 0x066e9648) != object)
+    {
+        result = LIVE_STALE;
+        goto finish;
+    }
+    m->observed = *(volatile uint32_t *)(object + 0x14c);
+    result = m->observed == m->amount ? LIVE_DONE : LIVE_INVALID;
 finish:
-    __atomic_store_n(&m->state,result,__ATOMIC_RELEASE);
+    __atomic_store_n(&m->state, result, __ATOMIC_RELEASE);
 }
 
 /* Written into menu_call_result for the duration of the call, so a fault inside
  * the routine is distinguishable from a call that was never dispatched. */
 #define MENU_CALL_ENTERED 0x0000ca11u
 
-static int menu_pointer(uintptr_t pointer)
-{
-    return pointer >= LIVE_ARENA_LOW && pointer < LIVE_ARENA_HIGH - 0x620u &&
-           !(pointer & 7u);
-}
-
-static const uint32_t menu_visible_flag = UINT32_C(1) << 30;
-enum {MENU_IMAGE_VA = 0x055a8620u, MENU_INDICATOR_VA = 0x05583540u};
-typedef void (*MenuAppend)(uintptr_t, uintptr_t, uintptr_t, uintptr_t);
 typedef void (*MenuSetRect)(uintptr_t, const float *, const float *, const float *, const float *);
 
-static void menu_string(GameString *text, const char *value, unsigned length)
+enum
 {
-    hud_fill(text, 0, sizeof(*text));
-    text->size = length;
-    text->capacity = 15;
-    if (length <= 15)
-        hud_copy(text->text, value, length + 1);
-    else
-    {
-        /* These callers pass a borrowed, NUL-terminated buffer. GT7's
-         * setters copy the string to their own storage. */
-        hud_copy(text->text, &value, sizeof(value));
-        text->capacity = length;
-    }
-}
-
-static int menu_set_text(uintptr_t row, const volatile char *label)
-{
-    uintptr_t labels[3];
-    uintptr_t child = *(const uintptr_t *)(row + 0x2c8);
-    for (unsigned i = 0; i < 4; i++)
-    {
-        if (!menu_pointer(child) || *(const uintptr_t *)(child + 0x30) != row)
-            return 0;
-        if (i)
-        {
-            char name[LIVE_HUD_NAME];
-            if (*(const uintptr_t *)child != 0x055910c0u || !hud_name(child, name))
-                return 0;
-            if ((i == 1 && !hud_same(name, "label")) ||
-                (i == 2 && !hud_same(name, "label_i")) ||
-                (i == 3 && !hud_same(name, "label_f")))
-                return 0;
-            labels[i - 1] = child;
-        }
-        child = *(const uintptr_t *)(child + 0xa8);
-    }
-
-    char rendered[LIVE_MENU_LABEL];
-    unsigned length = 0;
-    while (length < sizeof(rendered) - 1 && label[length])
-    {
-        rendered[length] = label[length];
-        length++;
-    }
-    rendered[length] = 0;
-    GameString text;
-    menu_string(&text, rendered, length);
-    typedef void (*SetText)(uintptr_t, const GameString *);
-    for (unsigned i = 0; i < 3; i++)
-        ((SetText)(uintptr_t)0x0072cf50u)(labels[i], &text);
-    return 1;
-}
-
-static void menu_show_widget(uintptr_t widget, int visible)
-{
-    uint32_t *flags = (uint32_t *)(widget + 0x214);
-    *flags = (*flags & ~menu_visible_flag) | (visible ? menu_visible_flag : 0);
-}
-
-enum {MENU_STOCK_CHILDREN = 7, MENU_CHECKBOX_IMAGES = 2};
+    MENU_STOCK_CHILDREN = 7,
+    MENU_CHECKBOX_IMAGES = 2
+};
 
 static int menu_add_checkbox_image(uintptr_t row, const char *path, unsigned length,
                                    int visible)
@@ -710,13 +859,12 @@ static void menu_resolve_checkbox_images(uintptr_t row, uintptr_t archive,
             unsigned char allocated = 0;
             size_t size = 0;
             const void *bytes = ((const void *(*)(uintptr_t, const char *, unsigned char *,
-                                                 size_t *))(uintptr_t)0x00949610u)(
+                                                  size_t *))(uintptr_t)0x00949610u)(
                 table, paths[i], &allocated, &size);
             if (bytes && size)
             {
                 uintptr_t resource = 0;
-                ((void (*)(uintptr_t *, uintptr_t, const void *, const void *))
-                    (uintptr_t)0x01c7c4a0u)(
+                ((void (*)(uintptr_t *, uintptr_t, const void *, const void *))(uintptr_t)0x01c7c4a0u)(
                     &resource, image, (const void *)(image + 0x430),
                     (const void *)(image + 0x450));
                 if (menu_pointer(resource) && *(const uintptr_t *)resource == 0x055bf480u)
@@ -724,8 +872,7 @@ static void menu_resolve_checkbox_images(uintptr_t row, uintptr_t archive,
                     ((void (*)(uintptr_t *, uintptr_t))(uintptr_t)0x00400650u)(
                         (uintptr_t *)(resource + 0x68), archive);
                     /* The native worker passes this same ownership flag to the decoder. */
-                    ((unsigned char (*)(uintptr_t, const void *, size_t, unsigned))
-                        (uintptr_t)0x0094d5e0u)(resource, bytes, size, allocated);
+                    ((unsigned char (*)(uintptr_t, const void *, size_t, unsigned))(uintptr_t)0x0094d5e0u)(resource, bytes, size, allocated);
                     if (*(const uintptr_t *)(resource + 0xb0))
                     {
                         resources[i] = resource;
@@ -766,7 +913,8 @@ static void menu_observe(uintptr_t option)
     volatile LiveMenuControl *control = (volatile LiveMenuControl *)(m->allocation + LIVE_MENU_CONTROL);
     uint32_t sequence = __atomic_load_n(&control->label_sequence, __ATOMIC_ACQUIRE);
     uint32_t focused = *(const uint32_t *)(option + 0x400) == 4
-                       ? *(const uint32_t *)(option + 0x388) : UINT32_MAX;
+                           ? *(const uint32_t *)(option + 0x388)
+                           : UINT32_MAX;
     if (menu_label_sequence == sequence && menu_focused_row == focused)
         return;
     uintptr_t row = *(const uintptr_t *)(box + 0x2c8);
@@ -785,16 +933,6 @@ static void menu_observe(uintptr_t option)
     }
     menu_label_sequence = sequence;
     menu_focused_row = focused;
-}
-
-static int menu_copy_row(uintptr_t *copy, uintptr_t source)
-{
-    typedef void (*CopyWidget)(uintptr_t *, uintptr_t, unsigned, const uintptr_t *);
-    ((CopyWidget)(uintptr_t)LIVE_MENU_COPY_VA)(copy, source, 0, NULL);
-    return *copy != source && menu_pointer(*copy) &&
-           *(const uintptr_t *)*copy == LIVE_MENU_ITEM_VA &&
-           *(const uintptr_t *)(*copy + 0x68) == source &&
-           *(const uint32_t *)(*copy + 0x2ec) == 7;
 }
 
 static int menu_add_divider(uintptr_t row)
@@ -926,1045 +1064,6 @@ release:
     return attached == count && *(const uint32_t *)(option + 0x390) == LIVE_MENU_STOCK_ROWS + count;
 }
 
-static int wheel_fit_column(uintptr_t node, float delta, unsigned depth)
-{
-    if (depth > 16 || !menu_pointer(node))
-        return 0;
-    /* Authored allocation constraints are separate from the arranged rect.
-     * SetRect alone is overwritten by packing against these original widths. */
-    uintptr_t layout = *(const uintptr_t *)(node + 0x230);
-    if (layout && !menu_pointer(layout))
-        return 0;
-    float width = layout ? *(const float *)layout : 0.0f;
-    if (width >= 280.0f && width <= 500.0f)
-    {
-        width -= delta;
-        *(float *)layout = width;
-        __atomic_or_fetch((uint32_t *)(node + 0x210), 7u, __ATOMIC_RELAXED);
-    }
-    uintptr_t type = *(const uintptr_t *)node;
-    if (type != LIVE_MENU_ITEM_VA && type != LIVE_MENU_OPTION_VA &&
-        type != MENU_INDICATOR_VA && type != 0x055b1b80u && type != 0x055a51a8u)
-        return 1;
-    uintptr_t child = *(const uintptr_t *)(node + 0x2c8);
-    for (unsigned i = 0; child && i < 128; i++)
-    {
-        if (!menu_pointer(child) || *(const uintptr_t *)(child + 0x30) != node ||
-            !wheel_fit_column(child, delta, depth + 1))
-            return 0;
-        child = *(const uintptr_t *)(child + 0xa8);
-    }
-    return !child;
-}
-
-/* Script member maps use interned GameString keys and native tree nodes.
- * Read them in place; never clone the event's controller reference graph. */
-static int wheel_key_same(uintptr_t key, const char *expected)
-{
-    if (!menu_pointer(key))
-        return 0;
-    const GameString *text = (const GameString *)key;
-    unsigned length = 0;
-    while (expected[length])
-        length++;
-    if (text->size != length || text->capacity < length)
-        return 0;
-    const char *actual = text->text;
-    if (text->capacity > 15)
-    {
-        uintptr_t buffer = *(const uintptr_t *)key;
-        if (!menu_pointer(buffer))
-            return 0;
-        actual = (const char *)buffer;
-    }
-    for (unsigned i = 0; i < length; i++)
-        if (actual[i] != expected[i])
-            return 0;
-    return 1;
-}
-
-static uintptr_t wheel_map_value(uintptr_t sentinel, const char *name)
-{
-    if (!menu_pointer(sentinel))
-        return 0;
-    uintptr_t node = *(const uintptr_t *)sentinel;
-    for (unsigned i = 0; node != sentinel && i < 256; i++)
-    {
-        if (!menu_pointer(node))
-            return 0;
-        if (wheel_key_same(*(const uintptr_t *)(node + 0x20), name))
-            return *(const uintptr_t *)(node + 0x28);
-        uintptr_t right = *(const uintptr_t *)(node + 0x10);
-        if (!menu_pointer(right))
-            return 0;
-        if (right != sentinel)
-        {
-            node = right;
-            for (unsigned depth = 0; depth < 64; depth++)
-            {
-                uintptr_t left = *(const uintptr_t *)node;
-                if (left == sentinel)
-                    break;
-                if (!menu_pointer(left) || depth == 63)
-                    return 0;
-                node = left;
-            }
-        }
-        else
-        {
-            uintptr_t parent = *(const uintptr_t *)(node + 8);
-            for (unsigned depth = 0; parent != sentinel; depth++)
-            {
-                if (!menu_pointer(parent) || depth == 64)
-                    return 0;
-                if (node != *(const uintptr_t *)(parent + 0x10))
-                    break;
-                node = parent;
-                parent = *(const uintptr_t *)(parent + 8);
-            }
-            node = parent;
-        }
-    }
-    return 0;
-}
-
-static uintptr_t wheel_event_method(uintptr_t event, const char *name)
-{
-    uintptr_t type = *(const uintptr_t *)(event + 0x10);
-    for (unsigned i = 0; type && i < 8; i++)
-    {
-        if (!menu_pointer(type) || *(const uintptr_t *)type != 0x059118e0u)
-            return 0;
-        uintptr_t method = wheel_map_value(*(const uintptr_t *)(type + 0x38), name);
-        if (method)
-            return menu_pointer(method) && *(const uintptr_t *)method == 0x0591aa50u
-                   ? method : 0;
-        uintptr_t sentinel = *(const uintptr_t *)(type + 0x48);
-        if (!menu_pointer(sentinel))
-            return 0;
-        uintptr_t node = *(const uintptr_t *)sentinel;
-        for (unsigned j = 0; node != sentinel && j < 32; j++)
-        {
-            if (!menu_pointer(node))
-                return 0;
-            uintptr_t protocol = *(const uintptr_t *)(node + 0x10);
-            if (!menu_pointer(protocol) || *(const uintptr_t *)protocol != 0x059118e0u)
-                return 0;
-            method = wheel_map_value(*(const uintptr_t *)(protocol + 0x38), name);
-            if (method)
-                return menu_pointer(method) && *(const uintptr_t *)method == 0x0591aa50u
-                       ? method : 0;
-            node = *(const uintptr_t *)node;
-        }
-        if (node != sentinel)
-            return 0;
-        type = *(const uintptr_t *)(type + 0x60);
-    }
-    return 0;
-}
-
-static int wheel_invoke(uintptr_t event, const char *name, unsigned argc,
-                        const uintptr_t *args, uintptr_t *out)
-{
-    uintptr_t method = wheel_event_method(event, name);
-    if (!method || *(const uintptr_t *)(0x0591aa50u + 0xd8) != 0x0041d6e0u)
-        return 0;
-    typedef void (*Invoke)(uintptr_t, uintptr_t *, const uintptr_t *, unsigned,
-                           const uintptr_t *);
-    ((Invoke)(uintptr_t)0x0041d6e0u)(method, out, &event, argc, args);
-    return 1;
-}
-
-static uintptr_t wheel_attribute(uintptr_t object, const char *name)
-{
-    if (!menu_pointer(object))
-        return 0;
-    unsigned length = 0;
-    while (name[length])
-        length++;
-    GameString text;
-    menu_string(&text, name, length);
-    uintptr_t symbol[4] = {0}, value = 0;
-    ((void (*)(uintptr_t *, const GameString *))(uintptr_t)0x00479da0u)(symbol, &text);
-    uintptr_t table = *(const uintptr_t *)object;
-    if (table >= 0x05000000u && table < 0x06000000u)
-    {
-        typedef void (*GetAttribute)(uintptr_t, uintptr_t *, const uintptr_t *);
-        ((GetAttribute)*(const uintptr_t *)(table + 0x40))(object, &value, symbol);
-    }
-    ((void (*)(uintptr_t *))(uintptr_t)0x0040ca30u)(symbol);
-    return value;
-}
-
-static void wheel_release(uintptr_t *value)
-{
-    if (*value)
-        ((void (*)(uintptr_t *))(uintptr_t)LIVE_MENU_RELEASE_VA)(value);
-}
-
-static uintptr_t wheel_event_attribute(uintptr_t event, const char *name)
-{
-    if (!menu_pointer(event) || *(const uintptr_t *)event != 0x05917f08u)
-        return 0;
-    uintptr_t attributes = *(const uintptr_t *)(event + 0x18);
-    return menu_pointer(attributes)
-           ? wheel_map_value(*(const uintptr_t *)attributes, name) : 0;
-}
-
-static uintptr_t wheel_event_rows(uintptr_t event)
-{
-    uintptr_t list = wheel_event_attribute(event,
-        "__toplevel__::main::gt7::CommonEvents::OptionMenuEventProtocol::list");
-    if (!menu_pointer(list) || *(const uintptr_t *)list != 0x0590ec08u)
-        return 0;
-    uintptr_t implementation = *(const uintptr_t *)(list + 0x20);
-    if (!menu_pointer(implementation) || *(const uintptr_t *)implementation != 0x0592a270u)
-        return 0;
-    uintptr_t vector = *(const uintptr_t *)(implementation + 0x30);
-    if (!menu_pointer(vector))
-        return 0;
-    uintptr_t begin = *(const uintptr_t *)vector;
-    uintptr_t end = *(const uintptr_t *)(vector + 8);
-    uintptr_t capacity = *(const uintptr_t *)(vector + 16);
-    return menu_pointer(begin) && end == begin + 12u * 40u && capacity >= end &&
-           capacity <= begin + 4096u && capacity < LIVE_ARENA_HIGH
-           ? begin : 0;
-}
-
-static int wheel_compose_rows(uintptr_t front, uintptr_t rear,
-                              unsigned front_index, unsigned rear_index)
-{
-    if (!front || !rear || front == rear || front_index >= 12 || rear_index >= 12)
-        return 0;
-    int16_t front_value = *(const int16_t *)(front + front_index * 40u + 32);
-    int16_t rear_value = *(const int16_t *)(rear + rear_index * 40u + 34);
-    for (unsigned i = 0; i < 12; i++)
-    {
-        *(int16_t *)(front + i * 40u + 34) = rear_value;
-        *(int16_t *)(rear + i * 40u + 32) = front_value;
-    }
-    return 1;
-}
-
-static unsigned wheel_saved_rear_index(uintptr_t car, uintptr_t rows, unsigned fallback)
-{
-    if (!menu_pointer(car) || *(const uintptr_t *)car != 0x0590ec08u)
-        return fallback;
-    uintptr_t wrapper = *(const uintptr_t *)(car + 0x20);
-    if (!menu_pointer(wrapper) || *(const uintptr_t *)wrapper != 0x05923868u)
-        return fallback;
-    uintptr_t parameter = *(const uintptr_t *)(wrapper + 0x30);
-    uintptr_t implementation = menu_pointer(parameter) ? *(const uintptr_t *)parameter : 0;
-    uintptr_t style = menu_pointer(implementation)
-                      ? *(const uintptr_t *)(implementation + 0x18) : 0;
-    if (!menu_pointer(style))
-        return fallback;
-    int16_t selected = *(const int16_t *)(style + 0x22);
-    for (unsigned i = 0; i < 12; i++)
-        if (*(const int16_t *)(rows + i * 40u + 34) == selected)
-            return i;
-    return fallback;
-}
-
-static uintptr_t wheel_find_option(uintptr_t container)
-{
-    if (!menu_pointer(container) || *(const uintptr_t *)container != LIVE_MENU_ITEM_VA)
-        return 0;
-    uintptr_t child = *(const uintptr_t *)(container + 0x2c8);
-    for (unsigned i = 0; child && i < 16; i++)
-    {
-        if (!menu_pointer(child) || *(const uintptr_t *)(child + 0x30) != container)
-            return 0;
-        if (*(const uintptr_t *)child == LIVE_MENU_OPTION_VA)
-            return child;
-        child = *(const uintptr_t *)(child + 0xa8);
-    }
-    return 0;
-}
-
-static uintptr_t wheel_front_event(uintptr_t option)
-{
-    uintptr_t callbacks = *(const uintptr_t *)(option + 0x3e0);
-    if (!menu_pointer(callbacks) || *(const uintptr_t *)callbacks != 0x05911d08u)
-        return 0;
-    uintptr_t begin = *(const uintptr_t *)(callbacks + 0x28);
-    if (!menu_pointer(begin) || *(const uintptr_t *)(callbacks + 0x30) != begin + 8)
-        return 0;
-    uintptr_t bound = *(const uintptr_t *)begin;
-    if (!menu_pointer(bound) || *(const uintptr_t *)bound != 0x05916878u)
-        return 0;
-    uintptr_t event = *(const uintptr_t *)(bound + 0x20);
-    return menu_pointer(event) && *(const uintptr_t *)event == 0x05917f08u ? event : 0;
-}
-
-static void wheel_axis_text(char text[32], unsigned index, int value)
-{
-    if (!index)
-    {
-        hud_copy(text, "Standard", 9);
-        return;
-    }
-    unsigned length = 0;
-    if (value < 0)
-    {
-        text[length++] = '-';
-        value = -value;
-    }
-    char digits[6];
-    unsigned count = 0;
-    do
-    {
-        digits[count++] = (char)('0' + value % 10);
-        value /= 10;
-    } while (value && count < sizeof(digits));
-    while (count)
-        text[length++] = digits[--count];
-    text[length] = 0;
-}
-
-static int wheel_option_text(uintptr_t option, uintptr_t rows, unsigned index, int rear)
-{
-    if (index >= 12)
-        return 0;
-    char label[32];
-    wheel_axis_text(label, index,
-        *(const int16_t *)(rows + index * 40u + (rear ? 34u : 32u)));
-    unsigned length = 0;
-    while (label[length])
-        length++;
-    GameString text;
-    menu_string(&text, label, length);
-    uintptr_t child = *(const uintptr_t *)(option + 0x2c8);
-    unsigned updated = 0;
-    for (unsigned i = 0; child && i < 16; i++)
-    {
-        if (!menu_pointer(child) || *(const uintptr_t *)(child + 0x30) != option)
-            return 0;
-        char name[LIVE_HUD_NAME];
-        if (*(const uintptr_t *)child == 0x055910c0u && hud_name(child, name) &&
-            (hud_same(name, "label") || hud_same(name, "label_i") || hud_same(name, "label_f")))
-        {
-            ((void (*)(uintptr_t, const GameString *))(uintptr_t)0x0072cf50u)(child, &text);
-            updated++;
-        }
-        child = *(const uintptr_t *)(child + 0xa8);
-    }
-    return updated != 0;
-}
-
-static int wheel_axis_labels(uintptr_t option, uintptr_t rows, int rear)
-{
-    uintptr_t box = *(const uintptr_t *)(option + 0x3c8);
-    if (!menu_pointer(box) || *(const uint32_t *)(box + 0x2ec) != 12)
-        return 0;
-    uintptr_t row = *(const uintptr_t *)(box + 0x2c8);
-    for (unsigned i = 0; i < 12; i++)
-    {
-        if (!menu_pointer(row) || *(const uintptr_t *)row != LIVE_MENU_ITEM_VA ||
-            *(const uintptr_t *)(row + 0x30) != box)
-            return 0;
-        char text[32];
-        wheel_axis_text(text, i, *(const int16_t *)(rows + i * 40u + (rear ? 34u : 32u)));
-        if (!menu_set_text(row, text))
-            return 0;
-        row = *(const uintptr_t *)(row + 0xa8);
-    }
-    return !row;
-}
-
-static int wheel_populate_rear(uintptr_t front_option, uintptr_t rear_option,
-                               uintptr_t rows, uintptr_t context)
-{
-    uintptr_t front_box = *(const uintptr_t *)(front_option + 0x3c8);
-    uintptr_t rear_box = *(const uintptr_t *)(rear_option + 0x3c8);
-    if (!menu_pointer(front_box) || !menu_pointer(rear_box) ||
-        *(const uint32_t *)(front_box + 0x2ec) != 12 ||
-        *(const uint32_t *)(rear_box + 0x2ec))
-    {
-        live_mailbox.wheel_clone_reserved = 101;
-        return 0;
-    }
-    uintptr_t first = *(const uintptr_t *)(front_box + 0x2c8);
-    uintptr_t source = menu_pointer(first) ? *(const uintptr_t *)(first + 0x68) : 0;
-    if (!menu_pointer(source) || *(const uintptr_t *)source != LIVE_MENU_ITEM_VA ||
-        *(const uint32_t *)(source + 0x2ec) != 7)
-    {
-        live_mailbox.wheel_clone_reserved = 102;
-        return 0;
-    }
-    uintptr_t copies[12] = {0};
-    unsigned prepared = 0;
-    int attached = 0;
-    float target = *(const float *)(front_option + 0xd8);
-    for (; prepared < 12; prepared++)
-    {
-        const GameString *label = (const GameString *)(rows + prepared * 40u);
-        const char *text = label->capacity > 15 ? *(const char *const *)label : label->text;
-        if (!label->size || label->size >= LIVE_MENU_LABEL ||
-            !menu_copy_row(&copies[prepared], source))
-        {
-            live_mailbox.wheel_clone_reserved = 110 + prepared;
-            break;
-        }
-        if (!menu_set_text(copies[prepared], text) ||
-            (target < 400.0f && target >= 200.0f &&
-             !wheel_fit_column(copies[prepared], 400.0f - target, 0)))
-        {
-            live_mailbox.wheel_clone_reserved = 120 + prepared;
-            break;
-        }
-        menu_show_widget(copies[prepared], 1);
-    }
-    if (prepared == 12)
-    {
-        for (unsigned i = 0; i < 12; i++)
-            ((MenuAppend)(uintptr_t)0x00946b20u)(rear_box + 0x2b8, context, copies[i], 0);
-        ((void (*)(uintptr_t, uintptr_t))(uintptr_t)0x01d66b20u)(rear_option, context);
-        attached = *(const uint32_t *)(rear_box + 0x2ec) == 12 &&
-                   *(const uint32_t *)(rear_option + 0x390) == 12;
-        if (!attached)
-            live_mailbox.wheel_clone_reserved = 130;
-    }
-    for (unsigned i = 0; i < 12; i++)
-        wheel_release(&copies[i]);
-    return attached;
-}
-
-static struct
-{
-    uintptr_t root, layer, front_option, rear_option;
-    uintptr_t front_rows, rear_rows, front_first, rear_first;
-    unsigned enabled, front_index, rear_index, rear_open, was_visible;
-} wheel_split;
-
-static int wheel_split_visible(void)
-{
-    volatile LiveMailbox *m = &live_mailbox;
-    if (!wheel_split.enabled || !m->enabled || !hud_update_context(m->base, m->context))
-        return 0;
-    for (unsigned i = 0; i < 6; i++)
-    {
-        uintptr_t render = *(const uintptr_t *)(m->context + 0x698 + 8u * i);
-        if (!hud_object(render, 0x1f8) ||
-            *(const uintptr_t *)render != m->base + HUD_RENDER_VT_RVA)
-            continue;
-        uintptr_t begin = *(const uintptr_t *)(render + 0x1e8);
-        uintptr_t end = *(const uintptr_t *)(render + 0x1f0);
-        if (!hud_vector(begin, end, 64))
-            continue;
-        for (uintptr_t node = begin; node < end; node += 8)
-            if (*(const uintptr_t *)node == wheel_split.root)
-                return *(const uintptr_t *)wheel_split.root == m->base + HUD_ROOT_VT_RVA &&
-                       *(const uintptr_t *)wheel_split.layer == LIVE_MENU_ITEM_VA &&
-                       *(const uintptr_t *)(wheel_split.layer + 0x30) == wheel_split.root &&
-                       (*(const uint32_t *)(wheel_split.layer + 0x214) & menu_visible_flag);
-    }
-    return 0;
-}
-
-static void wheel_split_tick(int after_frame)
-{
-    if (!wheel_split_visible())
-    {
-        wheel_split.was_visible = 0;
-        return;
-    }
-    uintptr_t front_option = wheel_split.front_option;
-    uintptr_t rear_option = wheel_split.rear_option;
-    if (*(const uintptr_t *)front_option != LIVE_MENU_OPTION_VA ||
-        *(const uintptr_t *)rear_option != LIVE_MENU_OPTION_VA)
-        return;
-    unsigned front_index = *(const uint32_t *)(front_option + 0x388);
-    unsigned rear_index = *(const uint32_t *)(rear_option + 0x388);
-    unsigned rear_open = *(const uint32_t *)(rear_option + 0x400);
-    uintptr_t front_event = wheel_front_event(front_option);
-    uintptr_t front = wheel_event_rows(front_event);
-    uintptr_t rear = wheel_event_rows(live_mailbox.wheel_event_result);
-    if (!wheel_compose_rows(front, rear, front_index, rear_index))
-        return;
-    if (!after_frame)
-        return;
-    uintptr_t front_box = *(const uintptr_t *)(front_option + 0x3c8);
-    uintptr_t rear_box = *(const uintptr_t *)(rear_option + 0x3c8);
-    if (!menu_pointer(front_box) || !menu_pointer(rear_box))
-        return;
-    uintptr_t front_first = *(const uintptr_t *)(front_box + 0x2c8);
-    uintptr_t rear_first = *(const uintptr_t *)(rear_box + 0x2c8);
-    int refreshed = !wheel_split.was_visible || front != wheel_split.front_rows ||
-                    rear != wheel_split.rear_rows || front_first != wheel_split.front_first ||
-                    rear_first != wheel_split.rear_first;
-    if (refreshed)
-    {
-        (void)wheel_axis_labels(front_option, front, 0);
-        (void)wheel_axis_labels(rear_option, rear, 1);
-    }
-    /* Rear selection uses the native OptionMenu's index and Cancel restore.
-     * Invoke the original wheel event's preview method after native UI locks
-     * are released, including on Cancel and popup closure. */
-    int rear_changed = rear_index != wheel_split.rear_index;
-    int rear_closed = wheel_split.rear_open && !rear_open;
-    if (rear_changed || rear_closed)
-    {
-        uintptr_t index = 0, value = 0;
-        ((void (*)(uintptr_t *, int))(uintptr_t)0x0040eef0u)(&index, (int)rear_index);
-        uintptr_t args[2] = {*(const uintptr_t *)(rear_option + 0x70), index};
-        if (wheel_invoke(live_mailbox.wheel_event_result, "ApplyPreview", 2, args, &value))
-        {
-            wheel_split.rear_index = rear_index;
-            wheel_split.rear_open = rear_open;
-        }
-        wheel_release(&value);
-        wheel_release(&index);
-    }
-    else
-        wheel_split.rear_open = rear_open;
-    if (refreshed || front_index != wheel_split.front_index || rear_changed || rear_closed)
-    {
-        (void)wheel_option_text(front_option, front, front_index, 0);
-        (void)wheel_option_text(rear_option, rear, rear_index, 1);
-    }
-    wheel_split.front_index = front_index;
-    wheel_split.front_rows = front;
-    wheel_split.rear_rows = rear;
-    wheel_split.front_first = front_first;
-    wheel_split.rear_first = rear_first;
-    wheel_split.was_visible = 1;
-}
-
-static uintptr_t wheel_visible_source(void)
-{
-    volatile LiveMailbox *m = &live_mailbox;
-    for (unsigned i = 0; i < 6; i++)
-    {
-        uintptr_t render = *(const uintptr_t *)(m->context + 0x698 + 8u * i);
-        if (!hud_object(render, 0x1f8) ||
-            *(const uintptr_t *)render != m->base + HUD_RENDER_VT_RVA)
-            continue;
-        uintptr_t begin = *(const uintptr_t *)(render + 0x1e8);
-        uintptr_t end = *(const uintptr_t *)(render + 0x1f0);
-        if (!hud_vector(begin, end, 64))
-            continue;
-        for (uintptr_t root_slot = begin; root_slot < end; root_slot += 8)
-        {
-            uintptr_t root = *(const uintptr_t *)root_slot;
-            char name[LIVE_HUD_NAME];
-            if (!menu_pointer(root) || *(const uintptr_t *)root != m->base + HUD_ROOT_VT_RVA ||
-                !hud_name(root, name) || !hud_same(name, "CarCustomizeRoot"))
-                continue;
-            uintptr_t children = *(const uintptr_t *)(root + 0x160);
-            if (!menu_pointer(children) || *(const uintptr_t *)children != m->base + HUD_NLW_RVA)
-                continue;
-            uintptr_t first = *(const uintptr_t *)(children + 0x38);
-            uintptr_t last = *(const uintptr_t *)(children + 0x40);
-            if (!hud_vector(first, last, 256))
-                continue;
-            for (uintptr_t slot = first; slot < last; slot += 8)
-            {
-                uintptr_t layer = *(const uintptr_t *)slot;
-                if (!menu_pointer(layer) || *(const uintptr_t *)layer != LIVE_MENU_ITEM_VA ||
-                    !hud_name(layer, name) || !hud_same(name, "WheelEditLayer") ||
-                    !(*(const uint32_t *)(layer + 0x214) & menu_visible_flag))
-                    continue;
-                uintptr_t row = *(const uintptr_t *)(layer + 0x2c8);
-                for (unsigned j = 0; row && j < 32; j++)
-                {
-                    if (!menu_pointer(row) || *(const uintptr_t *)(row + 0x30) != layer)
-                        break;
-                    if (*(const uintptr_t *)row == 0x055a51a8u)
-                    {
-                        uintptr_t column = *(const uintptr_t *)(row + 0x2c8);
-                        for (unsigned k = 0; column && k < 8; k++)
-                        {
-                            if (!menu_pointer(column) || *(const uintptr_t *)(column + 0x30) != row)
-                                break;
-                            if (hud_name(column, name) && hud_same(name, "Offset"))
-                                return column;
-                            column = *(const uintptr_t *)(column + 0xa8);
-                        }
-                    }
-                    row = *(const uintptr_t *)(row + 0xa8);
-                }
-            }
-        }
-    }
-    return 0;
-}
-
-static void wheel_auto_setup(void)
-{
-    volatile LiveMailbox *m = &live_mailbox;
-    if (!m->enabled || m->base != LIVE_IMAGE_BASE ||
-        !hud_update_context(m->base, m->context) ||
-        *(const uint64_t *)(uintptr_t)0x03896010u != UINT64_C(0x41544153e5894855))
-        return;
-    uint32_t state = __atomic_load_n(&m->wheel_clone_state, __ATOMIC_ACQUIRE);
-    if (state == MENU_CALL_QUEUED || state == MENU_CALL_RUNNING)
-        return;
-    uintptr_t source = wheel_visible_source();
-    uintptr_t option = source ? wheel_find_option(source) : 0;
-    if (!option || *(const uint32_t *)(option + 0x400) ||
-        *(const uint32_t *)(option + 0x390) != 12 || !wheel_front_event(option))
-        return;
-    if (source != m->wheel_clone_source)
-    {
-        wheel_split.enabled = 0;
-        uintptr_t event = m->wheel_event_result, value = 0;
-        m->wheel_event_result = 0;
-        if (menu_pointer(event))
-        {
-            (void)wheel_invoke(event, "Finalize", 0, 0, &value);
-            wheel_release(&value);
-            wheel_release(&event);
-        }
-        uintptr_t copy = m->wheel_clone_result;
-        m->wheel_clone_result = 0;
-        wheel_release(&copy);
-        m->wheel_clone_source = source;
-        m->wheel_clone_reserved = 0;
-        state = MENU_CALL_IDLE;
-    }
-    if (state != MENU_CALL_IDLE && state != MENU_CALL_DONE)
-        return;
-    uint32_t marker = m->wheel_clone_reserved;
-    uint32_t operation = 0;
-    if (m->wheel_clone_result)
-    {
-        if (marker == 2)
-            operation = 11;
-        else if (marker == 4)
-            operation = 12;
-        else if (marker == 6)
-            operation = 13;
-        else if (marker == 8)
-            operation = 14;
-        else if (marker == 10)
-            operation = 15;
-        else if (marker == 12)
-            operation = 16;
-        else if (marker == 14)
-            operation = 17;
-        else if (marker == 16)
-        {
-            uintptr_t rear_option = wheel_find_option(m->wheel_clone_result);
-            operation = rear_option && *(const uint32_t *)(rear_option + 0x390) == 12
-                        ? 18 : 19;
-        }
-        else
-            return;
-    }
-    m->wheel_clone_reserved = operation;
-    __atomic_store_n(&m->wheel_clone_state, MENU_CALL_QUEUED, __ATOMIC_RELEASE);
-}
-
-static void wheel_clone(void)
-{
-    volatile LiveMailbox *m = &live_mailbox;
-    uint32_t queued = MENU_CALL_QUEUED;
-    if (!__atomic_compare_exchange_n(&m->wheel_clone_state, &queued, MENU_CALL_RUNNING,
-                                     0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED))
-        return;
-    uint32_t result = MENU_CALL_REJECTED;
-    uint32_t operation = m->wheel_clone_reserved;
-    uintptr_t source = m->wheel_clone_source;
-    char name[LIVE_HUD_NAME];
-    m->wheel_clone_reserved = 0;
-    if (!m->enabled || m->base != LIVE_IMAGE_BASE || !menu_pointer(source) ||
-        *(const uintptr_t *)source != LIVE_MENU_ITEM_VA ||
-        !hud_name(source, name) || !hud_same(name, "Offset"))
-        goto finish;
-    uintptr_t parent = *(const uintptr_t *)(source + 0x30);
-    if (!menu_pointer(parent) || *(const uintptr_t *)parent != 0x055a51a8u)
-        goto finish;
-    uintptr_t layer = *(const uintptr_t *)(parent + 0x30);
-    if (!menu_pointer(layer) || !hud_name(layer, name) ||
-        !hud_same(name, "WheelEditLayer"))
-        goto finish;
-    uintptr_t child = *(const uintptr_t *)(source + 0x2c8);
-    uintptr_t front_option = 0;
-    unsigned options = 0;
-    for (unsigned i = 0; child && i < 16; i++)
-    {
-        if (!menu_pointer(child) || *(const uintptr_t *)(child + 0x30) != source)
-            goto finish;
-        if (*(const uintptr_t *)child == LIVE_MENU_OPTION_VA)
-        {
-            if (*(const uint32_t *)(child + 0x400))
-                goto finish;
-            options++;
-            front_option = child;
-        }
-        child = *(const uintptr_t *)(child + 0xa8);
-    }
-    if (child || options != 1)
-        goto finish;
-    if (operation >= 17 && operation <= 20)
-    {
-        uintptr_t event = m->wheel_event_result;
-        uintptr_t original_event = wheel_front_event(front_option);
-        uintptr_t rear_option = wheel_find_option(m->wheel_clone_result);
-        uintptr_t context = *(const uintptr_t *)(front_option + 0x70);
-        if (!menu_pointer(event) || !original_event || !rear_option ||
-            *(const uint32_t *)(rear_option + 0x400) || !menu_pointer(context) ||
-            *(const uintptr_t *)context != m->base + HUD_RENDER_VT_RVA)
-            goto finish;
-        result = MENU_CALL_FAILED;
-        if (operation == 19)
-        {
-            uintptr_t front_rows = wheel_event_rows(original_event);
-            uintptr_t rear_rows = wheel_event_rows(event);
-            unsigned selected = *(const uint32_t *)(front_option + 0x388);
-            uintptr_t index = 0, value = 0;
-            m->wheel_clone_reserved = 15;
-            if (front_rows && rear_rows && front_rows != rear_rows && selected < 12 &&
-                wheel_populate_rear(front_option, rear_option, rear_rows, context))
-            {
-                ((void (*)(uintptr_t *, int))(uintptr_t)0x0040eef0u)(&index, (int)selected);
-                uintptr_t args[2] = {context, index};
-                if (wheel_invoke(event, "SetIndex", 2, args, &value))
-                {
-                    m->wheel_clone_reserved = 16;
-                    result = MENU_CALL_DONE;
-                }
-            }
-            wheel_release(&value);
-            wheel_release(&index);
-            goto finish;
-        }
-        if (operation == 17)
-        {
-            if (*(const uint32_t *)(rear_option + 0x390))
-                goto finish;
-            uintptr_t controller = wheel_event_attribute(original_event,
-                "__toplevel__::main::gt7::Framework::EventBase::ctrl_");
-            uintptr_t ctx = 0, shop = 0, car = 0, value = 0, index = 0;
-            m->wheel_clone_reserved = 15;
-            if (menu_pointer(controller) && wheel_invoke(controller, "Ctx", 0, 0, &ctx))
-                shop = wheel_attribute(ctx, "wheelShopCtx_");
-            if (shop)
-                car = wheel_attribute(shop, "previewCar_");
-            if (car)
-            {
-                uintptr_t args[3] = {context, car, 0};
-                if (wheel_invoke(event, "Setup", 3, args, &value))
-                {
-                    wheel_release(&value);
-                    unsigned selected = *(const uint32_t *)(front_option + 0x388);
-                    if (selected < 12)
-                    {
-                        uintptr_t front_rows = wheel_event_rows(original_event);
-                        uintptr_t rear_rows = wheel_event_rows(event);
-                        if (rear_rows)
-                            selected = wheel_saved_rear_index(car, rear_rows, selected);
-                        ((void (*)(uintptr_t *, int))(uintptr_t)0x0040eef0u)(&index, (int)selected);
-                        uintptr_t select_args[2] = {context, index};
-                        if (front_rows && rear_rows && front_rows != rear_rows &&
-                            (*(const uint32_t *)(rear_option + 0x390) == 12 ||
-                             wheel_populate_rear(front_option, rear_option, rear_rows, context)) &&
-                            wheel_invoke(event, "SetIndex", 2, select_args, &value))
-                        {
-                            m->wheel_clone_reserved = 16;
-                            result = MENU_CALL_DONE;
-                        }
-                    }
-                }
-            }
-            wheel_release(&value);
-            wheel_release(&index);
-            wheel_release(&car);
-            wheel_release(&shop);
-            wheel_release(&ctx);
-        }
-        else
-        {
-            uintptr_t front_rows = wheel_event_rows(original_event);
-            uintptr_t rear_rows = wheel_event_rows(event);
-            unsigned front_index = *(const uint32_t *)(front_option + 0x388);
-            unsigned rear_index = *(const uint32_t *)(rear_option + 0x388);
-            if (!front_rows || !rear_rows || front_rows == rear_rows ||
-                front_index >= 12 || rear_index >= 12 || wheel_split.enabled)
-                goto finish;
-            m->wheel_clone_reserved = 17;
-            if (!wheel_axis_labels(front_option, front_rows, 0) ||
-                !wheel_axis_labels(rear_option, rear_rows, 1))
-                goto finish;
-            int refreshed = wheel_option_text(front_option, front_rows, front_index, 0) &&
-                            wheel_option_text(rear_option, rear_rows, rear_index, 1);
-            uintptr_t label = *(const uintptr_t *)(source + 0x2c8);
-            if (!refreshed || !menu_pointer(label) || *(const uintptr_t *)label != 0x055910c0u)
-                goto finish;
-            GameString text;
-            menu_string(&text, "Front Offset", 12);
-            ((void (*)(uintptr_t, const GameString *))(uintptr_t)0x0072cf50u)(label, &text);
-            wheel_split.root = *(const uintptr_t *)(layer + 0x30);
-            wheel_split.layer = layer;
-            wheel_split.front_option = front_option;
-            wheel_split.rear_option = rear_option;
-            wheel_split.rear_index = rear_index;
-            wheel_split.rear_open = 0;
-            if (menu_pointer(wheel_split.root) &&
-                *(const uintptr_t *)wheel_split.root == m->base + HUD_ROOT_VT_RVA &&
-                wheel_compose_rows(front_rows, rear_rows, front_index, rear_index))
-            {
-                wheel_split.enabled = 1;
-                m->wheel_clone_reserved = 18;
-                result = MENU_CALL_DONE;
-            }
-        }
-        goto finish;
-    }
-    if (operation == 15 || operation == 16)
-    {
-        uintptr_t event = m->wheel_event_result;
-        if (!menu_pointer(event) || *(const uintptr_t *)event != 0x05917f08u)
-            goto finish;
-        uintptr_t value = 0;
-        if (operation == 15)
-        {
-            if (*(const uintptr_t *)(event + 0x18))
-                goto finish;
-            uintptr_t callbacks = *(const uintptr_t *)(front_option + 0x3e0);
-            if (!menu_pointer(callbacks) || *(const uintptr_t *)callbacks != 0x05911d08u)
-                goto finish;
-            uintptr_t begin = *(const uintptr_t *)(callbacks + 0x28);
-            if (!menu_pointer(begin) || *(const uintptr_t *)(callbacks + 0x30) != begin + 8)
-                goto finish;
-            uintptr_t bound = *(const uintptr_t *)begin;
-            if (!menu_pointer(bound) || *(const uintptr_t *)bound != 0x05916878u)
-                goto finish;
-            uintptr_t original_event = *(const uintptr_t *)(bound + 0x20);
-            if (!menu_pointer(original_event) || *(const uintptr_t *)original_event != 0x05917f08u ||
-                *(const uintptr_t *)(original_event + 0x10) != *(const uintptr_t *)(event + 0x10))
-                goto finish;
-            uintptr_t attributes = *(const uintptr_t *)(original_event + 0x18);
-            if (!menu_pointer(attributes))
-                goto finish;
-            uintptr_t controller = wheel_map_value(*(const uintptr_t *)attributes,
-                "__toplevel__::main::gt7::Framework::EventBase::ctrl_");
-            if (!menu_pointer(controller) || *(const uintptr_t *)controller != 0x05917f08u)
-                goto finish;
-            m->wheel_clone_reserved = 11;
-            result = MENU_CALL_FAILED;
-            if (wheel_invoke(event, "Initialize", 1, &controller, &value) &&
-                menu_pointer(*(const uintptr_t *)(event + 0x18)))
-            {
-                m->wheel_clone_reserved = 12;
-                result = MENU_CALL_DONE;
-            }
-        }
-        else
-        {
-            uintptr_t copy = m->wheel_clone_result;
-            if (!menu_pointer(copy) || *(const uintptr_t *)(copy + 0x30) != parent)
-                goto finish;
-            uintptr_t option = *(const uintptr_t *)(copy + 0x2c8);
-            for (unsigned i = 0; option && i < 8; i++)
-            {
-                if (!menu_pointer(option) || *(const uintptr_t *)(option + 0x30) != copy)
-                    goto finish;
-                if (*(const uintptr_t *)option == LIVE_MENU_OPTION_VA)
-                    break;
-                option = *(const uintptr_t *)(option + 0xa8);
-            }
-            if (!menu_pointer(option) || *(const uintptr_t *)option != LIVE_MENU_OPTION_VA ||
-                *(const uint32_t *)(option + 0x400))
-                goto finish;
-            m->wheel_clone_reserved = 13;
-            result = MENU_CALL_FAILED;
-            if (wheel_invoke(event, "SetWidget", 1, &option, &value))
-            {
-                if (value)
-                    ((void (*)(uintptr_t *))(uintptr_t)LIVE_MENU_RELEASE_VA)(&value);
-                if (wheel_invoke(event, "Widget", 0, 0, &value) && value == option)
-                {
-                    m->wheel_clone_reserved = 14;
-                    result = MENU_CALL_DONE;
-                }
-            }
-        }
-        if (value)
-            ((void (*)(uintptr_t *))(uintptr_t)LIVE_MENU_RELEASE_VA)(&value);
-        goto finish;
-    }
-    if (operation == 14)
-    {
-        /* Construct an empty instance of the original wheel-event class.
-         * Do not deep-copy the event: its ctrl_ attribute leads back into the
-         * controller graph. Do not initialize or bind the new instance yet. */
-        uintptr_t callbacks = *(const uintptr_t *)(front_option + 0x3e0);
-        if (m->wheel_event_result || !menu_pointer(callbacks) ||
-            *(const uintptr_t *)callbacks != 0x05911d08u)
-            goto finish;
-        uintptr_t begin = *(const uintptr_t *)(callbacks + 0x28);
-        uintptr_t end = *(const uintptr_t *)(callbacks + 0x30);
-        if (!menu_pointer(begin) || end != begin + sizeof(uintptr_t))
-            goto finish;
-        uintptr_t bound = *(const uintptr_t *)begin;
-        if (!menu_pointer(bound) || *(const uintptr_t *)bound != 0x05916878u)
-            goto finish;
-        uintptr_t receiver = *(const uintptr_t *)(bound + 0x20);
-        if (!menu_pointer(receiver) || *(const uintptr_t *)receiver != 0x05917f08u)
-            goto finish;
-        uintptr_t type = *(const uintptr_t *)(receiver + 0x10);
-        if (!menu_pointer(type) || *(const uintptr_t *)type != 0x059118e0u ||
-            !hud_name(type, name) || !hud_same(name, "WheelOffsetOptionMenuEvent"))
-            goto finish;
-        uintptr_t event = 0;
-        m->wheel_clone_reserved = 9;
-        ((void (*)(uintptr_t *, uintptr_t))(uintptr_t)0x00428c00u)(&event, type);
-        m->wheel_clone_reserved = 10;
-        result = MENU_CALL_FAILED;
-        if (event != receiver && menu_pointer(event) &&
-            *(const uintptr_t *)event == 0x05917f08u &&
-            *(const uintptr_t *)(event + 0x10) == type)
-        {
-            m->wheel_event_result = event;
-            event = 0;
-            result = MENU_CALL_DONE;
-        }
-        if (event)
-            ((void (*)(uintptr_t *))(uintptr_t)LIVE_MENU_RELEASE_VA)(&event);
-        goto finish;
-    }
-    if (operation == 13)
-    {
-        uintptr_t copy = m->wheel_clone_result;
-        uintptr_t root = *(const uintptr_t *)(layer + 0x30);
-        if (!menu_pointer(copy) || *(const uintptr_t *)(copy + 0x30) != parent ||
-            !menu_pointer(root) || *(const uintptr_t *)root != LIVE_IMAGE_BASE + HUD_ROOT_VT_RVA ||
-            *(const uint32_t *)(parent + 0x2ec) != 5)
-            goto finish;
-        float viewport = *(const float *)(root + HUD_OFF_RECT);
-        int spacing = *(const int32_t *)(parent + 0x390);
-        float target = (viewport - 170.0f - 300.0f - 6.0f * spacing) / 4.0f;
-        if (viewport < 1600.0f || viewport > 4000.0f || spacing != 50 ||
-            target < 200.0f || target > 400.0f)
-            goto finish;
-        static const char names[4][12] = {"Diameter", "Width", "Offset", "RearOffset"};
-        uintptr_t columns[4];
-        uintptr_t node = *(const uintptr_t *)(parent + 0x2c8);
-        for (unsigned i = 0; i < 4; i++)
-        {
-            uintptr_t allocation = menu_pointer(node)
-                                   ? *(const uintptr_t *)(node + 0x230) : 0;
-            if (!menu_pointer(node) || *(const uintptr_t *)(node + 0x30) != parent ||
-                !hud_name(node, name) || !hud_same(name, names[i]) ||
-                !menu_pointer(allocation) || *(const float *)allocation != 400.0f)
-                goto finish;
-            columns[i] = node;
-            node = *(const uintptr_t *)(node + 0xa8);
-        }
-        if (!menu_pointer(node) || !hud_name(node, name) ||
-            !hud_same(name, "PurchaseButton") || *(const float *)(node + 0xd8) != 300.0f)
-            goto finish;
-        m->wheel_clone_reserved = 7;
-        result = MENU_CALL_FAILED;
-        for (unsigned i = 0; i < 4; i++)
-            if (!wheel_fit_column(columns[i], 400.0f - target, 0))
-                goto finish;
-        __atomic_or_fetch((uint32_t *)(parent + 0x210), 7u, __ATOMIC_RELAXED);
-        __atomic_or_fetch((uint32_t *)(layer + 0x210), 7u, __ATOMIC_RELAXED);
-        m->wheel_clone_reserved = 8;
-        result = MENU_CALL_DONE;
-        goto finish;
-    }
-    if (operation == 12)
-    {
-        uintptr_t copy = m->wheel_clone_result;
-        uintptr_t context = *(const uintptr_t *)(source + 0x70);
-        uintptr_t before = *(const uintptr_t *)(source + 0xa8);
-        if (!menu_pointer(copy) || *(const uintptr_t *)copy != LIVE_MENU_ITEM_VA ||
-            *(const uintptr_t *)(copy + 0x30) ||
-            !hud_name(copy, name) || !hud_same(name, "PulldownItemC") ||
-            !menu_pointer(context) ||
-            *(const uintptr_t *)context != LIVE_IMAGE_BASE + HUD_RENDER_VT_RVA ||
-            !menu_pointer(before) || *(const uintptr_t *)(before + 0x30) != parent ||
-            !hud_name(before, name) || !hud_same(name, "PurchaseButton") ||
-            *(const uint32_t *)(parent + 0x2ec) != 4)
-            goto finish;
-        uintptr_t label = *(const uintptr_t *)(copy + 0x2c8);
-        if (!menu_pointer(label) || *(const uintptr_t *)label != 0x055910c0u ||
-            !hud_name(label, name) || !hud_same(name, "Label"))
-            goto finish;
-        GameString text;
-        menu_string(&text, "RearOffset", 10);
-        typedef void (*SetName)(uintptr_t, const GameString *);
-        uintptr_t rename = *(const uintptr_t *)(LIVE_MENU_ITEM_VA + 0x270);
-        ((SetName)rename)(copy, &text);
-        if (!hud_name(copy, name) || !hud_same(name, "RearOffset"))
-            goto finish;
-        menu_string(&text, "Rear Offset", 11);
-        ((void (*)(uintptr_t, const GameString *))(uintptr_t)0x0072cf50u)(label, &text);
-        menu_show_widget(copy, 1);
-        m->wheel_clone_reserved = 5;
-        /* Preserve native HBox packing: no manual half-width rectangles.
-         * Insert immediately before Install using the native child operation. */
-        ((MenuAppend)(uintptr_t)0x00946b20u)(parent + 0x2b8, context, copy, before);
-        if (*(const uintptr_t *)(copy + 0x30) == parent &&
-            *(const uintptr_t *)(source + 0xa8) == copy &&
-            *(const uintptr_t *)(copy + 0xa8) == before)
-        {
-            m->wheel_clone_reserved = 6;
-            result = MENU_CALL_DONE;
-        }
-        else
-            result = MENU_CALL_FAILED;
-        goto finish;
-    }
-    if (operation == 11)
-    {
-        uintptr_t copy = m->wheel_clone_result;
-        if (!menu_pointer(copy) || *(const uintptr_t *)copy != LIVE_MENU_ITEM_VA ||
-            *(const uintptr_t *)(copy + 0x30) || *(const uintptr_t *)(copy + 0x70) ||
-            !hud_name(copy, name) || !hud_same(name, "PulldownItemC") ||
-            *(const uintptr_t *)(LIVE_MENU_ITEM_VA + 0x340) != 0x004774e0u)
-            goto finish;
-        /* Run native cache/resource realization separately from __init__.
-         * Acquire the same initialization context used by native doCopy. */
-        uintptr_t context = 0;
-        ((void (*)(uintptr_t *))(uintptr_t)0x0047abf0u)(&context);
-        if (menu_pointer(context))
-        {
-            m->wheel_clone_reserved = 3;
-            ((void (*)(uintptr_t, uintptr_t))(uintptr_t)0x004774e0u)(copy, context);
-            m->wheel_clone_reserved = 4;
-            result = MENU_CALL_DONE;
-        }
-        if (context)
-            ((void (*)(uintptr_t *))(uintptr_t)LIVE_MENU_RELEASE_VA)(&context);
-        goto finish;
-    }
-    if (m->wheel_clone_result)
-        goto finish;
-    uintptr_t blueprint = *(const uintptr_t *)(source + 0x68);
-    if (!menu_pointer(blueprint) || *(const uintptr_t *)blueprint != LIVE_MENU_ITEM_VA ||
-        *(const uintptr_t *)(blueprint + 0x70) ||
-        !hud_name(blueprint, name) || !hud_same(name, "PulldownItemC"))
-        goto finish;
-    /* Only the structural copy phase. Do not call doCopy (0xc96f50): it
-     * additionally executes recursive __init__ and onRealize callbacks.
-     * Virtual +0x58 is the native copy factory used by doCopy itself. */
-    uintptr_t factory = *(const uintptr_t *)(LIVE_MENU_ITEM_VA + 0x58);
-    if (factory != 0x00428a60u)
-        goto finish;
-    m->wheel_clone_reserved = 1;
-    uintptr_t copy = 0;
-    ((void (*)(uintptr_t *, uintptr_t))factory)(&copy, blueprint);
-    m->wheel_clone_reserved = 2;
-    result = MENU_CALL_FAILED;
-    if (copy != blueprint && menu_pointer(copy) &&
-        *(const uintptr_t *)copy == LIVE_MENU_ITEM_VA &&
-        !*(const uintptr_t *)(copy + 0x30))
-    {
-        m->wheel_clone_result = copy;
-        copy = 0;
-        result = MENU_CALL_DONE;
-    }
-    if (copy)
-        ((void (*)(uintptr_t *))(uintptr_t)LIVE_MENU_RELEASE_VA)(&copy);
-finish:
-    __atomic_store_n(&m->wheel_clone_state, result, __ATOMIC_RELEASE);
-}
-
 static void menu_call(void)
 {
     volatile LiveMailbox *m = &live_mailbox;
@@ -2050,95 +1149,146 @@ static void menu_attach_on_frame(void)
  * by the live settings. All scratch memory lives at fixed offsets inside this
  * allocation, so the packed bridge bytes stay identical and are re-verified
  * by the payload on every attach. */
-enum {ORBIS_DIALOG_STATUS_NONE,ORBIS_DIALOG_STATUS_RUNNING,ORBIS_DIALOG_STATUS_FINISHED};
-static void prompt(void){
-    volatile LiveMailbox *m=&live_mailbox;
-    uint32_t state=m->prompt_state;
-    if(state==PROMPT_QUEUED){
-        uint32_t queued=PROMPT_QUEUED;
-        if(!__atomic_compare_exchange_n(&m->prompt_state,&queued,PROMPT_RUNNING,0,__ATOMIC_ACQ_REL,__ATOMIC_RELAXED))return;
-        if(!m->enabled||!m->ime_dialog_init||!m->ime_dialog_status||!m->ime_dialog_result||!m->ime_dialog_term||!m->allocation){m->prompt_result=1;m->prompt_state=PROMPT_FAILED;return;}
+enum
+{
+    ORBIS_DIALOG_STATUS_NONE,
+    ORBIS_DIALOG_STATUS_RUNNING,
+    ORBIS_DIALOG_STATUS_FINISHED
+};
+static void prompt(void)
+{
+    volatile LiveMailbox *m = &live_mailbox;
+    uint32_t state = m->prompt_state;
+    if (state == PROMPT_QUEUED)
+    {
+        uint32_t queued = PROMPT_QUEUED;
+        if (!__atomic_compare_exchange_n(&m->prompt_state, &queued, PROMPT_RUNNING, 0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED))
+            return;
+        if (!m->enabled || !m->ime_dialog_init || !m->ime_dialog_status || !m->ime_dialog_result || !m->ime_dialog_term || !m->allocation)
+        {
+            m->prompt_result = 1;
+            m->prompt_state = PROMPT_FAILED;
+            return;
+        }
         /* GT7 rebuilds its own parameters on every open, so ours is
          * independent. OrbisImeDialogSetting: type is OrbisImeType::Number (4)
          * at 0x04, maxTextLength at 0x24 is nine digits (100000000 is the
          * native cap), and the text field buffer is at 0x28. */
-        unsigned char *param=(unsigned char *)(uintptr_t)(m->allocation+LIVE_PROMPT_PARAM);
-        for(unsigned i=0;i<0x80;i++)param[i]=0;
-        *(uint32_t *)(param+0x00)=m->ime_user_id;
-        *(uint32_t *)(param+0x04)=4;
-        *(uint32_t *)(param+0x24)=9;
-        *(uintptr_t *)(param+0x28)=m->allocation+LIVE_PROMPT_TEXT;
-        *(float *)(param+0x30)=960.0f;
-        *(float *)(param+0x34)=540.0f;
+        unsigned char *param = (unsigned char *)(uintptr_t)(m->allocation + LIVE_PROMPT_PARAM);
+        for (unsigned i = 0; i < 0x80; i++)
+            param[i] = 0;
+        *(uint32_t *)(param + 0x00) = m->ime_user_id;
+        *(uint32_t *)(param + 0x04) = 4;
+        *(uint32_t *)(param + 0x24) = 9;
+        *(uintptr_t *)(param + 0x28) = m->allocation + LIVE_PROMPT_TEXT;
+        *(float *)(param + 0x30) = 960.0f;
+        *(float *)(param + 0x34) = 540.0f;
         /* 0x38 horizontal / 0x3C vertical alignment: leave posx/posy at the
          * screen centre but ask the system to centre the dialogue on that
          * point instead of anchoring its top-left corner there. */
-        *(uint32_t *)(param+0x38)=1;
-        *(uint32_t *)(param+0x3C)=1;
+        *(uint32_t *)(param + 0x38) = 1;
+        *(uint32_t *)(param + 0x3C) = 1;
         /* Start from an empty field so a stale buffer can never leak in. */
-        *(uint16_t *)(uintptr_t)(m->allocation+LIVE_PROMPT_TEXT)=0;
-        m->prompt_chars=0;m->prompt_amount=0;
+        *(uint16_t *)(uintptr_t)(m->allocation + LIVE_PROMPT_TEXT) = 0;
+        m->prompt_chars = 0;
+        m->prompt_amount = 0;
         /* rdi is the OrbisImeDialogSetting, rsi the optional extended one. */
-        int result=((int (*)(void *,void *))(uintptr_t)m->ime_dialog_init)(param,0);
-        if(result){m->prompt_result=(uint32_t)result;m->prompt_state=PROMPT_FAILED;return;}
-        m->prompt_open=1;m->prompt_result=0;m->prompt_state=PROMPT_OPEN;
+        int result = ((int (*)(void *, void *))(uintptr_t)m->ime_dialog_init)(param, 0);
+        if (result)
+        {
+            m->prompt_result = (uint32_t)result;
+            m->prompt_state = PROMPT_FAILED;
+            return;
+        }
+        m->prompt_open = 1;
+        m->prompt_result = 0;
+        m->prompt_state = PROMPT_OPEN;
         return;
     }
-    if(state==PROMPT_OPEN){
-        int status=((int (*)(void))(uintptr_t)m->ime_dialog_status)();
-        m->prompt_dbg_status=(uint32_t)status;
-        if(status==ORBIS_DIALOG_STATUS_RUNNING)return;
-        if(status==ORBIS_DIALOG_STATUS_FINISHED){
+    if (state == PROMPT_OPEN)
+    {
+        int status = ((int (*)(void))(uintptr_t)m->ime_dialog_status)();
+        m->prompt_dbg_status = (uint32_t)status;
+        if (status == ORBIS_DIALOG_STATUS_RUNNING)
+            return;
+        if (status == ORBIS_DIALOG_STATUS_FINISHED)
+        {
             /* The real libSceImeDialog validates the caller's OrbisImeDialogResult
              * before doing anything: if result bytes +4..+0xF are not zero it
              * returns DIALOG_NOT_FINISHED (0x80BC0032). An uninitialised 16-byte
              * buffer therefore failed on every single accepted entry. */
             unsigned char result[16];
-            for(unsigned i=0;i<16;i++)result[i]=0;
-            int got=status==ORBIS_DIALOG_STATUS_FINISHED?((int (*)(void *))(uintptr_t)m->ime_dialog_result)(result):-1;
+            for (unsigned i = 0; i < 16; i++)
+                result[i] = 0;
+            int got = status == ORBIS_DIALOG_STATUS_FINISHED ? ((int (*)(void *))(uintptr_t)m->ime_dialog_result)(result) : -1;
             /* The console can still report Finished a frame before the result is
              * ready; poll again instead of treating DIALOG_NOT_FINISHED as a
              * cancel. The retry budget reuses prompt_amount, zeroed on open. */
-            if((uint32_t)got==0x80bc0032u&&m->prompt_amount++<120)return;
+            if ((uint32_t)got == 0x80bc0032u && m->prompt_amount++ < 120)
+                return;
             ((int (*)(void))(uintptr_t)m->ime_dialog_term)();
-            m->prompt_open=0;
-            m->prompt_reserved=(uint32_t)got;
-            m->prompt_dbg_end=*(uint32_t *)result;
+            m->prompt_open = 0;
+            m->prompt_reserved = (uint32_t)got;
+            m->prompt_dbg_end = *(uint32_t *)result;
             /* Decide from the text the IME committed into our buffer, not the
              * end status: GT7's own wrapper only reads offset 0 and the library
              * cycles several internal states. An empty buffer means cancelled. */
-            const uint16_t *text=(const uint16_t *)(uintptr_t)(m->allocation+LIVE_PROMPT_TEXT);
-            uint32_t amount=0;int valid=0,n=0;
-            for(unsigned i=0;i<LIVE_PROMPT_TEXT_CHARS&&text[i];i++){
-                uint16_t c=text[i];
-                if(c<'0'||c>'9'){valid=0;break;}
-                if(amount>(LIVE_MAX_CREDITS-(uint32_t)(c-'0'))/10){valid=0;break;}
-                amount=amount*10+(uint32_t)(c-'0');valid=1;n=i+1;
+            const uint16_t *text = (const uint16_t *)(uintptr_t)(m->allocation + LIVE_PROMPT_TEXT);
+            uint32_t amount = 0;
+            int valid = 0, n = 0;
+            for (unsigned i = 0; i < LIVE_PROMPT_TEXT_CHARS && text[i]; i++)
+            {
+                uint16_t c = text[i];
+                if (c < '0' || c > '9')
+                {
+                    valid = 0;
+                    break;
+                }
+                if (amount > (LIVE_MAX_CREDITS - (uint32_t)(c - '0')) / 10)
+                {
+                    valid = 0;
+                    break;
+                }
+                amount = amount * 10 + (uint32_t)(c - '0');
+                valid = 1;
+                n = i + 1;
             }
-            m->prompt_chars=n;
-            if(!valid){m->prompt_state=PROMPT_CANCELLED;return;}
-            m->prompt_amount=amount;
+            m->prompt_chars = n;
+            if (!valid)
+            {
+                m->prompt_state = PROMPT_CANCELLED;
+                return;
+            }
+            m->prompt_amount = amount;
             /* Queue the value through the same native credit path as the live
              * settings; pump() applies it later in this same frame. */
-            uintptr_t object=*(volatile uintptr_t *)(m->base+0x066e9648);
-            if(!object||*(volatile uintptr_t *)object!=m->base+0x053edca8||m->state==LIVE_QUEUED||m->state==LIVE_RUNNING){
-                m->prompt_result=3;m->prompt_state=PROMPT_FAILED;return;
+            uintptr_t object = *(volatile uintptr_t *)(m->base + 0x066e9648);
+            if (!object || *(volatile uintptr_t *)object != m->base + 0x053edca8 || m->state == LIVE_QUEUED || m->state == LIVE_RUNNING)
+            {
+                m->prompt_result = 3;
+                m->prompt_state = PROMPT_FAILED;
+                return;
             }
-            m->expected_object=object;
-            m->expected_amount=*(volatile uint32_t *)(object+0x14c);
-            m->amount=amount;m->observed=0;m->sequence++;
-            m->prompt_result=0;m->prompt_state=PROMPT_APPLIED;m->state=LIVE_QUEUED;
+            m->expected_object = object;
+            m->expected_amount = *(volatile uint32_t *)(object + 0x14c);
+            m->amount = amount;
+            m->observed = 0;
+            m->sequence++;
+            m->prompt_result = 0;
+            m->prompt_state = PROMPT_APPLIED;
+            m->state = LIVE_QUEUED;
             return;
         }
         /* No dialog is running (it never opened or was closed externally). */
-        m->prompt_open=0;
-        m->prompt_state=PROMPT_CANCELLED;
+        m->prompt_open = 0;
+        m->prompt_state = PROMPT_CANCELLED;
         return;
     }
 }
-__attribute__((visibility("hidden"))) void live_frame(void *context,float delta_time){
-    __atomic_add_fetch(&live_mailbox.heartbeat,1,__ATOMIC_RELAXED);
-    live_mailbox.context=(uintptr_t)context;
+__attribute__((visibility("hidden"))) void live_frame(void *context, float delta_time)
+{
+    __atomic_add_fetch(&live_mailbox.heartbeat, 1, __ATOMIC_RELAXED);
+    live_mailbox.context = (uintptr_t)context;
     apply_hud();
     /* Execute before entering the original callback's own locks. */
     set_wheel_width();
@@ -2148,12 +1298,8 @@ __attribute__((visibility("hidden"))) void live_frame(void *context,float delta_
     prompt();
     pump();
     menu_call();
-    wheel_auto_setup();
-    wheel_clone();
     menu_attach_on_frame();
-    wheel_split_tick(0);
-    ((void (*)(void *,float))(uintptr_t)live_mailbox.original)(context,delta_time);
-    wheel_split_tick(1);
+    ((void (*)(void *, float))(uintptr_t)live_mailbox.original)(context, delta_time);
     /* GT7 rebuilds the riding-car snapshot while processing Car Settings.
      * Sample only after the native UI callback has released its rebuild path. */
     sample_car();

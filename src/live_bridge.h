@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #pragma once
-#define LIVE_ALLOCATION 0x00044000
+#define LIVE_ALLOCATION 0x0004c000
 #ifndef __ASSEMBLER__
 #include <stdint.h>
 #define LIVE_MAGIC UINT64_C(0x3145474449523747)
@@ -13,40 +13,54 @@
 #define LIVE_BOOT_RESERVED 0x000000c8u
 /* The bootstrap maps this allocation. The bridge image occupies its start. */
 #define LIVE_PROMPT_PARAM 0x00015000u
-#define LIVE_PROMPT_TEXT  0x00015200u
-#define LIVE_PROMPT_WORK  0x00016000u
+#define LIVE_PROMPT_TEXT 0x00015200u
+#define LIVE_PROMPT_WORK 0x00016000u
 #define LIVE_PROMPT_WORK_SIZE 0x5000u
 #define LIVE_PROMPT_TEXT_CHARS 32u
-#define LIVE_PROBE_LOG  0x0001b000u
+#define LIVE_PROBE_LOG 0x0001b000u
 #define LIVE_PROBE_LOG_SIZE 0x0000c000u
 #define LIVE_PROBE_ADDR 0x00028000u
 #define LIVE_PROBE_STUB 0x00028400u
 /* Observation ring and sampling counters live after all legacy probe slots. */
-#define LIVE_TRACE_MAGIC  UINT64_C(0x3145434152543747)
+#define LIVE_TRACE_MAGIC UINT64_C(0x3145434152543747)
 #define LIVE_TRACE_HEADER 0x0002c000u
 #define LIVE_TRACE_SAMPLE 0x0002c040u
-#define LIVE_TRACE_RING   0x00030000u
-#define LIVE_TRACE_COUNT  0x00000400u
-#define LIVE_TRACE_MASK   0x000003ffu
-#define LIVE_TRACE_MAX    LIVE_TRACE_COUNT
-#define LIVE_TRACE_CFG(site,deref,shift) ((uint64_t)(uint32_t)(site)|((uint64_t)(uint32_t)(deref)<<8)|((uint64_t)(uint32_t)(shift)<<16))
+#define LIVE_TRACE_RING 0x00030000u
+#define LIVE_TRACE_COUNT 0x00000400u
+#define LIVE_TRACE_MASK 0x000003ffu
+#define LIVE_TRACE_MAX LIVE_TRACE_COUNT
+#define LIVE_TRACE_CFG(site, deref, shift) ((uint64_t)(uint32_t)(site) | ((uint64_t)(uint32_t)(deref) << 8) | ((uint64_t)(uint32_t)(shift) << 16))
 #define LIVE_TRACE_DEREF 0x1u
-#define LIVE_ARENA_LOW  0xe400000000ULL
+#define LIVE_ARENA_LOW 0xe400000000ULL
 #define LIVE_ARENA_HIGH 0xe420000000ULL
-enum {LIVE_SAVE_R11,LIVE_SAVE_R10,LIVE_SAVE_R9,LIVE_SAVE_R8,LIVE_SAVE_RDI,
-      LIVE_SAVE_RSI,LIVE_SAVE_RDX,LIVE_SAVE_RCX,LIVE_SAVE_RAX,LIVE_SAVE_FLAGS,
-      LIVE_SAVE_PAD,LIVE_SAVE_RET};
-typedef struct {
-    uint64_t magic,count;
-    uint32_t mask,sites,epoch,reserved;
+enum
+{
+    LIVE_SAVE_R11,
+    LIVE_SAVE_R10,
+    LIVE_SAVE_R9,
+    LIVE_SAVE_R8,
+    LIVE_SAVE_RDI,
+    LIVE_SAVE_RSI,
+    LIVE_SAVE_RDX,
+    LIVE_SAVE_RCX,
+    LIVE_SAVE_RAX,
+    LIVE_SAVE_FLAGS,
+    LIVE_SAVE_PAD,
+    LIVE_SAVE_RET
+};
+typedef struct
+{
+    uint64_t magic, count;
+    uint32_t mask, sites, epoch, reserved;
 } LiveTraceHeader;
-typedef struct {
-    uint64_t seq,tsc;
-    uint32_t site,epoch;
-    uint64_t sym,native,rdi,rsi,ret;
+typedef struct
+{
+    uint64_t seq, tsc;
+    uint32_t site, epoch;
+    uint64_t sym, native, rdi, rsi, ret;
 } LiveTraceRecord;
-_Static_assert(sizeof(LiveTraceRecord)==64,"trace record must fill one cache line");
-_Static_assert(sizeof(LiveTraceHeader)<=64,"trace header must fit one cache line");
+_Static_assert(sizeof(LiveTraceRecord) == 64, "trace record must fill one cache line");
+_Static_assert(sizeof(LiveTraceHeader) <= 64, "trace header must fit one cache line");
 /* In-race HUD visibility control. The payload publishes a list of MENU widget
  * keys to hide; the bridge walks the live widget tree every frame and zeroes
  * the layout rect (node+0x238, 32 bytes) of any widget whose path or name
@@ -70,21 +84,83 @@ _Static_assert(sizeof(LiveTraceHeader)<=64,"trace header must fit one cache line
 #define LIVE_MENU_LABEL 64u
 #define LIVE_MENU_EVENTS 128u
 #define LIVE_MENU_DIVIDER 2u
-enum {MENU_CALL_IDLE, MENU_CALL_QUEUED, MENU_CALL_RUNNING, MENU_CALL_DONE,
-      MENU_CALL_REJECTED, MENU_CALL_FAILED};
-typedef struct {
+enum
+{
+    MENU_CALL_IDLE,
+    MENU_CALL_QUEUED,
+    MENU_CALL_RUNNING,
+    MENU_CALL_DONE,
+    MENU_CALL_REJECTED,
+    MENU_CALL_FAILED
+};
+typedef struct
+{
     char labels[LIVE_MENU_MAX][LIVE_MENU_LABEL];
     uint8_t hidden[LIVE_MENU_MAX];
     uint8_t events[LIVE_MENU_EVENTS];
     uint32_t acknowledged, label_sequence;
 } LiveMenuControl;
-enum {PROMPT_IDLE,PROMPT_QUEUED,PROMPT_RUNNING,PROMPT_OPEN,PROMPT_ENTERED,PROMPT_APPLIED,PROMPT_CANCELLED,PROMPT_FAILED};
-enum {LIVE_IDLE, LIVE_QUEUED, LIVE_RUNNING, LIVE_DONE, LIVE_STALE, LIVE_INVALID, LIVE_CANCELLED};
-enum {CAR_IDLE, CAR_QUEUED, CAR_RUNNING, CAR_READY, CAR_UNAVAILABLE};
-enum {WHEEL_IDLE, WHEEL_QUEUED, WHEEL_RUNNING, WHEEL_DONE, WHEEL_STALE, WHEEL_INVALID, WHEEL_UNAVAILABLE};
-enum {GEOMETRY_IDLE, GEOMETRY_QUEUED, GEOMETRY_RUNNING, GEOMETRY_DONE, GEOMETRY_STALE, GEOMETRY_INVALID, GEOMETRY_UNAVAILABLE};
-enum {ENGINE_IDLE, ENGINE_QUEUED, ENGINE_RUNNING, ENGINE_DONE, ENGINE_STALE, ENGINE_INVALID, ENGINE_UNAVAILABLE};
-typedef struct {
+enum
+{
+    PROMPT_IDLE,
+    PROMPT_QUEUED,
+    PROMPT_RUNNING,
+    PROMPT_OPEN,
+    PROMPT_ENTERED,
+    PROMPT_APPLIED,
+    PROMPT_CANCELLED,
+    PROMPT_FAILED
+};
+enum
+{
+    LIVE_IDLE,
+    LIVE_QUEUED,
+    LIVE_RUNNING,
+    LIVE_DONE,
+    LIVE_STALE,
+    LIVE_INVALID,
+    LIVE_CANCELLED
+};
+enum
+{
+    CAR_IDLE,
+    CAR_QUEUED,
+    CAR_RUNNING,
+    CAR_READY,
+    CAR_UNAVAILABLE
+};
+enum
+{
+    WHEEL_IDLE,
+    WHEEL_QUEUED,
+    WHEEL_RUNNING,
+    WHEEL_DONE,
+    WHEEL_STALE,
+    WHEEL_INVALID,
+    WHEEL_UNAVAILABLE
+};
+enum
+{
+    GEOMETRY_IDLE,
+    GEOMETRY_QUEUED,
+    GEOMETRY_RUNNING,
+    GEOMETRY_DONE,
+    GEOMETRY_STALE,
+    GEOMETRY_INVALID,
+    GEOMETRY_UNAVAILABLE
+};
+enum
+{
+    ENGINE_IDLE,
+    ENGINE_QUEUED,
+    ENGINE_RUNNING,
+    ENGINE_DONE,
+    ENGINE_STALE,
+    ENGINE_INVALID,
+    ENGINE_UNAVAILABLE
+};
+typedef struct
+{
     uint64_t magic, base, original;
     uint64_t make_event, acquire, destroy_event, set_credits;
     uint64_t heartbeat, context, expected_object;
@@ -160,9 +236,8 @@ typedef struct {
     uint64_t menu_install_option, menu_active_option, menu_active_box, menu_active_row;
     uint64_t menu_candidate;
     uint32_t menu_count, menu_active_count;
-    /* Detached GT Auto blueprint structure, copied on the UI thread without
-     * script initialization. Retained once per game session for inspection.
-     * reserved records factory entry (1) and successful return (2). */
+    /* Reserved legacy wheel diagnostic fields; the standalone wheel patch
+     * owns its state in WheelRuntime. Preserve the mailbox ABI. */
     uint32_t wheel_clone_state, wheel_clone_reserved;
     uint64_t wheel_clone_source, wheel_clone_result;
     uint64_t wheel_event_result;
@@ -174,7 +249,7 @@ typedef struct {
  * address (the link-time VMA), which is garbage once the blob is loaded at a
  * high address. Static objects get direct PC-relative references instead. The
  * payload locates the mailbox by its offset within the blob (LIVE_MAILBOX). */
-void live_frame(void *context,float delta_time);
-void live_trace(void *save,uint64_t cfg,uint64_t allocation);
+void live_frame(void *context, float delta_time);
+void live_trace(void *save, uint64_t cfg, uint64_t allocation);
 int live_menu_close(const uint64_t *registers, volatile LiveMailbox *mailbox);
 #endif

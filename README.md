@@ -12,7 +12,7 @@ Included patches as of version 0.40:
 - Power Pack and vehicle DLC unlock
 - Language, unit, and country flag preferences
 - Quick Used and Legend Store Rotation
-- Additional wheel offset options in GT Auto
+- Independent front and rear wheel offset dropdowns in GT Auto
 - Edit visibility of individual race HUD items from in-game or via web UI
 - Unlock debug Settings
 - In-game credit editor
@@ -35,6 +35,8 @@ Patches only work on a clean version of `PPSA01317` version `01.710.000`. It has
 6. Launch GT7.
 
 The payload and patch engine must be running before GT7 launches. The saved settings and home-screen shortcut persist across reboots, but the payload must be loaded again after each console reboot. Do not run another patch engine at the same time.
+
+Once the saved patches have been applied, the split wheel offset controls run entirely inside GT7 and remain active until the game exits, including after GT7Patcher stops. Live Settings is a separate option.
 
 ## Clean older game files
 
