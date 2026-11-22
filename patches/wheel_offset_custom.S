@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Replacement for GT7 01.710.000 GetWheelOffsetPulldownInfo at 0x3896010.
+ * Backing rows for the independent front/rear controls in src/wheel_patch.c.
  * Builds Standard and eleven car-relative pairs based on the native Wide value.
  */
 .intel_syntax noprefix

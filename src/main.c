@@ -35,7 +35,7 @@ typedef struct
 } AppInfo;
 extern int sceKernelGetAppInfo(pid_t, AppInfo *);
 #endif
-#define VERSION "26.11.22-11-22_1023"
+#define VERSION "00.41.26-11-22_1208"
 #ifndef PORT
 #define PORT 7210
 #endif
@@ -663,7 +663,8 @@ static int race_json_load(const char *cursor)
     {
         if (!race_json_string(&cursor, key, sizeof(key)) || !race_json_take(&cursor, ':'))
             return 0;
-        unsigned section = !strcmp(key, "visible") ? 1u : !strcmp(key, "hidden") ? 2u : 0u;
+        unsigned section = !strcmp(key, "visible") ? 1u : !strcmp(key, "hidden") ? 2u
+                                                                                 : 0u;
         if (!section || (sections & section) || !race_json_entries(&cursor, section == 1, seen))
             return 0;
         sections |= section;
@@ -967,7 +968,7 @@ static void hud_menu_tick(void)
         hidden[i] = race_menu_dividers[i] | race_group_off[race_menu_selection[i] - race_menu_groups];
     uint32_t acknowledged, sequence;
     if (gt7_live_menu_sync(hud_state.pid, race_menu_labels, hidden, race_menu_count,
-                         &acknowledged, events, &sequence))
+                           &acknowledged, events, &sequence))
         return;
 
     static int pid;
@@ -1260,15 +1261,15 @@ static void json_status(int fd)
     Gt7FreeCamera free_camera;
     if ((config.mask & (FREE_PHOTO_CAMERA_BIT | LIVE_SETTINGS_BIT)) == (FREE_PHOTO_CAMERA_BIT | LIVE_SETTINGS_BIT) && !atomic_load(&startup_pending) && game_running > 0 && !gt7_free_camera_read(&free_camera))
         n += (size_t)snprintf(body + n, sizeof(body) - n,
-            "\"available\":true,\"normalMultiplier\":%u,\"fastMultiplier\":%u,\"verticalMultiplier\":%u,"
-            "\"nativeNormalMultiplier\":6,\"nativeFastMultiplier\":12,\"nativeVerticalMultiplier\":1",
-            (unsigned)free_camera.normal_multiplier, (unsigned)free_camera.fast_multiplier,
-            (unsigned)free_camera.vertical_multiplier);
+                              "\"available\":true,\"normalMultiplier\":%u,\"fastMultiplier\":%u,\"verticalMultiplier\":%u,"
+                              "\"nativeNormalMultiplier\":6,\"nativeFastMultiplier\":12,\"nativeVerticalMultiplier\":1",
+                              (unsigned)free_camera.normal_multiplier, (unsigned)free_camera.fast_multiplier,
+                              (unsigned)free_camera.vertical_multiplier);
     else
 #endif
         n += (size_t)snprintf(body + n, sizeof(body) - n,
-            "\"available\":false,\"normalMultiplier\":null,\"fastMultiplier\":null,\"verticalMultiplier\":null,"
-            "\"nativeNormalMultiplier\":6,\"nativeFastMultiplier\":12,\"nativeVerticalMultiplier\":1");
+                              "\"available\":false,\"normalMultiplier\":null,\"fastMultiplier\":null,\"verticalMultiplier\":null,"
+                              "\"nativeNormalMultiplier\":6,\"nativeFastMultiplier\":12,\"nativeVerticalMultiplier\":1");
     snprintf(body + n, sizeof(body) - n, "}}}");
     response(fd, 200, "application/json", body);
 }
@@ -1966,40 +1967,6 @@ static void serve(int fd)
         return;
 #endif
     }
-    if (!strncmp(path, "/api/live/menu-call/wheel-clone?source=",
-                 sizeof("/api/live/menu-call/wheel-clone?source=") - 1))
-    {
-#ifdef PS5
-        unsigned long long source = 0;
-        unsigned phase = 0;
-        int consumed = 0;
-        int parsed = sscanf(path, "/api/live/menu-call/wheel-clone?source=%llx&phase=%u%n",
-                            &source, &phase, &consumed);
-        if (parsed != 2)
-        {
-            phase = 0;
-            parsed = sscanf(path, "/api/live/menu-call/wheel-clone?source=%llx%n",
-                            &source, &consumed);
-        }
-        if (length || parsed < 1 || !consumed || path[consumed] || phase > 9)
-        {
-            response(fd, 400, "text/plain", "Specify the closed Offset container source address.");
-            return;
-        }
-        uintptr_t copy = 0;
-        unsigned state = 0;
-        int result = gt7_live_wheel_clone((uintptr_t)source, phase, &copy, &state);
-        char report[160];
-        snprintf(report, sizeof(report),
-                 "{\"rc\":%d,\"state\":%u,\"copy\":\"0x%llx\",\"attached\":%s}",
-                 result, state, (unsigned long long)copy,
-                 phase >= 2 && phase <= 3 && !result ? "true" : "false");
-        response(fd, result ? 409 : 200, "application/json", report);
-#else
-        response(fd, 409, "text/plain", "Wheel control cloning requires PS5.");
-#endif
-        return;
-    }
     if (!strncmp(path, "/api/live/menu-call", 19) && (!path[19] || path[19] == '?'))
     {
 #ifdef PS5
@@ -2191,9 +2158,9 @@ static void serve(int fd)
         char value[8] = "";
         int parsed = sscanf(body, "{\"identifier\":\"%95[^\"]\",\"enabled\":%7[^}]}",
                             identifier, value);
-        int enabled = !strcmp(value, "true") ? 1 : !strcmp(value, "false") ? 0 : -1;
-        const char *error = parsed == 2 && enabled >= 0 ? race_menu_set(identifier, enabled) :
-                            "invalid HUD visibility request";
+        int enabled = !strcmp(value, "true") ? 1 : !strcmp(value, "false") ? 0
+                                                                           : -1;
+        const char *error = parsed == 2 && enabled >= 0 ? race_menu_set(identifier, enabled) : "invalid HUD visibility request";
         response(fd, error ? 400 : 200, "text/plain",
                  error ? error : "HUD visibility saved.");
 #else
@@ -2206,13 +2173,13 @@ static void serve(int fd)
 #ifdef PS5
         char file_path[512];
         int n = snprintf(file_path, sizeof(file_path), "%s/race-info-display.json", root);
-        int result = n < 0 || (size_t)n >= sizeof(file_path) ? -2 :
-                     length >= 65535 || memchr(body, 0, length) ? -1 :
-                     race_menu_replace(file_path, body);
-        response(fd, result == -2 ? 500 : result ? 400 : 200, "text/plain",
-                 result == -2 ? "Could not save race-info-display.json." :
-                 result ? "Invalid Race Info Display settings or HUD hide-list limit exceeded." :
-                 "Race Info Display settings saved.");
+        int result = n < 0 || (size_t)n >= sizeof(file_path) ? -2 : length >= 65535 || memchr(body, 0, length) ? -1
+                                                                                                               : race_menu_replace(file_path, body);
+        response(fd, result == -2 ? 500 : result ? 400
+                                                 : 200,
+                 "text/plain",
+                 result == -2 ? "Could not save race-info-display.json." : result ? "Invalid Race Info Display settings or HUD hide-list limit exceeded."
+                                                                                  : "Race Info Display settings saved.");
 #else
         response(fd, 409, "text/plain", "Saving Race Info Display settings requires the PS5 payload.");
 #endif
@@ -2482,7 +2449,7 @@ static void serve(int fd)
         config = next;
 #ifdef PS5
         if (had_live_settings && !live_settings_enabled())
-            gt7_live_configure((config.mask & WHEEL_OFFSET_CUSTOM_BIT) != 0);
+            gt7_live_configure(0);
 #endif
         message[0] = 0;
     }
