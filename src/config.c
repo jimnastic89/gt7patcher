@@ -144,13 +144,13 @@ int parse_config(const char *body, Config *c)
         c->mask &= ~LIVE_SETTINGS_BIT;
     return (seen == full || seen == ((1U << 12) - 1) || seen == ((1U << 11) - 1) || seen == ((1U << 10) - 1) || seen == ((1U << 9) - 1)) && valid_config(c) ? 0 : -1;
 }
-static void line(FILE *f, uint32_t a, const unsigned char *b, size_t n)
+/*static void line(FILE *f, uint32_t a, const unsigned char *b, size_t n)
 {
     fprintf(f, "<Line Type=\"bytes\" Address=\"0x%08x\" Value=\"", a);
     for (size_t i = 0; i < n; i++)
         fprintf(f, "%02x", b[i]);
     fputs("\"/>\n", f);
-}
+}*/
 static void store(unsigned char *b, uint32_t a, uint32_t target, uint32_t value)
 {
     b[0] = 0xc7;
@@ -302,7 +302,7 @@ int build_patch_plan(const Config *c, PatchPlan *plan)
     }
     return 0;
 }
-int emit_xml(FILE *f, const Config *c)
+/*int emit_xml(FILE *f, const Config *c)
 {
     PatchPlan plan;
     if (build_patch_plan(c, &plan))
@@ -346,7 +346,7 @@ int emit_xml(FILE *f, const Config *c)
     fprintf(f, "<!-- GT7CONFIG %u %d %d %d %d %d %d %d %d %d %d %d %d -->\n", c->mask, c->preset, c->units, c->language, c->speed, c->mass, c->power, c->torque, c->temperature, c->autostart, c->country, c->aspect, c->important_dismissed);
     fputs("</Patch>\n", f);
     return ferror(f) ? -1 : 0;
-}
+}*/
 static int save_config_unlocked(const char *root, const Config *c)
 {
     char path[512], temp[520];
