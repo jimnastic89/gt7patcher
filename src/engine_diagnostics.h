@@ -3,8 +3,6 @@
 
 #include <stdint.h>
 
-int gt7_live_wheel_clone(uintptr_t source, unsigned phase, uintptr_t *copy, unsigned *state);
-
 /* Optional live-memory inspection and instrumentation API. Release builds do
  * not include this header or compile the corresponding implementation. */
 int gt7_live_peek(uintptr_t address, void *buffer, uint32_t length);
