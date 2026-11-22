@@ -6,7 +6,7 @@
 
 GT7Patcher is a payload for applying patches to the PS5 version of Gran Turismo 7 at runtime without modifying the game files. It provides a web interface for selecting patches, and can be configured to apply saved patches automatically when the payload starts.
 
-Included patches as of version 0.40:
+Included patches as of version 0.41:
 
 - Offline mode
 - Power Pack and vehicle DLC unlock
@@ -35,8 +35,6 @@ Patches only work on a clean version of `PPSA01317` version `01.710.000`. It has
 6. Launch GT7.
 
 The payload and patch engine must be running before GT7 launches. The saved settings and home-screen shortcut persist across reboots, but the payload must be loaded again after each console reboot. Do not run another patch engine at the same time.
-
-Once the saved patches have been applied, the split wheel offset controls run entirely inside GT7 and remain active until the game exits, including after GT7Patcher stops. Live Settings is a separate option.
 
 ## Clean older game files
 
