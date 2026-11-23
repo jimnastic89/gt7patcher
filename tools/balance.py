@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""Build the Balance preset from data/world_circuits.json.
+
+Writes data/balance.json (built into the payload and the web page), data/event_names.json
+(event names for the Mods tab) and docs/balance.md (every change, before and after).
+
+World Circuits: 1st place pays at least CR_PER_MINUTE for each minute of a winning race, times
+1.5 for hard and 2 for very hard events (community difficulty, else the chili rating), rounded up
+to 1,000 Cr. Prizes are never lowered, so the big grind races keep theirs.
+Roulette: the 1 to 6 star tickets get the odds in ROULETTE; other tickets are unchanged. Values
+and rates follow the RouletteTicket slot order: Credit1-4, Car1-3 (car groups 1-3 = A/B/C),
+Parts1-3 (part groups 0-2), Invitation, Engine.
+Custom and arcade races: the pay rates in RATES (the game's are 0.6).
+
+Run from the repository root: python3 tools/balance.py
+"""
+import json
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+CR_PER_MINUTE = 10000
+DIFFICULTY = {"easy": 1.0, "fair": 1.0, "hard": 1.5, "very hard": 2.0}
+RATES = {"CustomRace": 1.5, "ArcadeSingle": 1.5}
+ROULETTE = {
+    1: ([10000, 20000, 50000, 100000, 1, 0, 0, 0, -1, -1, 0, 0], [40, 27, 19, 4, 5, 0, 0, 5, 0, 0, 0, 0]),
+    2: ([20000, 50000, 100000, 500000, 1, 0, 0, 0, -1, -1, 0, 0], [40, 30, 14, 1, 8, 0, 0, 7, 0, 0, 0, 0]),
+    3: ([50000, 100000, 200000, 500000, 1, 2, 0, 0, 1, -1, 0, 0], [35, 30, 10, 3, 8, 6, 0, 4, 4, 0, 0, 0]),
+    4: ([100000, 200000, 500000, 1000000, 1, 2, 3, -1, 1, 2, 1, 1], [25, 20, 8, 2, 6, 10, 4, 0, 8, 8, 6, 3]),
+    5: ([0, 200000, 500000, 1000000, 0, 2, 3, -1, -1, 2, 1, 1], [0, 30, 20, 5, 0, 15, 12, 0, 0, 8, 6, 4]),
+    6: ([0, 500000, 1000000, 2000000, 0, 0, 3, -1, -1, -1, 0, 0], [0, 30, 20, 10, 0, 0, 40, 0, 0, 0, 0, 0]),
+}
+# The game's own 1 to 6 star tickets in 01.710.000 (src/mods.c roulette_game), for docs/balance.md.
+GAME_TICKETS = {
+    1: ([2000, 5000, 10000, 100000, 1, 0, 0, 0, -1, -1, 0, 0], [40, 27, 19, 1, 3, 0, 0, 10, 0, 0, 0, 0]),
+    2: ([5000, 10000, 30000, 100000, 1, 0, 0, 0, -1, -1, 0, 0], [40, 35, 9, 1, 5, 0, 0, 10, 0, 0, 0, 0]),
+    3: ([5000, 10000, 100000, 500000, 1, 2, 0, 0, 1, -1, 0, 0], [40, 35, 4, 1, 7, 3, 0, 5, 5, 0, 0, 0]),
+    4: ([10000, 30000, 500000, 1000000, 1, 2, 3, -1, 1, 2, 1, 1], [28, 20, 4, 1, 8, 5, 1, 0, 10, 10, 10, 3]),
+    5: ([0, 100000, 500000, 1000000, 0, 2, 3, -1, -1, 2, 1, 1], [0, 36, 13, 1, 0, 20, 7, 0, 0, 10, 8, 5]),
+    6: ([0, 500000, 1000000, 0, 0, 0, 3, -1, -1, -1, 0, 0], [0, 40, 20, 0, 0, 0, 40, 0, 0, 0, 0, 0]),
+}
+
+
+def multiplier(e):
+    if e["difficulty"]:
+        return DIFFICULTY[e["difficulty"]]
+    chili = e["chili"] or 0
+    return 2.0 if chili >= 4 else 1.5 if chili >= 2 else 1.0
+
+
+def slot_valid(slot, value):
+    if slot < 4:
+        return 0 < value <= 100_000_000
+    if slot < 7:
+        return 1 <= value <= 3
+    if slot < 10:
+        return 0 <= value <= 2
+    return value == 1
+
+
+def slot_text(slot, value):
+    if slot < 4:
+        return f"{value:,} Cr"
+    if slot < 7:
+        return "Car " + "?ABC"[value]
+    if slot < 10:
+        return f"Parts group {value}"
+    return "Invitation" if slot == 10 else "Engine"
+
+
+def outcomes(values, rates):
+    return ", ".join(f"{slot_text(s, values[s])} {rates[s]}%" for s in range(12) if rates[s])
+
+
+def average_credits(values, rates):
+    return sum(values[s] * rates[s] for s in range(4)) / 100
+
+
+def main():
+    races = json.loads((ROOT / "data/world_circuits.json").read_text(encoding="utf-8"))["events"]
+    prizes, rows = {}, []
+    for gid, e in races.items():
+        game, minutes, k = e["prize"], e["minutes"], multiplier(e)
+        new = max(game, -(-int(CR_PER_MINUTE * minutes * k) // 1000) * 1000) if minutes else game
+        if new > game:
+            prizes[gid] = new
+        rows.append((e["name"], e["track"], minutes, k, game, new))
+    rows.sort(key=lambda r: (r[0], r[1]))
+    for t, (values, rates) in ROULETTE.items():
+        assert len(values) == len(rates) == 12 and sum(rates) == 100, t
+        assert all(slot_valid(s, values[s]) for s in range(12) if rates[s]), t
+
+    preset = {"version": 1, "rule": {"cr_per_minute": CR_PER_MINUTE, "difficulty": DIFFICULTY},
+              "rates": RATES, "events": prizes,
+              "roulette": {str(t): {"values": v, "rates": r} for t, (v, r) in ROULETTE.items()}}
+    (ROOT / "data/balance.json").write_bytes((json.dumps(preset, indent=1) + "\n").encode())
+
+    names = {}
+    for gid, e in races.items():
+        name = e["name"]
+        if e["same_track_and_prize"]:
+            name = " or ".join(sorted({o["name"] for o in races.values()
+                                       if (o["track"], o["prize"]) == (e["track"], e["prize"])}))
+        names[gid] = [name, e["track"], e["prize"]]
+    (ROOT / "data/event_names.json").write_bytes(
+        (json.dumps(names, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8"))
+
+    md = ["# Balance: every change", "",
+          "Generated by `tools/balance.py` from `data/world_circuits.json`.", "",
+          "## Custom and arcade races", "",
+          "| Mode | Game rate | Balance rate |", "|---|---|---|"]
+    md += [f"| {mode} | 0.6 | {rate} |" for mode, rate in RATES.items()]
+    md += ["", "## Roulette tickets", "", "| Ticket | Game | Balance | Average credits, game | Balance |", "|---|---|---|---|---|"]
+    for t in ROULETTE:
+        g, b = GAME_TICKETS[t], ROULETTE[t]
+        md.append(f"| {t} star | {outcomes(*g)} | {outcomes(*b)} | {average_credits(*g):,.0f} | {average_credits(*b):,.0f} |")
+    md += ["", "Other tickets (credit, car, parts, invitation, 6 star engine, parts and car tickets) are unchanged.", "",
+           "## World Circuits", "",
+           f"1st place pays at least {CR_PER_MINUTE:,} Cr per minute of racing, 1.5 times for hard and 2 times for very "
+           "hard events, rounded up to 1,000 Cr; no prize goes down. Other places keep their ratio to 1st. "
+           f"{len(prizes)} of {len(rows)} races pay more.", "",
+           "| Event | Track | Minutes | Difficulty | Game 1st | Balance 1st | Cr/min before | after |",
+           "|---|---|---|---|---|---|---|---|"]
+    for name, track, minutes, k, game, new in rows:
+        per = (lambda p: f"{p / minutes:,.0f}") if minutes else (lambda p: "")
+        md.append(f"| {name} | {track} | {minutes or ''} | x{k:g} | {game:,} | "
+                  f"{new:,}{'' if new > game else ' (same)'} | {per(game)} | {per(new)} |")
+    (ROOT / "docs/balance.md").write_bytes(("\n".join(md) + "\n").encode("utf-8"))
+    print(f"{len(prizes)} of {len(rows)} races raised; roulette tickets {sorted(ROULETTE)}")
+
+
+if __name__ == "__main__":
+    main()

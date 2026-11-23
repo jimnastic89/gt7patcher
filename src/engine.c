@@ -2697,6 +2697,62 @@ int gt7_live_peek(uintptr_t address, void *buffer, uint32_t length)
 }
 #endif
 
+int gt7_game_pid(int *pid, uintptr_t *base)
+{
+    pid_t p;
+    if (!pid || !base || credits_game(&p, base))
+        return -1;
+    *pid = (int)p;
+    return 0;
+}
+int gt7_game_read(int pid, uintptr_t address, void *data, size_t size)
+{
+    return (data && size && !read_mem((pid_t)pid, address, data, size)) ? 0 : -1;
+}
+int gt7_game_write(int pid, uintptr_t address, const void *data, size_t size)
+{
+    int p;
+    uintptr_t base;
+    if (!data || !size || gt7_game_pid(&p, &base) || p != pid)
+        return -1;
+    /* Data only: the executable image starts at the base and ends before the read-only data. */
+    if (address < base + GT7_CODE_SIZE && address + size > base)
+        return -2;
+    return verified_write((pid_t)pid, address, data, size) ? -1 : 0;
+}
+int gt7_game_patch_code(int pid, uintptr_t address, const void *expected, const void *replacement, size_t size)
+{
+    int p;
+    uintptr_t base;
+    unsigned char current[16];
+    if (!expected || !replacement || !size || size > sizeof(current) || gt7_game_pid(&p, &base) || p != pid)
+        return -1;
+    if (address < base || address + size > base + GT7_CODE_SIZE)
+        return -2;
+    if (read_mem((pid_t)pid, address, current, size))
+        return -1;
+    if (!memcmp(current, replacement, size))
+        return 0;
+    if (memcmp(current, expected, size))
+        return -3;
+    return verified_write((pid_t)pid, address, replacement, size) ? -1 : 0;
+}
+int gt7_game_make_executable(int pid, uintptr_t address, size_t size)
+{
+    int p;
+    uintptr_t base;
+    if (!size || gt7_game_pid(&p, &base) || p != pid)
+        return -1;
+    if (address < base + GT7_CODE_SIZE)
+        return -2;
+    uintptr_t start = address & ~(uintptr_t)0x3fff;
+    size_t length = ((address + size + 0x3fff) & ~(uintptr_t)0x3fff) - start;
+    if ((kernel_get_vmem_protection((pid_t)pid, start, length) & 7) == 7)
+        return 0;
+    if (kernel_mprotect((pid_t)pid, start, length, PROT_READ | PROT_WRITE | PROT_EXEC))
+        return -1;
+    return (kernel_get_vmem_protection((pid_t)pid, start, length) & 7) == 7 ? 0 : -1;
+}
 int gt7_live_ready(void)
 {
     pid_t pid;
@@ -4202,14 +4258,23 @@ static void mark_icon_installed(void)
         fclose(f);
     }
 }
+/* stat, not access: access reported the installed icon's param.json missing
+ * while the file was there (access checks the real uid, likely not raised for a
+ * payload), so starts reinstalled the icon; one reinstall hung in dlopen on
+ * 2026-11-23 and left the payload unkillable. */
+static int file_exists(const char *path)
+{
+    struct stat info;
+    return stat(path, &info) == 0;
+}
 int gt7_install_icon(void)
 {
     engine_log("Icon: checking installation");
     const char *marker = "/data/gt7p/gt7patcher-icon-installed";
     const char *metadata = "/user/app/GTPS00001/sce_sys/param.json";
-    if (access(marker, F_OK) == 0)
+    if (file_exists(marker))
     {
-        if (access(metadata, F_OK) == 0)
+        if (file_exists(metadata))
             return 0;
         engine_log("Icon: stale installation marker removed");
         unlink(marker);
@@ -4248,7 +4313,7 @@ int gt7_install_icon(void)
     /* Refresh the existing GTPS00001 registration once when adopting the new
      * GT7Patcher name and icon. The registration call does not replace cached
      * metadata for an already-installed title. */
-    if (access("/user/app/GTPS00001/sce_sys/param.json", F_OK) == 0 && uninstall)
+    if (file_exists("/user/app/GTPS00001/sce_sys/param.json") && uninstall)
     {
         int result = uninstall("GTPS00001");
         engine_log_result("Icon: previous registration removal result", result);

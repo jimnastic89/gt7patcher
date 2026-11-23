@@ -659,6 +659,7 @@
     <nav role="tablist" aria-label="Settings" style="margin-top:24px">
         <button id="patch-tab" role="tab" aria-controls="patches" aria-selected="true">Patches</button>
         <button id="game-tab" role="tab" aria-controls="game" aria-selected="false">Game Settings</button>
+        <button id="mods-tab" role="tab" aria-controls="mods" aria-selected="false">Mods</button>
         <button id="live-tab" role="tab" aria-controls="live" aria-selected="false" hidden>Live Settings</button>
         <button id="help-tab" role="tab" aria-controls="help" aria-selected="false">Help</button>
     </nav>
@@ -839,6 +840,67 @@
             <p id="race-status" class="detail" role="status"></p>
         </div>
     </section>
+    <section id="mods" role="tabpanel" aria-labelledby="mods-tab" hidden>
+        <div class="card">
+            <h2>Balance</h2>
+            <p class="detail">Fairer prizes and roulette tickets than the stock game, recommended and on by default. The cards below
+                list every value next to the game's; anything you change there replaces the recommended value. Changes reach a
+                running game within a few seconds, and World Circuits prizes show the next time you open an event.</p>
+            <div style="overflow-x:auto"><table class="clean-table"><thead><tr><th scope="col">What</th><th scope="col">Game</th><th scope="col">Balance (recommended)</th><th scope="col">Now</th></tr></thead><tbody>
+                <tr><td>World Circuits 1st prizes</td><td>Fixed per event, on average about 8,500 Cr per race minute; café races 3,000 to 5,000</td><td>At least <span id="balance-rate">10,000</span> Cr per race minute, 1.5 times that for hard and 2 times for very hard events: <span id="balance-events">232</span> of <span id="balance-total">272</span> races pay more, none pay less</td><td id="balance-now-events"></td></tr>
+                <tr><td>Roulette tickets, 1 to 6 star</td><td>The smallest prize 40% of the time; 1 to 3 star tickets pay 2,000 to 10,000 Cr three times in four</td><td>Smallest prizes 10,000 to 500,000 Cr, average credits about 23,000, 42,000, 83,000, 125,000, 210,000 and 550,000, more cars</td><td id="balance-now-roulette"></td></tr>
+                <tr><td>Custom and arcade race pay</td><td>Rate 0.6</td><td>Rate <span id="balance-custom">1.5</span></td><td id="balance-now-rates"></td></tr>
+            </tbody></table></div>
+            <div class="actions">
+                <button type="button" id="balance-all">Use recommended everywhere</button>
+                <button type="button" id="balance-none">Use the game's everywhere</button>
+            </div>
+            <p class="detail" id="balance-state"></p>
+        </div>
+        <div class="card">
+            <h2>Race payouts</h2>
+            <p class="detail">GT7 calculates the prize money of custom races (Sophy races included) and arcade races from a rate per
+                game mode. A higher rate raises every finishing position's prize for that mode; track, laps, grid and car class
+                still count as before.</p>
+            <div class="grid" id="mods-rates"></div>
+            <div class="actions">
+                <button type="button" id="rates-save">Save</button>
+                <button type="button" id="rates-recommended">Use recommended</button>
+                <button type="button" id="rates-game">Use the game's</button>
+            </div>
+            <p class="detail" id="mods-state"></p>
+        </div>
+        <div class="card">
+            <h2>World Circuits prizes</h2>
+            <p class="detail">The 1st place prize of every World Circuits race. The other finishing positions keep their ratio to
+                1st, rounded up to 100 Cr as the game does, and the clean race bonus follows. GT7 loads an event again each time
+                it is opened, so a change shows the next time you open the event. Events you changed come first, then the ones
+                GT7 opened last. Up to <span id="events-max">96</span> changes of your own.</p>
+            <div class="field"><label for="events-filter">Find an event (name, track or id)</label>
+                <input type="search" id="events-filter" class="text-input" autocomplete="off"></div>
+            <div style="overflow-x:auto"><table class="clean-table"><thead><tr><th scope="col">Event</th><th scope="col">Track</th><th scope="col">Game</th><th scope="col">Recommended</th><th scope="col">1st prize</th></tr></thead><tbody id="events-list"></tbody></table></div>
+            <div class="actions">
+                <button type="button" id="events-save">Save</button>
+                <button type="button" id="events-recommended">Use recommended</button>
+                <button type="button" id="events-game">Use the game's</button>
+                <button type="button" id="events-refresh">Refresh list</button>
+            </div>
+            <p class="detail" id="events-state"></p>
+        </div>
+        <div class="card">
+            <h2>Roulette tickets</h2>
+            <p class="detail">The odds GT7 uses for each roulette ticket; a ticket's chances must add up to 100%. Car groups: A cars
+                are worth about 30,000 to 100,000 Cr, B 120,000 to 450,000 Cr, C 500,000 Cr and more. The 6 star parts ticket
+                gives part group 2.</p>
+            <div id="roulette-tickets"></div>
+            <div class="actions">
+                <button type="button" id="roulette-save">Save</button>
+                <button type="button" id="roulette-recommended">Use recommended</button>
+                <button type="button" id="roulette-game">Use the game's</button>
+            </div>
+            <p class="detail" id="roulette-state"></p>
+        </div>
+    </section>
     <section id="help" role="tabpanel" aria-labelledby="help-tab" hidden>
         <div class="card" id="update-notes" hidden>
             <div class="card-title-row">
@@ -930,6 +992,7 @@
         </div>
     </div>
 </form>
+<!-- EVENT_NAMES -->
 <script>
     'use strict';
     const $ = id => document.getElementById(id), keys = ['preset', 'aspect', 'units', 'language', 'country', 'speed', 'mass', 'power', 'torque', 'temperature'];
@@ -1303,8 +1366,8 @@
     $('form').addEventListener('change', e => { if (e.target.id === 'credits' || e.target.id.startsWith('clean-')) return; if (e.target.dataset?.bit !== undefined) updateFeatureTile(e.target); if (e.target.id === 'patch-11') freeCameraTile(e.target.checked); if (e.target.id === 'patch-6') liveTab(e.target.checked); if (e.target.id === 'patch-2' && e.target.checked) { $('patch-0').checked = true; updateFeatureTile($('patch-0')) } if (e.target.id === 'patch-0' && !e.target.checked) { $('patch-2').checked = false; updateFeatureTile($('patch-2')) } if (e.target.id === 'units') units(); if (['speed', 'mass', 'power', 'torque', 'temperature', 'language'].includes(e.target.id)) $('preset').value = 0; mark() });
     const presets = { 1: { language: 2, speed: 0, mass: 0, power: 2, torque: 2, temperature: 1 }, 2: { language: 2, speed: 0, mass: 0, power: 1, torque: 2, temperature: 1 }, 3: { language: 1, speed: 1, mass: 1, power: 1, torque: 1, temperature: 2 }, 4: { language: 0, speed: 0, mass: 0, power: 0, torque: 0, temperature: 1 }, 5: { language: 2, speed: 1, mass: 0, power: 1, torque: 2, temperature: 1 } };
     $('preset').addEventListener('change', () => { const p = presets[$('preset').value]; if (p) { for (const [k, v] of Object.entries(p)) $(k).value = v; $('units').value = 1; units() } });
-    const tabs = [['patch-tab', 'patches'], ['game-tab', 'game'], ['live-tab', 'live'], ['help-tab', 'help']].filter(([id]) => $(id));
-    for (const [id, panel] of tabs) $(id).onclick = () => { activePanel = panel; for (const [t, p] of tabs) { $(t).setAttribute('aria-selected', String(t === id)); $(p).hidden = p !== panel } $('launch-guidance').hidden = panel === 'help' || panel === 'live'; $('controls').hidden = false; pageStatus(persistentMessage) };
+    const tabs = [['patch-tab', 'patches'], ['game-tab', 'game'], ['mods-tab', 'mods'], ['live-tab', 'live'], ['help-tab', 'help']].filter(([id]) => $(id));
+    for (const [id, panel] of tabs) $(id).onclick = () => { activePanel = panel; for (const [t, p] of tabs) { $(t).setAttribute('aria-selected', String(t === id)); $(p).hidden = p !== panel } $('launch-guidance').hidden = panel === 'help' || panel === 'live' || panel === 'mods'; if (panel === 'mods') modsLoad(); $('controls').hidden = false; pageStatus(persistentMessage) };
 
     let raceDraft, raceDragging, raceLoading = false, raceDirty = false, raceRequested = false, raceSaveTimer = 0, raceRefreshAfter = 0, raceEditing = false;
     const raceUrl = '/api/live/hud/config';
@@ -1522,6 +1585,227 @@
     read();
     setInterval(() => { if (!busy && !halted) read() }, 5000);
     setInterval(() => { if (token && raceDraft && !raceEditing && Date.now() >= raceRefreshAfter && !raceLoading && !raceDirty) raceFetch(false, true) }, 1000);
+
+    const MOD_LABELS = { CustomRace: 'Custom race (Sophy races included)', ArcadeSingle: 'Arcade single race', TimeAttack: 'Arcade time trial', DriftTrial: 'Arcade drift trial' };
+    /* id -> [name, track, game 1st prize], matched from the community event list (gt7re/event_ids.py). */
+    const EVENT_NAMES = JSON.parse($('event-names')?.textContent || '{}');
+    /* The Balance preset (data/balance.json): rates, events {id: 1st prize}, roulette {ticket: {values, rates}}. */
+    const BALANCE = JSON.parse($('balance')?.textContent || '{"rates":{},"events":{},"roulette":{}}');
+    const AREAS = ['rates', 'events', 'roulette'];
+    const AREA_STATUS = { rates: 'mods-state', events: 'events-state', roulette: 'roulette-state' };
+    let modsLast = null;
+    const fmt = n => n.toLocaleString();
+    const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+    /* Race payouts. */
+    const rateBaseline = r => modsLast.balance.rates && r.balance > 0 ? r.balance : r.game;
+    function ratesRender(d) {
+        const box = $('mods-rates'); box.textContent = '';
+        for (const r of d.rates) {
+            if (!MOD_LABELS[r.name]) continue;
+            const value = r.yours > 0 ? r.yours : rateBaseline(r);
+            const field = document.createElement('div'); field.className = 'field';
+            const label = document.createElement('label'); label.htmlFor = `mod-${r.name}`;
+            label.textContent = `${MOD_LABELS[r.name]} (game ${r.game}${r.balance > 0 ? `, recommended ${r.balance}` : ''}${r.current !== null && r.current !== value ? `, in the game now ${r.current}` : ''})`;
+            const input = document.createElement('input'); input.type = 'number'; input.id = `mod-${r.name}`; input.min = '0.1'; input.max = '10'; input.step = '0.1';
+            input.className = 'text-input'; input.dataset.mode = r.name; input.value = value;
+            field.append(label, input); box.append(field);
+        }
+        $('mods-state').textContent = d.state;
+    }
+    function ratesCollect() {
+        const out = {};
+        for (const input of document.querySelectorAll('#mods-rates input[data-mode]')) {
+            const r = modsLast.rates.find(x => x.name === input.dataset.mode), v = parseFloat(input.value);
+            if (v > 0 && v !== rateBaseline(r)) out[r.name] = v;
+        }
+        return out;
+    }
+
+    /* World Circuits prizes. */
+    const eventBaseline = id => (modsLast.balance.events && BALANCE.events[id]) || EVENT_NAMES[id]?.[2] || 0;
+    function eventsRender(ev) {
+        $('events-max').textContent = ev.max;
+        const recent = new Map();
+        for (const e of ev.recent) if (!recent.has(String(e.id))) recent.set(String(e.id), e);
+        const ids = new Set([...Object.keys(ev.yours), ...recent.keys(), ...Object.keys(EVENT_NAMES)]);
+        const rank = id => ev.yours[id] ? 0 : recent.has(id) ? 1 : 2;
+        const label = id => EVENT_NAMES[id]?.[0] ?? `Event ${id}`;
+        const trackOf = id => EVENT_NAMES[id]?.[1] ?? recent.get(id)?.course ?? '';
+        const order = [...ids].sort((a, b) => rank(a) - rank(b) || label(a).localeCompare(label(b)) || trackOf(a).localeCompare(trackOf(b)));
+        const list = $('events-list'); list.textContent = '';
+        for (const id of order) {
+            const seen = recent.get(id), gamePrize = EVENT_NAMES[id]?.[2] ?? seen?.original;
+            const tr = document.createElement('tr');
+            tr.dataset.search = `${label(id)} ${trackOf(id)} ${id}`.toLowerCase();
+            const name = document.createElement('td'); name.textContent = label(id);
+            const track = document.createElement('td'); track.textContent = trackOf(id);
+            const game = document.createElement('td');
+            if (gamePrize) game.textContent = `${fmt(gamePrize)} Cr`;
+            const fair = document.createElement('td');
+            fair.textContent = BALANCE.events[id] ? `${fmt(BALANCE.events[id])} Cr` : gamePrize ? 'same' : '';
+            const cell = document.createElement('td');
+            const input = document.createElement('input'); input.type = 'number'; input.min = '0'; input.step = '1000'; input.className = 'text-input';
+            const value = ev.yours[id] ?? eventBaseline(id);
+            input.dataset.event = id; input.value = value || '';
+            input.setAttribute('aria-label', `1st place prize for ${label(id)}, ${trackOf(id) || 'event ' + id}`);
+            cell.append(input); tr.append(name, track, game, fair, cell); list.append(tr);
+        }
+        eventsFilter();
+        $('events-state').textContent = `${ev.hook} Events loaded this session: ${ev.loads}, with changed prizes: ${ev.changed}.`;
+    }
+    function eventsFilter() {
+        const q = $('events-filter').value.trim().toLowerCase();
+        for (const tr of $('events-list').rows) tr.hidden = !!q && !tr.dataset.search.includes(q);
+    }
+    function eventsCollect() {
+        const out = {};
+        for (const input of document.querySelectorAll('#events-list input[data-event]')) {
+            const v = parseInt(input.value, 10);
+            if (v > 0 && v !== eventBaseline(input.dataset.event)) out[input.dataset.event] = v;
+        }
+        return out;
+    }
+
+    /* Roulette tickets. */
+    const TICKET_NAMES = ['1 star', '2 star', '3 star', '4 star', '5 star', '6 star', 'Credit', 'Car', 'Parts', 'Invitation', '6 star engine', '6 star parts', '6 star car'];
+    const SLOT_KINDS = ['Credits', 'Credits', 'Credits', 'Credits', 'Car', 'Car', 'Car', 'Parts', 'Parts', 'Parts', 'Invitation', 'Engine'];
+    const SLOT_CHOICES = { Car: [[1, 'Car group A'], [2, 'Car group B'], [3, 'Car group C']], Parts: [[0, 'Part group 0'], [1, 'Part group 1'], [2, 'Part group 2']] };
+    function slotText(s, value) {
+        const kind = SLOT_KINDS[s];
+        if (kind === 'Credits') return `${fmt(value)} Cr`;
+        return SLOT_CHOICES[kind]?.find(([v]) => v === value)?.[1] ?? kind;
+    }
+    /* What a ticket pays without the user's own change: Balance's odds when used, else the game's. */
+    function ticketBaseline(t) {
+        const fair = modsLast.balance.roulette && BALANCE.roulette[t.id];
+        if (!fair) return t.game;
+        return fair.values.flatMap((v, s) => [fair.rates[s] ? v : t.game[2 * s], fair.rates[s]]);
+    }
+    function rouletteRender(rl) {
+        const box = $('roulette-tickets'); box.textContent = '';
+        for (const t of rl.tickets) {
+            const now = t.yours ?? ticketBaseline(t), fair = BALANCE.roulette[t.id];
+            const details = document.createElement('details'); details.dataset.ticket = t.id;
+            const summary = document.createElement('summary');
+            const total = document.createElement('span');
+            summary.textContent = `${TICKET_NAMES[t.id - 1]} ticket${t.yours ? ' (your odds)' : ''} `;
+            summary.append(total);
+            const table = document.createElement('table'); table.className = 'clean-table';
+            table.innerHTML = '<thead><tr><th scope="col">Outcome</th><th scope="col">Game</th><th scope="col">Recommended</th><th scope="col">Pays</th><th scope="col">Chance %</th></tr></thead>';
+            const body = document.createElement('tbody');
+            const update = () => {
+                const sum = [...details.querySelectorAll('input[data-rate]')].reduce((a, i) => a + (parseInt(i.value, 10) || 0), 0);
+                total.textContent = `(total ${sum}%)`; total.className = sum === 100 ? '' : 'clean-missing';
+            };
+            for (let s = 0; s < 12; s++) {
+                const kind = SLOT_KINDS[s], gameRate = t.game[2 * s + 1];
+                const tr = document.createElement('tr');
+                const name = document.createElement('td'); name.textContent = kind;
+                const game = document.createElement('td'); game.textContent = gameRate ? `${slotText(s, t.game[2 * s])}, ${gameRate}%` : '';
+                const fairCell = document.createElement('td');
+                if (fair?.rates[s]) fairCell.textContent = `${slotText(s, fair.values[s])}, ${fair.rates[s]}%`;
+                const valueCell = document.createElement('td');
+                let value;
+                if (kind === 'Credits') {
+                    value = document.createElement('input'); value.type = 'number'; value.min = '0'; value.max = '100000000'; value.step = '1000';
+                    value.value = now[2 * s] > 0 ? now[2 * s] : '';
+                } else if (SLOT_CHOICES[kind]) {
+                    value = document.createElement('select');
+                    for (const [v, text] of SLOT_CHOICES[kind]) { const o = document.createElement('option'); o.value = v; o.textContent = text; value.append(o) }
+                    value.value = SLOT_CHOICES[kind].some(([v]) => v === now[2 * s]) ? now[2 * s] : SLOT_CHOICES[kind][0][0];
+                } else {
+                    value = document.createElement('input'); value.type = 'hidden'; value.value = '1';
+                    valueCell.textContent = kind === 'Engine' ? 'Engine swap' : 'Invitation';
+                }
+                value.dataset.value = s; value.className = value.type === 'hidden' ? '' : 'text-input';
+                value.setAttribute('aria-label', `${TICKET_NAMES[t.id - 1]} ticket, ${kind} ${s + 1}`);
+                valueCell.append(value);
+                const rateCell = document.createElement('td');
+                const rate = document.createElement('input'); rate.type = 'number'; rate.min = '0'; rate.max = '100'; rate.step = '1'; rate.className = 'text-input';
+                rate.value = now[2 * s + 1]; rate.dataset.rate = s; rate.oninput = update;
+                rate.setAttribute('aria-label', `${TICKET_NAMES[t.id - 1]} ticket, chance of ${kind} ${s + 1}`);
+                rateCell.append(rate);
+                tr.append(name, game, fairCell, valueCell, rateCell); body.append(tr);
+            }
+            table.append(body);
+            const wrap = document.createElement('div'); wrap.style.overflowX = 'auto'; wrap.append(table);
+            details.append(summary, wrap); box.append(details);
+            update();
+        }
+        $('roulette-state').textContent = rl.state;
+    }
+    /* Tickets whose fields differ from what they pay without the user's own change. */
+    function rouletteCollect() {
+        const tickets = {};
+        for (const details of document.querySelectorAll('#roulette-tickets details[data-ticket]')) {
+            const values = [], rates = [];
+            for (let s = 0; s < 12; s++) {
+                rates.push(parseInt(details.querySelector(`[data-rate="${s}"]`).value, 10) || 0);
+                values.push(parseInt(details.querySelector(`[data-value="${s}"]`).value, 10) || 0);
+            }
+            const base = ticketBaseline(modsLast.roulette.tickets[details.dataset.ticket - 1]);
+            if (!values.every((v, s) => rates[s] === base[2 * s + 1] && (!rates[s] || v === base[2 * s]))) tickets[details.dataset.ticket] = { values, rates };
+        }
+        return tickets;
+    }
+
+    /* Balance summary. */
+    function balanceRender(d) {
+        $('balance-rate').textContent = fmt(BALANCE.rule?.cr_per_minute ?? 10000);
+        $('balance-events').textContent = Object.keys(BALANCE.events).length;
+        $('balance-total').textContent = Object.keys(EVENT_NAMES).length;
+        $('balance-custom').textContent = BALANCE.rates?.CustomRace ?? 1.5;
+        const now = (on, own) => `${on ? 'Recommended' : "Game's"}${own ? `, ${plural(own, 'change')} of your own` : ''}`;
+        $('balance-now-events').textContent = now(d.balance.events, Object.keys(d.events.yours).length);
+        $('balance-now-roulette').textContent = now(d.balance.roulette, d.roulette.tickets.filter(t => t.yours).length);
+        $('balance-now-rates').textContent = now(d.balance.rates, d.rates.filter(r => r.yours > 0 && MOD_LABELS[r.name]).length);
+        $('balance-state').textContent = `World Circuits: ${d.events.hook} Roulette: ${d.roulette.state}`;
+    }
+    function modsRender(d) {
+        ratesRender(d);
+        eventsRender(d.events);
+        rouletteRender(d.roulette);
+        balanceRender(d);
+    }
+    async function modsLoad() {
+        try { const r = await fetch('/api/mods', { cache: 'no-store' }); if (!r.ok) throw Error(await r.text()); modsLast = await r.json(); modsRender(modsLast) } catch (e) { $('balance-state').textContent = e.message }
+    }
+    /* The user's own values of an area as saved. */
+    function savedOwn(area) {
+        if (area === 'rates') return Object.fromEntries(modsLast.rates.filter(r => r.yours > 0).map(r => [r.name, r.yours]));
+        if (area === 'events') return { ...modsLast.events.yours };
+        const out = {};
+        for (const t of modsLast.roulette.tickets)
+            if (t.yours) out[t.id] = { values: t.yours.filter((_, i) => i % 2 === 0), rates: t.yours.filter((_, i) => i % 2 === 1) };
+        return out;
+    }
+    const COLLECT = { rates: ratesCollect, events: eventsCollect, roulette: rouletteCollect };
+    /* mode 'save' keeps where the areas start (recommended or the game's) and saves their fields as the user's own values;
+       'recommended' and 'game' start them there and drop the user's own values. Other areas are sent as saved. */
+    async function modsSave(areas, mode, status) {
+        if (!modsLast) { $(status).textContent = 'Settings are not loaded yet; open the tab again.'; return }
+        const body = {};
+        for (const a of AREAS) {
+            const touched = areas.includes(a);
+            body[`balance_${a}`] = touched && mode !== 'save' ? mode === 'recommended' : modsLast.balance[a];
+            body[a] = !touched ? savedOwn(a) : mode === 'save' ? COLLECT[a]() : {};
+        }
+        try {
+            const r = await fetch('/api/mods', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-GT7-Token': token }, body: JSON.stringify(body) });
+            if (!r.ok) throw Error(await r.text());
+            modsLast = await r.json(); modsRender(modsLast);
+        } catch (e) { $(status).textContent = e.message }
+    }
+    $('events-filter').oninput = eventsFilter;
+    $('events-refresh').onclick = () => modsLoad();
+    $('balance-all').onclick = () => modsSave(AREAS, 'recommended', 'balance-state');
+    $('balance-none').onclick = () => modsSave(AREAS, 'game', 'balance-state');
+    for (const a of AREAS) {
+        $(`${a}-save`).onclick = () => modsSave([a], 'save', AREA_STATUS[a]);
+        $(`${a}-recommended`).onclick = () => modsSave([a], 'recommended', AREA_STATUS[a]);
+        $(`${a}-game`).onclick = () => modsSave([a], 'game', AREA_STATUS[a]);
+    }
 </script>
 
 <!-- CLEANER_SCRIPTS -->

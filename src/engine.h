@@ -1,7 +1,21 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #pragma once
+#include <stddef.h>
 #include <stdint.h>
 #include "live_bridge.h"
+/* Access to a running, supported GT7 (01.710.000), used by src/mods.c.
+ * gt7_game_write is data only: writes are read back and refused inside the
+ * executable image. */
+#define GT7_CODE_SIZE 0x3F10000u
+int gt7_game_pid(int *pid, uintptr_t *base);
+int gt7_game_read(int pid, uintptr_t address, void *data, size_t size);
+int gt7_game_write(int pid, uintptr_t address, const void *data, size_t size);
+/* Code hooks for src/mods.c. patch_code writes inside the executable image only
+ * when the current bytes equal `expected` (0 if they already equal the
+ * replacement, -3 on any other bytes). make_executable adds execute permission
+ * to pages outside the executable image and checks the result. */
+int gt7_game_patch_code(int pid, uintptr_t address, const void *expected, const void *replacement, size_t size);
+int gt7_game_make_executable(int pid, uintptr_t address, size_t size);
 #ifdef GT7_DIAGNOSTICS
 #include "engine_diagnostics.h"
 #endif
