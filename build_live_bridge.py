@@ -27,9 +27,12 @@ for name,required,limit in [('wheel_patch',['wheel_frame','wheel_runtime'],0x800
     obj=Path(f'build/{name}.o').read_bytes()
     obj_offset=struct.unpack_from('<Q',obj,40)[0]
     obj_stride,obj_count=struct.unpack_from('<HH',obj,58)
-    for i in range(obj_count):
-        section=struct.unpack_from('<IIQQQQIIQQ',obj,obj_offset+i*obj_stride)
+    sections=[struct.unpack_from('<IIQQQQIIQQ',obj,obj_offset+i*obj_stride) for i in range(obj_count)]
+    for section in sections:
         if section[1] not in (4,9) or not section[5]:
+            continue
+        # Relocations for sections that are never loaded (e.g. clang 22's .llvm_jump_table_sizes) do not matter.
+        if not sections[section[7]][2]&2:
             continue
         entry=24 if section[1]==4 else 16
         for j in range(section[5]//entry):
