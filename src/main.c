@@ -1072,7 +1072,7 @@ static int wait_for_gt7_launch(void)
     return 0;
 }
 #endif
-static int start_engine(void)
+static int start_engine_locked(void)
 {
     if (engine_ready())
         return 0;
@@ -1102,6 +1102,16 @@ static int start_engine(void)
     strcpy(message, "Host preview only: the console patch engine is unavailable here.");
     return -1;
 #endif
+}
+/* The web interface and the startup thread (waiting for GT7 to close) can both
+ * start the engine. */
+static int start_engine(void)
+{
+    static pthread_mutex_t starting = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_lock(&starting);
+    int r = start_engine_locked();
+    pthread_mutex_unlock(&starting);
+    return r;
 }
 static int make_dirs(const char *path)
 {
@@ -1165,20 +1175,30 @@ static void *startup(void *unused)
         strcpy(message, "GT7Patcher is running on port 7210. Home-screen installation failed; details are in /data/gt7p/startup.log. You can still start the engine here.");
         notify("GT7Patcher: shortcut installation failed. Open console port 7210.");
     }
-    if (config.autostart)
+    int game = config.autostart ? running_gt7() : 0;
+    if (config.autostart && game < 0)
     {
-        int game = running_gt7();
-        if (game)
-        {
-            strcpy(message, game > 0 ? "Automatic start skipped: close GT7, then start the engine." : "Automatic start skipped: could not check whether GT7 is closed.");
-            notify("GT7Patcher: automatic start skipped. Close GT7 and start the engine from the web interface.");
-        }
-        else
-            start_engine();
+        strcpy(message, "Automatic start skipped: could not check whether GT7 is closed.");
+        notify("GT7Patcher: automatic start skipped. Close GT7 and start the engine from the web interface.");
     }
+    else if (config.autostart && game > 0)
+    {
+        strcpy(message, "GT7 is running without this engine. The engine starts as soon as GT7 is closed.");
+        notify("GT7Patcher: the engine starts when you close GT7. Close it before playing on.");
+    }
+    else if (config.autostart)
+        start_engine();
     else if (!icon)
         notify("GT7Patcher: open the home-screen shortcut or console port 7210.");
     atomic_store(&startup_pending, 0);
+    /* Patches go in only at launch, so a GT7 started while the engine is down
+     * would run unpatched (no Offline Mode, so no offline save). */
+    while (config.autostart && game > 0 && !engine_ready())
+    {
+        usleep(500000);
+        if (!(game = running_gt7()))
+            start_engine();
+    }
     return NULL;
 }
 #endif

@@ -4202,14 +4202,23 @@ static void mark_icon_installed(void)
         fclose(f);
     }
 }
+/* stat, not access: access reported the installed icon's param.json missing
+ * while the file was there (access checks the real uid, likely not raised for a
+ * payload), so starts reinstalled the icon; one reinstall hung in dlopen on
+ * 2026-11-23 and left the payload unkillable. */
+static int file_exists(const char *path)
+{
+    struct stat info;
+    return stat(path, &info) == 0;
+}
 int gt7_install_icon(void)
 {
     engine_log("Icon: checking installation");
     const char *marker = "/data/gt7p/gt7patcher-icon-installed";
     const char *metadata = "/user/app/GTPS00001/sce_sys/param.json";
-    if (access(marker, F_OK) == 0)
+    if (file_exists(marker))
     {
-        if (access(metadata, F_OK) == 0)
+        if (file_exists(metadata))
             return 0;
         engine_log("Icon: stale installation marker removed");
         unlink(marker);
@@ -4248,7 +4257,7 @@ int gt7_install_icon(void)
     /* Refresh the existing GTPS00001 registration once when adopting the new
      * GT7Patcher name and icon. The registration call does not replace cached
      * metadata for an already-installed title. */
-    if (access("/user/app/GTPS00001/sce_sys/param.json", F_OK) == 0 && uninstall)
+    if (file_exists("/user/app/GTPS00001/sce_sys/param.json") && uninstall)
     {
         int result = uninstall("GTPS00001");
         engine_log_result("Icon: previous registration removal result", result);
