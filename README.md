@@ -19,6 +19,7 @@ Included patches as of version 0.41:
 - Silence short music jingles (race start, race finish, car purchase)
 - Sync game clock to PS5 system clock
 - File cleaner to remove old offline patches from game files
+- Balance: fairer World Circuits prizes, roulette ticket odds and custom race pay, on by default (Mods tab)
 
 
 Configuration is via the web interface on port `7210`, which can be access via a shortcut installed to the PS5's Media tab, or from any device on the same LAN.
@@ -35,6 +36,21 @@ Patches only work on a clean version of `PPSA01317` version `01.710.000`. It has
 6. Launch GT7.
 
 The payload and patch engine must be running before GT7 launches. The saved settings and home-screen shortcut persist across reboots, but the payload must be loaded again after each console reboot. Do not run another patch engine at the same time.
+
+## Balance
+
+The **Mods** tab changes GT7's economy in the running game, so careers progress at a fair pace without the credit
+editor. Balance is the recommended set and is on by default:
+
+- World Circuits: 1st place pays at least 10,000 Cr per minute of racing, 1.5 times that for hard and 2 times for very
+  hard events. No prize goes down; 232 of the 272 races pay more. Other places keep their ratio to 1st.
+- Roulette tickets, 1 to 6 star: the smallest prize less often, larger amounts, more cars.
+- Custom and arcade races: pay rate 1.5 instead of 0.6.
+
+Every value is listed in the Mods tab next to the game's and can be changed per event, per ticket or per mode, or set
+back to the game's. Payout rates and roulette odds reach a running game within a few seconds; World Circuits prizes
+apply the next time an event is opened. `docs/balance.md` lists every change; `python3 tools/balance.py` rebuilds
+the preset from `data/world_circuits.json`.
 
 ## Clean older game files
 

@@ -23,6 +23,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include "engine.h"
+#include "mods.h"
 #include "notify.h"
 
 typedef struct
@@ -1133,6 +1134,7 @@ static int initialize(void)
 {
     if (make_dirs(root) || initialize_config(root, &config))
         return -1;
+    mods_start(root);
 #ifdef PS5
     /* Remove only the payload's obsolete files after validating config.json. */
     const char *legacy_dirs[] = {"/data/gt7p/patches", "/data/gt7p/patches/xml_prospero"};
@@ -1356,6 +1358,12 @@ static void serve(int fd)
             response(fd, 200, "text/html; charset=utf-8", page_html());
         else if (!strcmp(path, "/api/status"))
             json_status(fd);
+        else if (!strcmp(path, "/api/mods"))
+        {
+            static char reply[32768];
+            int n = mods_status_json(reply, sizeof(reply));
+            response(fd, n > 0 ? 200 : 500, n > 0 ? "application/json" : "text/plain", n > 0 ? reply : "Could not read modifier state.");
+        }
         else if (!strncmp(path, "/api/update-notify", 18) && (!path[18] || path[18] == '?'))
         {
 #ifdef PS5
@@ -1910,9 +1918,9 @@ static void serve(int fd)
     }
     body[length] = 0;
 #ifdef GT7_DIAGNOSTICS
-    if (strncmp(path, "/api/live/probe", 15) && strncmp(path, "/api/live/menu-call", 19) && strncmp(path, "/api/live/snapshot", 18) && strcmp(path, "/api/live/snapshot/clear") && strcmp(path, "/api/config") && strcmp(path, "/api/live/credit-input") && strcmp(path, "/api/live/wheel-width") && strcmp(path, "/api/live/wheel-geometry") && strcmp(path, "/api/live/engine-swap") && strcmp(path, "/api/live/rev-limit") && strcmp(path, "/api/live/free-camera") && strcmp(path, "/api/live/hud/config") && strcmp(path, "/api/live/hud/visibility") && strcmp(path, "/api/start") && strcmp(path, "/api/game/start") && strcmp(path, "/api/shortcut/reinstall") && strcmp(path, "/api/engine/stop") && strcmp(path, "/api/payload/stop"))
+    if (strncmp(path, "/api/live/probe", 15) && strncmp(path, "/api/live/menu-call", 19) && strncmp(path, "/api/live/snapshot", 18) && strcmp(path, "/api/live/snapshot/clear") && strcmp(path, "/api/config") && strcmp(path, "/api/live/credit-input") && strcmp(path, "/api/live/wheel-width") && strcmp(path, "/api/live/wheel-geometry") && strcmp(path, "/api/live/engine-swap") && strcmp(path, "/api/live/rev-limit") && strcmp(path, "/api/live/free-camera") && strcmp(path, "/api/live/hud/config") && strcmp(path, "/api/live/hud/visibility") && strcmp(path, "/api/start") && strcmp(path, "/api/game/start") && strcmp(path, "/api/shortcut/reinstall") && strcmp(path, "/api/engine/stop") && strcmp(path, "/api/payload/stop") && strcmp(path, "/api/mods"))
 #else
-    if (strcmp(path, "/api/config") && strcmp(path, "/api/live/credit-input") && strcmp(path, "/api/live/wheel-width") && strcmp(path, "/api/live/wheel-geometry") && strcmp(path, "/api/live/engine-swap") && strcmp(path, "/api/live/rev-limit") && strcmp(path, "/api/live/free-camera") && strcmp(path, "/api/live/hud/config") && strcmp(path, "/api/live/hud/visibility") && strcmp(path, "/api/start") && strcmp(path, "/api/game/start") && strcmp(path, "/api/shortcut/reinstall") && strcmp(path, "/api/engine/stop") && strcmp(path, "/api/payload/stop"))
+    if (strcmp(path, "/api/config") && strcmp(path, "/api/live/credit-input") && strcmp(path, "/api/live/wheel-width") && strcmp(path, "/api/live/wheel-geometry") && strcmp(path, "/api/live/engine-swap") && strcmp(path, "/api/live/rev-limit") && strcmp(path, "/api/live/free-camera") && strcmp(path, "/api/live/hud/config") && strcmp(path, "/api/live/hud/visibility") && strcmp(path, "/api/start") && strcmp(path, "/api/game/start") && strcmp(path, "/api/shortcut/reinstall") && strcmp(path, "/api/engine/stop") && strcmp(path, "/api/payload/stop") && strcmp(path, "/api/mods"))
 #endif
     {
         response(fd, 404, "text/plain", "Not found");
@@ -2330,6 +2338,19 @@ static void serve(int fd)
         response(fd, 409, "text/plain", "Free-camera editing is only available while supported GT7 is running on PS5.");
         return;
 #endif
+    }
+    if (!strcmp(path, "/api/mods"))
+    {
+        int r = mods_save(body);
+        if (r)
+        {
+            response(fd, r == -1 ? 400 : 500, "text/plain", r == -1 ? "Invalid modifier settings." : "Could not save mods.json.");
+            return;
+        }
+        static char reply[32768];
+        int n = mods_status_json(reply, sizeof(reply));
+        response(fd, n > 0 ? 200 : 500, n > 0 ? "application/json" : "text/plain", n > 0 ? reply : "Saved; could not read modifier state.");
+        return;
     }
     if (!strcmp(path, "/api/payload/stop"))
     {

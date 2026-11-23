@@ -9,10 +9,12 @@ PATCH_OBJECTS = build/offline_mode.o build/debug_settings.o build/quick_store_ro
 all: build/gt7patcher.elf
 build/%.o: patches/%.S
 	$(CC) -c -nostdlib $< -o $@
-build/assets.h: generate.py web/index.html web/cleaner.js web/cleaner-worker.js data/cleaner.json patches/manifest.json assets/icon0.png $(PATCH_OBJECTS)
+build/assets.h: generate.py web/index.html web/cleaner.js web/cleaner-worker.js data/cleaner.json data/event_names.json data/balance.json patches/manifest.json assets/icon0.png $(PATCH_OBJECTS)
 	python3 generate.py
 build/race_menu_groups.h: generate.py web/index.html
 	python3 generate.py --race-menu
+build/balance.h: generate.py data/balance.json
+	python3 generate.py --balance
 build/hook.o: src/hook.c
 	$(CC) -c -Os -fPIC -ffreestanding -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tables -fvisibility=hidden $< -o $@
 build/hook.elf: build/hook.o src/hook.ld
@@ -45,15 +47,23 @@ build/wheel_patch.bin: build/wheel_patch.elf
 	$(OBJCOPY) -O binary --only-section=.blob $< $@
 build/live_blob.h: build/wheel_patch.bin build/wheel_patch.elf build/live_boot.bin build/live_bridge.bin build/live_boot.elf build/live_bridge.elf build_live_bridge.py src/live_trace.c
 	python3 build_live_bridge.py $(NM)
-build/gt7patcher.elf: src/main.c src/config.c src/config.h src/engine.c src/wheel_patch.h src/engine.h src/engine_diagnostics.h src/live_bridge.h src/hud_tree.h build/assets.h build/race_menu_groups.h build/hook_blob.h build/live_blob.h build/notify.o
-	$(CC) $(CFLAGS) $(DEVELOPMENT_CFLAGS) -DPS5 src/main.c src/config.c src/engine.c build/notify.o -lSceSystemService -lSceUserService -o $@
-host: build/assets.h
-	gcc $(CFLAGS) -D_DEFAULT_SOURCE src/main.c src/config.c -o build/gt7patcher-host
-build/gt7patcher-live-test.elf: src/main.c src/config.c src/engine.c src/engine_diagnostics.h src/live_bridge.h build/assets.h build/race_menu_groups.h build/hook_blob.h build/live_blob.h build/notify.o
-	$(CC) $(CFLAGS) $(DEVELOPMENT_CFLAGS) -Wno-unused-function -DPS5 -DGT7_LIVE_TEST -DPORT=7212 src/main.c src/config.c src/engine.c build/notify.o -lSceSystemService -lSceUserService -o $@
+build/event_hook.o: src/event_hook.S src/event_hook.h
+	$(CC) -c -Isrc $< -o $@
+build/event_hook.elf: build/event_hook.o src/event_hook.ld
+	$(LD) --static -T src/event_hook.ld $< -o $@
+build/event_hook.bin: build/event_hook.elf
+	$(OBJCOPY) -O binary --only-section=.blob $< $@
+build/event_hook_blob.h: build/event_hook.bin build/event_hook.elf build_event_hook.py src/event_hook.h
+	python3 build_event_hook.py $(NM)
+build/gt7patcher.elf: src/main.c src/config.c src/config.h src/engine.c src/wheel_patch.h src/mods.c src/mods.h src/event_hook.h src/engine.h src/engine_diagnostics.h src/live_bridge.h src/hud_tree.h build/assets.h build/race_menu_groups.h build/hook_blob.h build/live_blob.h build/event_hook_blob.h build/balance.h build/notify.o
+	$(CC) $(CFLAGS) $(DEVELOPMENT_CFLAGS) -DPS5 src/main.c src/config.c src/engine.c src/mods.c build/notify.o -lSceSystemService -lSceUserService -o $@
+host: build/assets.h build/balance.h
+	gcc $(CFLAGS) -D_DEFAULT_SOURCE src/main.c src/config.c src/mods.c -lpthread -o build/gt7patcher-host
+build/gt7patcher-live-test.elf: src/main.c src/config.c src/engine.c src/engine_diagnostics.h src/live_bridge.h build/assets.h build/race_menu_groups.h build/hook_blob.h build/live_blob.h build/event_hook_blob.h build/balance.h build/notify.o
+	$(CC) $(CFLAGS) $(DEVELOPMENT_CFLAGS) -Wno-unused-function -DPS5 -DGT7_LIVE_TEST -DPORT=7212 src/main.c src/config.c src/engine.c src/mods.c build/notify.o -lSceSystemService -lSceUserService -o $@
 .PHONY: all host release diagnostic
 
-release: build/assets.h build/race_menu_groups.h build/hook_blob.h build/live_blob.h build/notify.o
-	$(CC) $(CFLAGS) -DPS5 src/main.c src/config.c src/engine.c build/notify.o -lSceSystemService -lSceUserService -o build/gt7patcher.elf
+release: build/assets.h build/race_menu_groups.h build/hook_blob.h build/live_blob.h build/event_hook_blob.h build/balance.h build/notify.o
+	$(CC) $(CFLAGS) -DPS5 src/main.c src/config.c src/engine.c src/mods.c build/notify.o -lSceSystemService -lSceUserService -o build/gt7patcher.elf
 
 diagnostic: all

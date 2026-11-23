@@ -1,0 +1,2725 @@
+{
+ "about": "Gran Turismo 7 01.710.000 World Circuits single races. Ids, course labels and 1st prizes were recorded from the game's event loader while opening every World Circuits location; names, tracks, race minutes (gtplus.app estimates for a winning race) and difficulty (community reports, else the chili rating) come from the community event lists at gtplus.app and the Gran Turismo fandom wiki. same_track_and_prize: another race shares track and prize, so its name may be swapped with that race's.",
+ "events": {
+  "1001103": {
+   "name": "World Touring Car 900",
+   "track": "Autopolis International Racing Course",
+   "course": "autopolis_international",
+   "prize": 150000,
+   "minutes": 16.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001104": {
+   "name": "World Touring Car 900",
+   "track": "Nürburgring - Grand Prix",
+   "course": "nurburgring_GP",
+   "prize": 135000,
+   "minutes": 19.4,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001105": {
+   "name": "World Touring Car 900",
+   "track": "Suzuka Circuit",
+   "course": "suzuka",
+   "prize": 170000,
+   "minutes": 19.4,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001109": {
+   "name": "X2019 Nations Cup",
+   "track": "Autódromo de Interlagos",
+   "course": "interlagos_GP",
+   "prize": 150000,
+   "minutes": 15.8,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001110": {
+   "name": "X2019 Nations Cup",
+   "track": "Sardegna - Road Track - Layout A",
+   "course": "sardegna_road_A",
+   "prize": 175000,
+   "minutes": 18.8,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001111": {
+   "name": "X2019 Nations Cup",
+   "track": "Dragon Trail - Seaside",
+   "course": "permanent_01",
+   "prize": 190000,
+   "minutes": 19,
+   "difficulty": "very hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001263": {
+   "name": "Sunday Cup",
+   "track": "Northern Isle Speedway",
+   "course": "oval_03",
+   "prize": 5000,
+   "minutes": 1.7,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001264": {
+   "name": "Sunday Cup",
+   "track": "Autodrome Lago Maggiore - Centre",
+   "course": "permanent_02_short",
+   "prize": 5000,
+   "minutes": 1.6,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": true
+  },
+  "1001265": {
+   "name": "Sunday Cup",
+   "track": "Broad Bean Raceway",
+   "course": "oval_01",
+   "prize": 5000,
+   "minutes": 1,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001266": {
+   "name": "Sunday Cup Classic",
+   "track": "Autodrome Lago Maggiore - Centre",
+   "course": "permanent_02_short",
+   "prize": 5000,
+   "minutes": 1.8,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": true
+  },
+  "1001267": {
+   "name": "Sunday Cup Classic",
+   "track": "Goodwood Motor Circuit",
+   "course": "goodwood_circuit",
+   "prize": 5000,
+   "minutes": 3.1,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001268": {
+   "name": "Sunday Cup Classic",
+   "track": "Brands Hatch - Indy Circuit",
+   "course": "brandshatch_indy",
+   "prize": 5000,
+   "minutes": 1.8,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001269": {
+   "name": "Japanese FF Challenge 450",
+   "track": "Tsukuba Circuit",
+   "course": "tsukuba",
+   "prize": 7000,
+   "minutes": 2.2,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001270": {
+   "name": "Japanese FF Challenge 450",
+   "track": "Suzuka Circuit - East Course",
+   "course": "suzuka_east",
+   "prize": 7000,
+   "minutes": 3.0,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001271": {
+   "name": "Japanese FF Challenge 450",
+   "track": "High Speed Ring",
+   "course": "highspeedring",
+   "prize": 7000,
+   "minutes": 3.1,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001272": {
+   "name": "European Sunday Cup 400",
+   "track": "Brands Hatch - Indy Circuit",
+   "course": "brandshatch_indy",
+   "prize": 7000,
+   "minutes": 2.6,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001273": {
+   "name": "European Sunday Cup 400",
+   "track": "Alsace - Test Course (Reverse)",
+   "course": "r_eifel_01_short",
+   "prize": 7000,
+   "minutes": 3.0,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001274": {
+   "name": "European Sunday Cup 400",
+   "track": "Sardegna - Road Track - Layout B",
+   "course": "sardegna_road_B",
+   "prize": 7000,
+   "minutes": 3.4,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001276": {
+   "name": "Japanese FR Challenge 450",
+   "track": "Tsukuba Circuit",
+   "course": "tsukuba",
+   "prize": 10000,
+   "minutes": 3.5,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001277": {
+   "name": "Japanese FR Challenge 450",
+   "track": "Tokyo Expressway - Central Clockwise",
+   "course": "tokyo_expwy_01",
+   "prize": 10000,
+   "minutes": 3.9,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001280": {
+   "name": "Japanese FR Challenge 450",
+   "track": "High Speed Ring (Reverse)",
+   "course": "r_highspeedring",
+   "prize": 10000,
+   "minutes": 3.2,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001284": {
+   "name": "Ferrari Circuit Challenge",
+   "track": "Circuit de Barcelona-Catalunya - Grand Prix Layout",
+   "course": "catalunya_GP",
+   "prize": 95000,
+   "minutes": 9.0,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001285": {
+   "name": "Ferrari Circuit Challenge",
+   "track": "Dragon Trail - Seaside",
+   "course": "permanent_01",
+   "prize": 90000,
+   "minutes": 8.8,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001286": {
+   "name": "Ferrari Circuit Challenge",
+   "track": "Autodrome Lago Maggiore",
+   "course": "permanent_02",
+   "prize": 105000,
+   "minutes": 11,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": true
+  },
+  "1001287": {
+   "name": "World Rally Challenge",
+   "track": "Fishermans Ranch",
+   "course": "wilderness_01",
+   "prize": 65000,
+   "minutes": 6.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001288": {
+   "name": "World Rally Challenge",
+   "track": "Sardegna - Windmills",
+   "course": "wilderness_02_Layout02",
+   "prize": 65000,
+   "minutes": 7.1,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001289": {
+   "name": "World Rally Challenge",
+   "track": "Alsace - Village",
+   "course": "eifel_01",
+   "prize": 60000,
+   "minutes": 6.1,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001293": {
+   "name": "Nissan GT-R Cup",
+   "track": "Dragon Trail - Gardens",
+   "course": "dragontrail_02",
+   "prize": 50000,
+   "minutes": 8.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001294": {
+   "name": "Nissan GT-R Cup",
+   "track": "Tokyo Expressway - East Clockwise",
+   "course": "tokyo_expwy_02",
+   "prize": 80000,
+   "minutes": 8.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001295": {
+   "name": "Nissan GT-R Cup",
+   "track": "Deep Forest Raceway",
+   "course": "deepforest",
+   "prize": 68000,
+   "minutes": 7.7,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001296": {
+   "name": "Schwarzwald League",
+   "track": "Circuit de Sainte-Croix - Layout B",
+   "course": "sainte_croix_B",
+   "prize": 80000,
+   "minutes": 9.0,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001297": {
+   "name": "Schwarzwald League",
+   "track": "Nürburgring - Nordschleife",
+   "course": "nurburgring_nord",
+   "prize": 64000,
+   "minutes": 7.3,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001298": {
+   "name": "Schwarzwald League",
+   "track": "Circuit de Barcelona-Catalunya - Grand Prix Layout",
+   "course": "catalunya_GP",
+   "prize": 88000,
+   "minutes": 12.7,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001302": {
+   "name": "Race of Turbo Sportscars",
+   "track": "Autódromo de Interlagos",
+   "course": "interlagos_GP",
+   "prize": 63000,
+   "minutes": 8.9,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001303": {
+   "name": "Race of Turbo Sportscars",
+   "track": "Suzuka Circuit",
+   "course": "suzuka",
+   "prize": 70000,
+   "minutes": 11.3,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001304": {
+   "name": "Race of Turbo Sportscars",
+   "track": "Circuit de Sainte-Croix - Layout B",
+   "course": "sainte_croix_B",
+   "prize": 70000,
+   "minutes": 9.0,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001305": {
+   "name": "Porsche Cup",
+   "track": "Nürburgring - Nordschleife",
+   "course": "nurburgring_nord",
+   "prize": 52500,
+   "minutes": 7.5,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001306": {
+   "name": "Porsche Cup",
+   "track": "Circuit de Spa-Francorchamps",
+   "course": "spa",
+   "prize": 87500,
+   "minutes": 14.8,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001307": {
+   "name": "Porsche Cup",
+   "track": "Autodrome Lago Maggiore",
+   "course": "permanent_02",
+   "prize": 70000,
+   "minutes": 11.0,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001308": {
+   "name": "American Clubman Cup 700",
+   "track": "Special Stage Route X",
+   "course": "routex_oval",
+   "prize": 15000,
+   "minutes": 4.1,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001309": {
+   "name": "American Clubman Cup 700",
+   "track": "WeatherTech Raceway Laguna Seca",
+   "course": "laguna",
+   "prize": 30000,
+   "minutes": 7.8,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001310": {
+   "name": "European Sunday Cup 500",
+   "track": "Deep Forest Raceway",
+   "course": "deepforest",
+   "prize": 10000,
+   "minutes": 4.2,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001311": {
+   "name": "European Sunday Cup 500",
+   "track": "Sardegna - Road Track - Layout B",
+   "course": "sardegna_road_B",
+   "prize": 10000,
+   "minutes": 3.5,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001312": {
+   "name": "European Sunday Cup 500",
+   "track": "Brands Hatch - Grand Prix Circuit",
+   "course": "brandshatch",
+   "prize": 10000,
+   "minutes": 3,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001313": {
+   "name": "American Clubman Cup 700",
+   "track": "Daytona International Speedway - Road Course",
+   "course": "daytona_roadcourse",
+   "prize": 30000,
+   "minutes": 6.5,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001314": {
+   "name": "American FR Challenge 550",
+   "track": "Blue Moon Bay Speedway",
+   "course": "oval_02",
+   "prize": 10000,
+   "minutes": 2.8,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001315": {
+   "name": "American FR Challenge 550",
+   "track": "WeatherTech Raceway Laguna Seca",
+   "course": "laguna",
+   "prize": 10000,
+   "minutes": 3.4,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001316": {
+   "name": "American FR Challenge 550",
+   "track": "Willow Springs International Raceway - Big Willow",
+   "course": "wls_big_willow",
+   "prize": 10000,
+   "minutes": 2.9,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001317": {
+   "name": "American Sunday Cup 600",
+   "track": "Willow Springs International Raceway - Big Willow",
+   "course": "wls_big_willow",
+   "prize": 15000,
+   "minutes": 3.9,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001318": {
+   "name": "American Sunday Cup 600",
+   "track": "Daytona International Speedway - Tri-Oval",
+   "course": "daytona_tri_oval",
+   "prize": 15000,
+   "minutes": 2.3,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001319": {
+   "name": "American Sunday Cup 600",
+   "track": "Blue Moon Bay Speedway - Infield A",
+   "course": "oval_02_infield_A",
+   "prize": 15000,
+   "minutes": 4.0,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001320": {
+   "name": "Japanese Clubman Cup 550",
+   "track": "Tokyo Expressway - South Counterclockwise",
+   "course": "tokyo_expwy_03_inner",
+   "prize": 20000,
+   "minutes": 6.9,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001321": {
+   "name": "Pickup Truck Race",
+   "track": "Willow Springs International Raceway - Big Willow",
+   "course": "wls_big_willow",
+   "prize": 30000,
+   "minutes": 5.1,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001322": {
+   "name": "Japanese Clubman Cup 550",
+   "track": "Fuji International Speedway",
+   "course": "fuji",
+   "prize": 20000,
+   "minutes": null,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001323": {
+   "name": "Japanese Clubman Cup 550",
+   "track": "Autopolis International Racing Course",
+   "course": "autopolis_international",
+   "prize": 20000,
+   "minutes": 6.5,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001324": {
+   "name": "Pickup Truck Race",
+   "track": "Daytona International Speedway - Tri-Oval",
+   "course": "daytona_tri_oval",
+   "prize": 30000,
+   "minutes": 7.1,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001325": {
+   "name": "Japanese 4WD Challenge 600",
+   "track": "Trial Mountain Circuit",
+   "course": "trialmountain",
+   "prize": 20000,
+   "minutes": 4.2,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001326": {
+   "name": "Pickup Truck Race",
+   "track": "Colorado Springs - Lake",
+   "course": "wilderness_03_Layout01",
+   "prize": 30000,
+   "minutes": 5.0,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001327": {
+   "name": "Japanese 4WD Challenge 600",
+   "track": "Mount Panorama Circuit",
+   "course": "mount_panorama",
+   "prize": 20000,
+   "minutes": 5,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001330": {
+   "name": "Japanese 4WD Challenge 600",
+   "track": "Kyoto Driving Park - Yamagiwa",
+   "course": "drivingPark_01",
+   "prize": 20000,
+   "minutes": 3.8,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001332": {
+   "name": "European Clubman Cup 600",
+   "track": "Brands Hatch - Grand Prix Circuit",
+   "course": "brandshatch",
+   "prize": 25000,
+   "minutes": 4.9,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001333": {
+   "name": "European Clubman Cup 600",
+   "track": "Sardegna - Road Track - Layout A",
+   "course": "sardegna_road_A",
+   "prize": 25000,
+   "minutes": 6.3,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001334": {
+   "name": "European Clubman Cup 600",
+   "track": "Alsace - Village",
+   "course": "eifel_01",
+   "prize": 25000,
+   "minutes": 6.2,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001335": {
+   "name": "European FR Challenge 550",
+   "track": "Red Bull Ring",
+   "course": "redbullring",
+   "prize": 25000,
+   "minutes": 5.0,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001336": {
+   "name": "European FR Challenge 550",
+   "track": "Dragon Trail - Gardens",
+   "course": "dragontrail_02",
+   "prize": 25000,
+   "minutes": 5.7,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001337": {
+   "name": "European FR Challenge 550",
+   "track": "Nürburgring - Grand Prix",
+   "course": "nurburgring_GP",
+   "prize": 25000,
+   "minutes": 4.9,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001714": {
+   "name": "World Touring Car 800",
+   "track": "Suzuka Circuit",
+   "course": "suzuka",
+   "prize": 168000,
+   "minutes": 20.2,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001715": {
+   "name": "World Touring Car 800",
+   "track": "Fuji International Speedway",
+   "course": "fuji",
+   "prize": 140000,
+   "minutes": 18.5,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001716": {
+   "name": "World Touring Car 800",
+   "track": "Circuit de Barcelona-Catalunya - Grand Prix Layout",
+   "course": "catalunya_GP",
+   "prize": 154000,
+   "minutes": 16.6,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001718": {
+   "name": "World Rally Challenge Gr.B",
+   "track": "Tokyo Expressway - Central Clockwise",
+   "course": "tokyo_expwy_01",
+   "prize": 65000,
+   "minutes": 16.6,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001719": {
+   "name": "World Rally Challenge Gr.B",
+   "track": "Willow Springs International Raceway - Big Willow",
+   "course": "wls_big_willow",
+   "prize": 65000,
+   "minutes": 14.1,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001720": {
+   "name": "World Rally Challenge Gr.B",
+   "track": "Trial Mountain Circuit",
+   "course": "trialmountain",
+   "prize": 65000,
+   "minutes": 20.0,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001721": {
+   "name": "World Touring Car 700",
+   "track": "Autopolis International Racing Course",
+   "course": "autopolis_international",
+   "prize": 130000,
+   "minutes": 18,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001722": {
+   "name": "World Touring Car 700",
+   "track": "Deep Forest Raceway",
+   "course": "deepforest",
+   "prize": 110000,
+   "minutes": 16.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001723": {
+   "name": "World Touring Car 700",
+   "track": "Red Bull Ring",
+   "course": "redbullring",
+   "prize": 115000,
+   "minutes": 16.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001724": {
+   "name": "World Touring Car 800",
+   "track": "Daytona International Speedway - Road Course",
+   "course": "daytona_roadcourse",
+   "prize": 154000,
+   "minutes": 16.7,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001725": {
+   "name": "World Touring Car 800",
+   "track": "Autodrome Lago Maggiore",
+   "course": "permanent_02",
+   "prize": 168000,
+   "minutes": 19.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001726": {
+   "name": "World Touring Car 800",
+   "track": "Dragon Trail - Seaside (Reverse)",
+   "course": "r_permanent_01",
+   "prize": 140000,
+   "minutes": 18.6,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001727": {
+   "name": "World Touring Car 700",
+   "track": "Brands Hatch - Grand Prix Circuit",
+   "course": "brandshatch",
+   "prize": 110000,
+   "minutes": 16.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001728": {
+   "name": "World Touring Car 700",
+   "track": "WeatherTech Raceway Laguna Seca",
+   "course": "laguna",
+   "prize": 110000,
+   "minutes": 16,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001729": {
+   "name": "World Touring Car 700",
+   "track": "Dragon Trail - Gardens (Reverse)",
+   "course": "r_dragontrail_02",
+   "prize": 115000,
+   "minutes": 16.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001749": {
+   "name": "World Touring Car 600",
+   "track": "Tokyo Expressway - South Counterclockwise",
+   "course": "tokyo_expwy_03_inner",
+   "prize": 80000,
+   "minutes": 11.4,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001750": {
+   "name": "World Touring Car 600",
+   "track": "Nürburgring - Grand Prix",
+   "course": "nurburgring_GP",
+   "prize": 80000,
+   "minutes": 11.1,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001751": {
+   "name": "World Touring Car 600",
+   "track": "Circuit de Spa-Francorchamps",
+   "course": "spa",
+   "prize": 80000,
+   "minutes": 10.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001776": {
+   "name": "GT Cup Gr.3",
+   "track": "Autodrome Lago Maggiore",
+   "course": "permanent_02",
+   "prize": 105000,
+   "minutes": 10.3,
+   "difficulty": "hard",
+   "chili": 2,
+   "same_track_and_prize": true
+  },
+  "1001777": {
+   "name": "GT Cup Gr.3",
+   "track": "Suzuka Circuit",
+   "course": "suzuka",
+   "prize": 110000,
+   "minutes": 11.0,
+   "difficulty": "hard",
+   "chili": 2,
+   "same_track_and_prize": false
+  },
+  "1001778": {
+   "name": "GT Cup Gr.3",
+   "track": "Circuit de Spa-Francorchamps",
+   "course": "spa",
+   "prize": 125000,
+   "minutes": 12.5,
+   "difficulty": "hard",
+   "chili": 3,
+   "same_track_and_prize": false
+  },
+  "1001779": {
+   "name": "GT Cup Gr.4",
+   "track": "Brands Hatch - Grand Prix Circuit",
+   "course": "brandshatch",
+   "prize": 81000,
+   "minutes": 7.0,
+   "difficulty": "hard",
+   "chili": 2,
+   "same_track_and_prize": false
+  },
+  "1001780": {
+   "name": "GT Cup Gr.4",
+   "track": "High Speed Ring",
+   "course": "highspeedring",
+   "prize": 42000,
+   "minutes": 6.8,
+   "difficulty": "fair",
+   "chili": 1,
+   "same_track_and_prize": false
+  },
+  "1001781": {
+   "name": "Dirt Champions",
+   "track": "Colorado Springs - Lake",
+   "course": "wilderness_03_Layout01",
+   "prize": 56000,
+   "minutes": 4.2,
+   "difficulty": "hard",
+   "chili": 2,
+   "same_track_and_prize": false
+  },
+  "1001782": {
+   "name": "Clubman Cup Plus",
+   "track": "Goodwood Motor Circuit",
+   "course": "goodwood_circuit",
+   "prize": 30000,
+   "minutes": 3.2,
+   "difficulty": "very hard",
+   "chili": 4,
+   "same_track_and_prize": false
+  },
+  "1001783": {
+   "name": "Clubman Cup Plus",
+   "track": "High Speed Ring",
+   "course": "highspeedring",
+   "prize": 37500,
+   "minutes": 4.4,
+   "difficulty": "hard",
+   "chili": 1,
+   "same_track_and_prize": false
+  },
+  "1001784": {
+   "name": "Clubman Cup Plus",
+   "track": "Tsukuba Circuit",
+   "course": "tsukuba",
+   "prize": 50000,
+   "minutes": 4.7,
+   "difficulty": "very hard",
+   "chili": 4,
+   "same_track_and_prize": false
+  },
+  "1001785": {
+   "name": "Dirt Champions",
+   "track": "Sardegna - Windmills",
+   "course": "wilderness_02_Layout02",
+   "prize": 52000,
+   "minutes": 4.1,
+   "difficulty": "fair",
+   "chili": 1,
+   "same_track_and_prize": false
+  },
+  "1001786": {
+   "name": "Dirt Champions",
+   "track": "Fishermans Ranch",
+   "course": "wilderness_01",
+   "prize": 42000,
+   "minutes": 3.4,
+   "difficulty": "hard",
+   "chili": 3,
+   "same_track_and_prize": false
+  },
+  "1001787": {
+   "name": "Clubman Cup Plus",
+   "track": "Tokyo Expressway - Central Clockwise",
+   "course": "tokyo_expwy_01",
+   "prize": 70000,
+   "minutes": 9.1,
+   "difficulty": "hard",
+   "chili": 3,
+   "same_track_and_prize": false
+  },
+  "1001788": {
+   "name": "GT Cup Gr.3",
+   "track": "Daytona International Speedway - Road Course",
+   "course": "daytona_roadcourse",
+   "prize": 200000,
+   "minutes": 18.5,
+   "difficulty": "very hard",
+   "chili": 4,
+   "same_track_and_prize": false
+  },
+  "1001939": {
+   "name": "World Touring Car 800",
+   "track": "Autodromo Nazionale Monza",
+   "course": "monza",
+   "prize": 147000,
+   "minutes": 19,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1001951": {
+   "name": "World Touring Car 800",
+   "track": "Circuit de la Sarthe",
+   "course": "sarthe",
+   "prize": 161000,
+   "minutes": 22.1,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1002404": {
+   "name": "World Touring Car 800",
+   "track": "Sardegna - Road Track - Layout A",
+   "course": "sardegna_road_A",
+   "prize": 485000,
+   "minutes": 26.2,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1002415": {
+   "name": "World Touring Car 700",
+   "track": "Circuit de la Sarthe",
+   "course": "sarthe",
+   "prize": 550000,
+   "minutes": 30,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1002563": {
+   "name": "World Touring Car 600",
+   "track": "Tokyo Expressway - East Clockwise",
+   "course": "tokyo_expwy_02",
+   "prize": 550000,
+   "minutes": 27,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1002616": {
+   "name": "World Touring Car 800",
+   "track": "Circuit de Spa-Francorchamps - 24h Layout",
+   "course": "spa_24h",
+   "prize": 1000000,
+   "minutes": 60,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1002617": {
+   "name": "European Sunday Cup 500",
+   "track": "Circuit de Spa-Francorchamps - 24h Layout",
+   "course": "spa_24h",
+   "prize": 20000,
+   "minutes": 6.1,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1002618": {
+   "name": "Japanese Clubman Cup 550",
+   "track": "Circuit de Spa-Francorchamps - 24h Layout",
+   "course": "spa_24h",
+   "prize": 30000,
+   "minutes": 8.7,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1002916": {
+   "name": "Gr.1 Prototype Series",
+   "track": "Suzuka Circuit",
+   "course": "suzuka",
+   "prize": 175000,
+   "minutes": 19.4,
+   "difficulty": "very hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1002918": {
+   "name": "Vision Gran Turismo Trophy",
+   "track": "Kyoto Driving Park - Yamagiwa",
+   "course": "drivingPark_01",
+   "prize": 90000,
+   "minutes": 11.0,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1002919": {
+   "name": "Lightweight K-Cup",
+   "track": "Tokyo Expressway - South Clockwise",
+   "course": "tokyo_expwy_03",
+   "prize": 32000,
+   "minutes": 7.2,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1002920": {
+   "name": "Lightweight K-Cup",
+   "track": "Autodrome Lago Maggiore - East End (Reverse)",
+   "course": "r_permanent_02_east_short",
+   "prize": 35000,
+   "minutes": 7.0,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1002921": {
+   "name": "Lightweight K-Cup",
+   "track": "Willow Springs International Raceway - Streets of Willow Springs",
+   "course": "wls_streets",
+   "prize": 30000,
+   "minutes": 7.4,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1002926": {
+   "name": "Vision Gran Turismo Trophy",
+   "track": "Deep Forest Raceway (Reverse)",
+   "course": "r_deepforest",
+   "prize": 81000,
+   "minutes": 11.2,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1002927": {
+   "name": "Vision Gran Turismo Trophy",
+   "track": "Autódromo de Interlagos",
+   "course": "interlagos_GP",
+   "prize": 88000,
+   "minutes": 10.3,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1002928": {
+   "name": "Gr.1 Prototype Series",
+   "track": "Circuit de Sainte-Croix - Layout C",
+   "course": "sainte_croix_C",
+   "prize": 210000,
+   "minutes": 25.1,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1002929": {
+   "name": "Gr.1 Prototype Series",
+   "track": "Daytona International Speedway - Road Course",
+   "course": "daytona_roadcourse",
+   "prize": 115000,
+   "minutes": 16.4,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003179": {
+   "name": "American FR Challenge 550",
+   "track": "Watkins Glen International - Short Course",
+   "course": "watkins_glen_short",
+   "prize": 32000,
+   "minutes": 4.2,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003180": {
+   "name": "American Clubman Cup 700",
+   "track": "Watkins Glen International - Long Course",
+   "course": "watkins_glen_long",
+   "prize": 70000,
+   "minutes": 9.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": true
+  },
+  "1003181": {
+   "name": "World Touring Car 800",
+   "track": "Watkins Glen International - Long Course",
+   "course": "watkins_glen_long",
+   "prize": 200000,
+   "minutes": 17.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003465": {
+   "name": "Neo-Classic Competition",
+   "track": "Fuji International Speedway",
+   "course": "fuji",
+   "prize": 168000,
+   "minutes": 15.2,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003479": {
+   "name": "Hypercar Parade",
+   "track": "Kyoto Driving Park - Yamagiwa + Miyabi",
+   "course": "drivingPark_04",
+   "prize": 100000,
+   "minutes": 9.4,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003480": {
+   "name": "Hypercar Parade",
+   "track": "Circuit de la Sarthe",
+   "course": "sarthe",
+   "prize": 115000,
+   "minutes": 12.2,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003481": {
+   "name": "Hypercar Parade",
+   "track": "Trial Mountain Circuit",
+   "course": "trialmountain",
+   "prize": 100000,
+   "minutes": 10.2,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003483": {
+   "name": "Neo-Classic Competition",
+   "track": "Red Bull Ring",
+   "course": "redbullring",
+   "prize": 154000,
+   "minutes": 15.2,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003484": {
+   "name": "Neo-Classic Competition",
+   "track": "Willow Springs International Raceway - Big Willow",
+   "course": "wls_big_willow",
+   "prize": 121000,
+   "minutes": 12.2,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003550": {
+   "name": "Porsche Cup",
+   "track": "Circuit de Barcelona-Catalunya - Grand Prix Layout No Chicane",
+   "course": "catalunya_GP_nochicane",
+   "prize": 81000,
+   "minutes": 9.0,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003551": {
+   "name": "European Sunday Cup 500",
+   "track": "Circuit de Barcelona-Catalunya - National Layout",
+   "course": "catalunya_national",
+   "prize": 25000,
+   "minutes": 2.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003552": {
+   "name": "World Rally Challenge Gr.B",
+   "track": "Circuit de Barcelona-Catalunya - Rallycross Layout",
+   "course": "catalunya_rallycross",
+   "prize": 65000,
+   "minutes": 6.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003553": {
+   "name": "World Touring Car 600",
+   "track": "Circuit de Barcelona-Catalunya - Rallycross Layout",
+   "course": "catalunya_rallycross",
+   "prize": 45000,
+   "minutes": 4.9,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003905": {
+   "name": "Japanese FR Challenge 450",
+   "track": "Autopolis International Racing Course",
+   "course": "autopolis_international",
+   "prize": 23000,
+   "minutes": 4.6,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003906": {
+   "name": "American Clubman Cup 700",
+   "track": "Trial Mountain Circuit",
+   "course": "trialmountain",
+   "prize": 90000,
+   "minutes": 9.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003907": {
+   "name": "The Silvia Sisters",
+   "track": "Willow Springs International Raceway - Streets of Willow Springs",
+   "course": "wls_streets",
+   "prize": 35000,
+   "minutes": 4.2,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003908": {
+   "name": "The Silvia Sisters",
+   "track": "Deep Forest Raceway (Reverse)",
+   "course": "r_deepforest",
+   "prize": 45000,
+   "minutes": 5.1,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003909": {
+   "name": "The Silvia Sisters",
+   "track": "Tsukuba Circuit",
+   "course": "tsukuba",
+   "prize": 27000,
+   "minutes": 3,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003910": {
+   "name": "World Touring Car 800",
+   "track": "Tokyo Expressway - East Clockwise",
+   "course": "tokyo_expwy_02",
+   "prize": 200000,
+   "minutes": 21.1,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003994": {
+   "name": "Historic Sports Car Masters",
+   "track": "Goodwood Motor Circuit",
+   "course": "goodwood_circuit",
+   "prize": 55000,
+   "minutes": 7.2,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1003999": {
+   "name": "Historic Sports Car Masters",
+   "track": "Nürburgring - Nordschleife",
+   "course": "nurburgring_nord",
+   "prize": 60000,
+   "minutes": 9.0,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1004000": {
+   "name": "Historic Sports Car Masters",
+   "track": "Circuit de Spa-Francorchamps",
+   "course": "spa",
+   "prize": 55000,
+   "minutes": 8.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1004001": {
+   "name": "Gr.1 Prototype Series",
+   "track": "Fuji International Speedway",
+   "course": "fuji",
+   "prize": 175000,
+   "minutes": 15.5,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1004011": {
+   "name": "The Silvia Sisters",
+   "track": "Tokyo Expressway - South Clockwise",
+   "course": "tokyo_expwy_03",
+   "prize": 45000,
+   "minutes": 7.0,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1004049": {
+   "name": "American FR Challenge 550",
+   "track": "Michelin Raceway Road Atlanta",
+   "course": "road_atlanta",
+   "prize": 37000,
+   "minutes": 5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1004050": {
+   "name": "European FR Challenge 550",
+   "track": "Brands Hatch - Grand Prix Circuit",
+   "course": "brandshatch",
+   "prize": 40000,
+   "minutes": 4.9,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1004051": {
+   "name": "Race of Turbo Sportscars",
+   "track": "Michelin Raceway Road Atlanta",
+   "course": "road_atlanta",
+   "prize": 63000,
+   "minutes": 7.2,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1004052": {
+   "name": "Historic Sports Car Masters",
+   "track": "Willow Springs International Raceway - Big Willow",
+   "course": "wls_big_willow",
+   "prize": 70000,
+   "minutes": 7.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1004053": {
+   "name": "Gr.1 Prototype Series",
+   "track": "Michelin Raceway Road Atlanta",
+   "course": "road_atlanta",
+   "prize": 320000,
+   "minutes": 30,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1004295": {
+   "name": "European Clubman Cup 600",
+   "track": "Nürburgring - Nordschleife",
+   "course": "nurburgring_nord",
+   "prize": 125000,
+   "minutes": 17.7,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1004296": {
+   "name": "American Clubman Cup 700",
+   "track": "Mount Panorama Circuit",
+   "course": "mount_panorama",
+   "prize": 94000,
+   "minutes": 11,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1004297": {
+   "name": "Clubman Cup Plus",
+   "track": "Autodromo Nazionale Monza",
+   "course": "monza",
+   "prize": 85000,
+   "minutes": 9.1,
+   "difficulty": "hard",
+   "chili": 3,
+   "same_track_and_prize": true
+  },
+  "1004678": {
+   "name": "Gr.1 Prototype Series",
+   "track": "Grand Valley - Highway 1",
+   "course": "grandvalley",
+   "prize": 160000,
+   "minutes": 15.9,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1004679": {
+   "name": "Historic Sports Car Masters",
+   "track": "Grand Valley - South (Reverse)",
+   "course": "r_grandvalley_east",
+   "prize": 55000,
+   "minutes": 6.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1004680": {
+   "name": "World Touring Car 600",
+   "track": "Grand Valley - Highway 1",
+   "course": "grandvalley",
+   "prize": 92000,
+   "minutes": 10.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1004681": {
+   "name": "American Sunday Cup 600",
+   "track": "Grand Valley - Highway 1 (Reverse)",
+   "course": "r_grandvalley",
+   "prize": 45000,
+   "minutes": 6.3,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1004682": {
+   "name": "Japanese Clubman Cup 550",
+   "track": "Grand Valley - South",
+   "course": "grandvalley_east",
+   "prize": 55000,
+   "minutes": 5.3,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1004687": {
+   "name": "Sunday Cup Classic",
+   "track": "WeatherTech Raceway Laguna Seca",
+   "course": "laguna",
+   "prize": 15000,
+   "minutes": 3,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1005091": {
+   "name": "Japanese 4WD Challenge 600",
+   "track": "Nürburgring - Sprint",
+   "course": "nurburgring_sprint",
+   "prize": 40000,
+   "minutes": 4.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1005092": {
+   "name": "Japanese 4WD Challenge 600",
+   "track": "Tokyo Expressway - East Clockwise",
+   "course": "tokyo_expwy_02",
+   "prize": 37000,
+   "minutes": 4.7,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1005093": {
+   "name": "World Touring Car 800",
+   "track": "Nürburgring - Endurance",
+   "course": "nurburgring_endurance",
+   "prize": 200000,
+   "minutes": 24,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1005094": {
+   "name": "Porsche Cup",
+   "track": "Kyoto Driving Park - Yamagiwa",
+   "course": "drivingPark_01",
+   "prize": 70000,
+   "minutes": 9,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1005424": {
+   "name": "Hypercar Parade",
+   "track": "Autódromo de Interlagos",
+   "course": "interlagos_GP",
+   "prize": 95000,
+   "minutes": 11,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1005425": {
+   "name": "Super Formula",
+   "track": "Fuji International Speedway",
+   "course": "fuji",
+   "prize": 200000,
+   "minutes": 22.2,
+   "difficulty": "very hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1005426": {
+   "name": "Super Formula",
+   "track": "Watkins Glen International - Long Course",
+   "course": "watkins_glen_long",
+   "prize": 160000,
+   "minutes": 17.2,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1005427": {
+   "name": "Super Formula",
+   "track": "Circuit de Sainte-Croix - Layout B",
+   "course": "sainte_croix_B",
+   "prize": 160000,
+   "minutes": 16.4,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1005681": {
+   "name": "Super Formula",
+   "track": "Autopolis International Racing Course",
+   "course": "autopolis_international",
+   "prize": 200000,
+   "minutes": 23.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1005682": {
+   "name": "Super Formula",
+   "track": "Michelin Raceway Road Atlanta",
+   "course": "road_atlanta",
+   "prize": 160000,
+   "minutes": 17.1,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1005683": {
+   "name": "Nissan GT-R Cup",
+   "track": "Blue Moon Bay Speedway - Infield A (Reverse)",
+   "course": "r_oval_02_infield_A",
+   "prize": 70000,
+   "minutes": 7,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1005684": {
+   "name": "American Clubman Cup 700",
+   "track": "High Speed Ring (Reverse)",
+   "course": "r_highspeedring",
+   "prize": 65000,
+   "minutes": 6,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": true
+  },
+  "1005685": {
+   "name": "Sunday Cup Classic",
+   "track": "Autodromo Nazionale Monza",
+   "course": "monza",
+   "prize": 30000,
+   "minutes": 3.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1005974": {
+   "name": "Japanese 4WD Challenge 600",
+   "track": "Red Bull Ring",
+   "course": "redbullring",
+   "prize": 45000,
+   "minutes": 4.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1005975": {
+   "name": "Japanese 4WD Challenge 600",
+   "track": "Fishermans Ranch",
+   "course": "wilderness_01",
+   "prize": 30000,
+   "minutes": 3.3,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1005976": {
+   "name": "Hypercar Parade",
+   "track": "Circuit de Sainte-Croix - Layout C",
+   "course": "sainte_croix_C",
+   "prize": 90000,
+   "minutes": 10.6,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1005977": {
+   "name": "World Touring Car 800",
+   "track": "Autopolis International Racing Course",
+   "course": "autopolis_international",
+   "prize": 160000,
+   "minutes": 17.6,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1006710": {
+   "name": "World Touring Car 800",
+   "track": "High Speed Ring",
+   "course": "highspeedring",
+   "prize": 160000,
+   "minutes": 22.3,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1006711": {
+   "name": "Hypercar Parade",
+   "track": "Dragon Trail - Gardens",
+   "course": "dragontrail_02",
+   "prize": 95000,
+   "minutes": 8.8,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1006712": {
+   "name": "Hypercar Parade",
+   "track": "Red Bull Ring",
+   "course": "redbullring",
+   "prize": 90000,
+   "minutes": 8.7,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1006713": {
+   "name": "American Sunday Cup 600",
+   "track": "Michelin Raceway Road Atlanta",
+   "course": "road_atlanta",
+   "prize": 40000,
+   "minutes": 4.9,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1007057": {
+   "name": "Race of Turbo Sportscars",
+   "track": "Grand Valley - Highway 1 (Reverse)",
+   "course": "r_grandvalley",
+   "prize": 90000,
+   "minutes": 9.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1007058": {
+   "name": "Race of Turbo Sportscars",
+   "track": "Dragon Trail - Seaside",
+   "course": "permanent_01",
+   "prize": 85000,
+   "minutes": 10,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1007059": {
+   "name": "World Touring Car 700",
+   "track": "Mount Panorama Circuit",
+   "course": "mount_panorama",
+   "prize": 165000,
+   "minutes": 16.4,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1007460": {
+   "name": "Pickup Truck Race",
+   "track": "Lake Louise - Tri-Oval (Reverse)",
+   "course": "r_snow_track_tri_oval",
+   "prize": 50000,
+   "minutes": 6.0,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1007506": {
+   "name": "Japanese 4WD Challenge 600",
+   "track": "Lake Louise - Short Track",
+   "course": "snow_track_short",
+   "prize": 38000,
+   "minutes": 4.3,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1007574": {
+   "name": "World Touring Car 900",
+   "track": "Trial Mountain Circuit",
+   "course": "trialmountain",
+   "prize": 160000,
+   "minutes": 18.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1007575": {
+   "name": "X2019 Nations Cup",
+   "track": "Trial Mountain Circuit",
+   "course": "trialmountain",
+   "prize": 200000,
+   "minutes": 20.0,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1007576": {
+   "name": "X2019 Nations Cup",
+   "track": "Autodrome Lago Maggiore",
+   "course": "permanent_02",
+   "prize": 200000,
+   "minutes": 22.1,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1007577": {
+   "name": "World Rally Challenge Gr.B",
+   "track": "Lake Louise - Long Track",
+   "course": "snow_track_long",
+   "prize": 85000,
+   "minutes": 7.2,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1007581": {
+   "name": "GT Cup Gr.3",
+   "track": "Mount Panorama Circuit",
+   "course": "mount_panorama",
+   "prize": 200000,
+   "minutes": 22.4,
+   "difficulty": "very hard",
+   "chili": 4,
+   "same_track_and_prize": true
+  },
+  "1007582": {
+   "name": "Ferrari Circuit Challenge",
+   "track": "Deep Forest Raceway",
+   "course": "deepforest",
+   "prize": 90000,
+   "minutes": 10.9,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": true
+  },
+  "1007583": {
+   "name": "GT Cup Gr.3",
+   "track": "Daytona International Speedway - Tri-Oval",
+   "course": "daytona_tri_oval",
+   "prize": 56000,
+   "minutes": 7.4,
+   "difficulty": "very hard",
+   "chili": 5,
+   "same_track_and_prize": false
+  },
+  "1007584": {
+   "name": "GT Cup Gr.3",
+   "track": "Red Bull Ring",
+   "course": "redbullring",
+   "prize": 125000,
+   "minutes": 10.3,
+   "difficulty": "very hard",
+   "chili": 5,
+   "same_track_and_prize": false
+  },
+  "1007585": {
+   "name": "Clubman Cup Plus",
+   "track": "Special Stage Route X",
+   "course": "routex_oval",
+   "prize": 35000,
+   "minutes": 6.6,
+   "difficulty": "hard",
+   "chili": 2,
+   "same_track_and_prize": false
+  },
+  "1007586": {
+   "name": "Hypercar Parade",
+   "track": "Autodromo Nazionale Monza",
+   "course": "monza",
+   "prize": 85000,
+   "minutes": 8.7,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": true
+  },
+  "1007587": {
+   "name": "Clubman Cup Plus",
+   "track": "Watkins Glen International - Long Course",
+   "course": "watkins_glen_long",
+   "prize": 70000,
+   "minutes": 7.7,
+   "difficulty": "very hard",
+   "chili": 4,
+   "same_track_and_prize": true
+  },
+  "1007588": {
+   "name": "Clubman Cup Plus",
+   "track": "Fuji International Speedway",
+   "course": "fuji",
+   "prize": 75000,
+   "minutes": 8.9,
+   "difficulty": "very hard",
+   "chili": 5,
+   "same_track_and_prize": false
+  },
+  "1008179": {
+   "name": "Jimny Cup",
+   "track": "Lake Louise - Short Track (Reverse)",
+   "course": "r_snow_track_short",
+   "prize": 35000,
+   "minutes": 3.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1008180": {
+   "name": "Jimny Cup",
+   "track": "Sardegna - Windmills (Reverse)",
+   "course": "r_wilderness_02_Layout02",
+   "prize": 30000,
+   "minutes": 3.4,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1008181": {
+   "name": "Jimny Cup",
+   "track": "Willow Springs International Raceway - Horse Thief Mile",
+   "course": "wls_horse_thief_mile",
+   "prize": 40000,
+   "minutes": 4.3,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1008184": {
+   "name": "Vision Gran Turismo Trophy",
+   "track": "Autodromo Nazionale Monza",
+   "course": "monza",
+   "prize": 85000,
+   "minutes": 8.9,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": true
+  },
+  "1008236": {
+   "name": "Vision Gran Turismo Trophy",
+   "track": "Tokyo Expressway - South Counterclockwise",
+   "course": "tokyo_expwy_03_inner",
+   "prize": 85000,
+   "minutes": 9.2,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1008728": {
+   "name": "Japanese Clubman Cup 550",
+   "track": "WeatherTech Raceway Laguna Seca",
+   "course": "laguna",
+   "prize": 40000,
+   "minutes": 4.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1008729": {
+   "name": "European Clubman Cup 600",
+   "track": "Suzuka Circuit",
+   "course": "suzuka",
+   "prize": 60000,
+   "minutes": 7.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1008730": {
+   "name": "Sunday Cup Classic",
+   "track": "Tsukuba Circuit",
+   "course": "tsukuba",
+   "prize": 25000,
+   "minutes": 3.2,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1009025": {
+   "name": "European Clubman Cup 600",
+   "track": "Blue Moon Bay Speedway - Infield A (Reverse)",
+   "course": "r_oval_02_infield_A",
+   "prize": 50000,
+   "minutes": 5.3,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1009026": {
+   "name": "Schwarzwald League",
+   "track": "High Speed Ring (Reverse)",
+   "course": "r_highspeedring",
+   "prize": 65000,
+   "minutes": 6.3,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": true
+  },
+  "1009086": {
+   "name": "World Touring Car 900",
+   "track": "Circuit de la Sarthe",
+   "course": "sarthe",
+   "prize": 400000,
+   "minutes": 39.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1009328": {
+   "name": "Japanese Clubman Cup 550",
+   "track": "Alsace - Village (Reverse)",
+   "course": "r_eifel_01",
+   "prize": 60000,
+   "minutes": 6.9,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1009329": {
+   "name": "American FR Challenge 550",
+   "track": "Trial Mountain Circuit (Reverse)",
+   "course": "r_trialmountain",
+   "prize": 56000,
+   "minutes": 6.6,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1009330": {
+   "name": "Vision Gran Turismo Trophy",
+   "track": "Grand Valley - Highway 1",
+   "course": "grandvalley",
+   "prize": 80000,
+   "minutes": 8.8,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1009702": {
+   "name": "European Sunday Cup 400",
+   "track": "Kyoto Driving Park - Yamagiwa",
+   "course": "drivingPark_01",
+   "prize": 25000,
+   "minutes": 4.6,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1009703": {
+   "name": "Japanese FF Challenge 450",
+   "track": "Autopolis International Racing Course - Shortcut Course",
+   "course": "autopolis_short",
+   "prize": 25000,
+   "minutes": 2.9,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1009704": {
+   "name": "Japanese FR Challenge 450",
+   "track": "Autodrome Lago Maggiore - West",
+   "course": "permanent_02_west",
+   "prize": 40000,
+   "minutes": 5.7,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1009705": {
+   "name": "World Touring Car 800",
+   "track": "Circuit de Sainte-Croix - Layout A",
+   "course": "sainte_croix_A",
+   "prize": 200000,
+   "minutes": 21.7,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1009959": {
+   "name": "European Sunday Cup 500",
+   "track": "Eiger Nordwand",
+   "course": "eiger",
+   "prize": 35000,
+   "minutes": 3.7,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1009960": {
+   "name": "Jimny Cup",
+   "track": "Eiger Nordwand",
+   "course": "eiger",
+   "prize": 40000,
+   "minutes": 4.1,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1009961": {
+   "name": "World Rally Challenge Gr.B",
+   "track": "Eiger Nordwand (Reverse)",
+   "course": "r_eiger",
+   "prize": 135000,
+   "minutes": 13.3,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1009962": {
+   "name": "Ferrari Circuit Challenge",
+   "track": "Autodromo Nazionale Monza",
+   "course": "monza",
+   "prize": 90000,
+   "minutes": 9.1,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1009963": {
+   "name": "World Touring Car 600",
+   "track": "Michelin Raceway Road Atlanta",
+   "course": "road_atlanta",
+   "prize": 94000,
+   "minutes": 8.1,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1010575": {
+   "name": "Evolution Meeting",
+   "track": "Kyoto Driving Park - Yamagiwa + Miyabi (Reverse)",
+   "course": "r_drivingPark_04",
+   "prize": 70000,
+   "minutes": 8.7,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1010576": {
+   "name": "Evolution Meeting",
+   "track": "Autodromo Nazionale Monza",
+   "course": "monza",
+   "prize": 70000,
+   "minutes": 8.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1010577": {
+   "name": "Evolution Meeting",
+   "track": "Colorado Springs - Lake",
+   "course": "wilderness_03_Layout01",
+   "prize": 72000,
+   "minutes": 6.3,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1010578": {
+   "name": "Sunday Cup",
+   "track": "Tokyo Expressway - Central Clockwise",
+   "course": "tokyo_expwy_01",
+   "prize": 27000,
+   "minutes": 4.1,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1010579": {
+   "name": "Nissan GT-R Cup",
+   "track": "Circuit de Sainte-Croix - Layout A",
+   "course": "sainte_croix_A",
+   "prize": 94000,
+   "minutes": 9.1,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1010809": {
+   "name": "Race of Turbo Sportscars",
+   "track": "Mount Panorama Circuit",
+   "course": "mount_panorama",
+   "prize": 90000,
+   "minutes": 12.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1010810": {
+   "name": "Porsche Cup",
+   "track": "WeatherTech Raceway Laguna Seca",
+   "course": "laguna",
+   "prize": 80000,
+   "minutes": 7.0,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1010811": {
+   "name": "Jimny Cup",
+   "track": "Grand Valley - South",
+   "course": "grandvalley_east",
+   "prize": 47000,
+   "minutes": 4.7,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1010993": {
+   "name": "World Touring Car 600",
+   "track": "Autódromo de Interlagos",
+   "course": "interlagos_GP",
+   "prize": 90000,
+   "minutes": 9.1,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1010994": {
+   "name": "Japanese FF Challenge 450",
+   "track": "Sardegna - Road Track - Layout C",
+   "course": "sardegna_road_C",
+   "prize": 25000,
+   "minutes": 3.9,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1011170": {
+   "name": "Sunday Cup",
+   "track": "Kyoto Driving Park - Miyabi",
+   "course": "drivingPark_02",
+   "prize": 20000,
+   "minutes": 3.9,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1011494": {
+   "name": "Sunday Cup Classic",
+   "track": "Red Bull Ring - Short Track",
+   "course": "redbullring_short",
+   "prize": 25000,
+   "minutes": 3.2,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1011495": {
+   "name": "European Sunday Cup 400",
+   "track": "Grand Valley - South (Reverse)",
+   "course": "r_grandvalley_east",
+   "prize": 35000,
+   "minutes": 4.4,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1011496": {
+   "name": "European FR Challenge 550",
+   "track": "Autodrome Lago Maggiore - East",
+   "course": "permanent_02_east",
+   "prize": 40000,
+   "minutes": 7.6,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1011561": {
+   "name": "European Clubman Cup 600",
+   "track": "Deep Forest Raceway (Reverse)",
+   "course": "r_deepforest",
+   "prize": 75000,
+   "minutes": 9.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1011562": {
+   "name": "Japanese FF Challenge 450",
+   "track": "Tokyo Expressway - Central Counterclockwise",
+   "course": "tokyo_expwy_01_inner",
+   "prize": 45000,
+   "minutes": 6.0,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1011563": {
+   "name": "Sunday Cup",
+   "track": "Brands Hatch - Indy Circuit",
+   "course": "brandshatch_indy",
+   "prize": 37000,
+   "minutes": 4.4,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1011902": {
+   "name": "Lightweight K-Cup",
+   "track": "Eiger Nordwand",
+   "course": "eiger",
+   "prize": 75000,
+   "minutes": 7.6,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1011903": {
+   "name": "GT Cup Gr.3",
+   "track": "Deep Forest Raceway",
+   "course": "deepforest",
+   "prize": 90000,
+   "minutes": 12.4,
+   "difficulty": "hard",
+   "chili": 3,
+   "same_track_and_prize": true
+  },
+  "1011904": {
+   "name": "American Clubman Cup 700",
+   "track": "Autódromo de Interlagos",
+   "course": "interlagos_GP",
+   "prize": 68000,
+   "minutes": 8.4,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012097": {
+   "name": "Sunday Cup",
+   "track": "Willow Springs International Raceway - Streets of Willow Springs (Reverse)",
+   "course": "r_wls_streets",
+   "prize": 27000,
+   "minutes": 3.1,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012098": {
+   "name": "European Sunday Cup 400",
+   "track": "Watkins Glen International - Short Course",
+   "course": "watkins_glen_short",
+   "prize": 38000,
+   "minutes": 4.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012099": {
+   "name": "World Rally Challenge Gr.B",
+   "track": "Colorado Springs - Lake",
+   "course": "wilderness_03_Layout01",
+   "prize": 65000,
+   "minutes": 7.1,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012240": {
+   "name": "Lightweight K-Cup",
+   "track": "Nürburgring - Nordschleife",
+   "course": "nurburgring_nord",
+   "prize": 100000,
+   "minutes": 9.9,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012241": {
+   "name": "Japanese FF Challenge 450",
+   "track": "Alsace - Test Course",
+   "course": "eifel_01_short",
+   "prize": 45000,
+   "minutes": 4.9,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012242": {
+   "name": "Race of Turbo Sportscars",
+   "track": "Fuji International Speedway",
+   "course": "fuji",
+   "prize": 90000,
+   "minutes": 8.9,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012468": {
+   "name": "European Sunday Cup 400",
+   "track": "Circuit de Sainte-Croix - Layout B (Reverse)",
+   "course": "r_sainte_croix_B",
+   "prize": 48000,
+   "minutes": 5.9,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012469": {
+   "name": "Japanese 4WD Challenge 600",
+   "track": "Michelin Raceway Road Atlanta",
+   "course": "road_atlanta",
+   "prize": 50000,
+   "minutes": 4.9,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012470": {
+   "name": "World Touring Car 900",
+   "track": "Circuit de Spa-Francorchamps",
+   "course": "spa",
+   "prize": 300000,
+   "minutes": 21.2,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012636": {
+   "name": "Sunday Cup",
+   "track": "Sardegna - Road Track - Layout C (Reverse)",
+   "course": "r_sardegna_road_C",
+   "prize": 20000,
+   "minutes": 2.7,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012637": {
+   "name": "Japanese FR Challenge 450",
+   "track": "Suzuka Circuit",
+   "course": "suzuka",
+   "prize": 40000,
+   "minutes": 5.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012638": {
+   "name": "Race of Turbo Sportscars",
+   "track": "Watkins Glen International - Long Course",
+   "course": "watkins_glen_long",
+   "prize": 95000,
+   "minutes": 8.7,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012639": {
+   "name": "Vision Gran Turismo Trophy",
+   "track": "Nürburgring - Grand Prix",
+   "course": "nurburgring_GP",
+   "prize": 100000,
+   "minutes": 8.6,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012640": {
+   "name": "World Touring Car 700",
+   "track": "Alsace - Village",
+   "course": "eifel_01",
+   "prize": 250000,
+   "minutes": 20.3,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012970": {
+   "name": "World Touring Car 800",
+   "track": "Yas Marina Circuit",
+   "course": "yas_marina",
+   "prize": 200000,
+   "minutes": 17.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012979": {
+   "name": "Gr.1 Prototype Series",
+   "track": "Yas Marina Circuit",
+   "course": "yas_marina",
+   "prize": 300000,
+   "minutes": 22.7,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012980": {
+   "name": "Ferrari Circuit Challenge",
+   "track": "Yas Marina Circuit",
+   "course": "yas_marina",
+   "prize": 90000,
+   "minutes": 9.7,
+   "difficulty": "easy",
+   "chili": null,
+   "same_track_and_prize": true
+  },
+  "1012981": {
+   "name": "Super Formula",
+   "track": "Circuit Gilles-Villeneuve",
+   "course": "gilles_villeneuve",
+   "prize": 250000,
+   "minutes": 19.1,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012982": {
+   "name": "Nissan GT-R Cup",
+   "track": "Circuit Gilles-Villeneuve",
+   "course": "gilles_villeneuve",
+   "prize": 88000,
+   "minutes": 8.2,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012983": {
+   "name": "European Sunday Cup 400",
+   "track": "Goodwood Motor Circuit",
+   "course": "goodwood_circuit",
+   "prize": 52000,
+   "minutes": 6.2,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1012984": {
+   "name": "Japanese FF Challenge 450",
+   "track": "Blue Moon Bay Speedway - Infield A",
+   "course": "oval_02_infield_A",
+   "prize": 50000,
+   "minutes": 6.0,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1013295": {
+   "name": "World Touring Car 600",
+   "track": "Nürburgring - Nordschleife",
+   "course": "nurburgring_nord",
+   "prize": 115000,
+   "minutes": 17.7,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1013296": {
+   "name": "World Touring Car 700",
+   "track": "Circuit de Spa-Francorchamps",
+   "course": "spa",
+   "prize": 140000,
+   "minutes": 20.6,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1013297": {
+   "name": "World Touring Car 800",
+   "track": "Mount Panorama Circuit",
+   "course": "mount_panorama",
+   "prize": 200000,
+   "minutes": 22.9,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": true
+  },
+  "1013497": {
+   "name": "Japanese Clubman Cup 550",
+   "track": "Kyoto Driving Park - Yamagiwa (Reverse)",
+   "course": "r_drivingPark_01",
+   "prize": 60000,
+   "minutes": 6.0,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1013498": {
+   "name": "European Sunday Cup 400",
+   "track": "Dragon Trail - Gardens (Reverse)",
+   "course": "r_dragontrail_02",
+   "prize": 38000,
+   "minutes": 4.4,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1013595": {
+   "name": "American Clubman Cup 700",
+   "track": "Michelin Raceway Road Atlanta",
+   "course": "road_atlanta",
+   "prize": 90000,
+   "minutes": 10.4,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1013596": {
+   "name": "World Touring Car 800",
+   "track": "Circuit Gilles-Villeneuve",
+   "course": "gilles_villeneuve",
+   "prize": 170000,
+   "minutes": 18.1,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1013757": {
+   "name": "Schwarzwald League",
+   "track": "Circuit Gilles-Villeneuve",
+   "course": "gilles_villeneuve",
+   "prize": 56000,
+   "minutes": 6.6,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1013758": {
+   "name": "Hypercar Parade",
+   "track": "Yas Marina Circuit",
+   "course": "yas_marina",
+   "prize": 90000,
+   "minutes": 10.2,
+   "difficulty": "fair",
+   "chili": null,
+   "same_track_and_prize": true
+  },
+  "1013759": {
+   "name": "World Touring Car 900",
+   "track": "Autódromo de Interlagos",
+   "course": "interlagos_GP",
+   "prize": 170000,
+   "minutes": 16.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1014010": {
+   "name": "Gr.1 Prototype Series",
+   "track": "Watkins Glen International - Long Course",
+   "course": "watkins_glen_long",
+   "prize": 220000,
+   "minutes": 19.4,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1014011": {
+   "name": "Gr.1 Prototype Series",
+   "track": "Circuit de la Sarthe",
+   "course": "sarthe",
+   "prize": 260000,
+   "minutes": 26.3,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1014012": {
+   "name": "Gr.1 Prototype Series",
+   "track": "Sardegna - Road Track - Layout A",
+   "course": "sardegna_road_A",
+   "prize": 220000,
+   "minutes": 21.7,
+   "difficulty": "hard",
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1014013": {
+   "name": "Pickup Truck Race",
+   "track": "Fishermans Ranch",
+   "course": "wilderness_01",
+   "prize": 32000,
+   "minutes": 4.0,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1014014": {
+   "name": "European FR Challenge 550",
+   "track": "Eiger Nordwand (Reverse)",
+   "course": "r_eiger",
+   "prize": 40000,
+   "minutes": 4.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1014335": {
+   "name": "Japanese FR Challenge 450",
+   "track": "Kyoto Driving Park - Yamagiwa",
+   "course": "drivingPark_01",
+   "prize": 40000,
+   "minutes": 4.4,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1014336": {
+   "name": "European Clubman Cup 600",
+   "track": "Circuit de Barcelona-Catalunya - Grand Prix Layout No Chicane",
+   "course": "catalunya_GP_nochicane",
+   "prize": 75000,
+   "minutes": 7.5,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  },
+  "1014337": {
+   "name": "World Touring Car 600",
+   "track": "Suzuka Circuit",
+   "course": "suzuka",
+   "prize": 95000,
+   "minutes": 9.8,
+   "difficulty": null,
+   "chili": null,
+   "same_track_and_prize": false
+  }
+ }
+}
