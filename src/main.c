@@ -22,6 +22,7 @@
 #include <ps5/kernel.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include "career_import.h"
 #include "engine.h"
 #include "notify.h"
 
@@ -1273,6 +1274,141 @@ static void json_status(int fd)
     snprintf(body + n, sizeof(body) - n, "}}}");
     response(fd, 200, "application/json", body);
 }
+/* Career import (Career tab). An uploaded online save is a full save image
+ * (78 MB), so it is streamed to disk instead of going through req. */
+#define CAREER_UPLOAD_MAX (512ul << 20)
+#ifdef PS5
+static void career_reply(int fd, int code, char *text)
+{
+    response(fd, code, code == 200 ? "application/json" : "text/plain", text ? text : "Out of memory");
+    free(text);
+}
+#endif
+static void career_get(int fd, const char *path)
+{
+#ifdef PS5
+    if (atomic_load(&startup_pending))
+    {
+        response(fd, 409, "text/plain", "Startup is still running. Please retry shortly.");
+        return;
+    }
+    const char *query = strchr(path, '?');
+    if (!strncmp(path, "/api/career/download?", 21))
+    {
+        char file[256], name[72];
+        int in = career_download_path(query + 1, file, sizeof(file), name, sizeof(name)) ? -1 : open(file, O_RDONLY);
+        struct stat st;
+        if (in < 0 || fstat(in, &st))
+        {
+            if (in >= 0)
+                close(in);
+            response(fd, 404, "text/plain", "Not found");
+            return;
+        }
+        char h[384];
+        int z = snprintf(h, sizeof(h), "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %lld\r\nContent-Disposition: attachment; filename=\"%s\"\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n", (long long)st.st_size, name);
+        if (z > 0 && (size_t)z < sizeof(h) && !transfer(fd, h, (size_t)z))
+        {
+            static char buf[65536];
+            ssize_t n;
+            while ((n = read(in, buf, sizeof(buf))) > 0 && !transfer(fd, buf, (size_t)n))
+                ;
+        }
+        close(in);
+        return;
+    }
+    if (!strcmp(path, "/api/career") || !strcmp(path, "/api/career?rescan=1"))
+    {
+        char *text = NULL;
+        int code = career_state(path[11] == '?', &text);
+        career_reply(fd, code, text);
+        return;
+    }
+#endif
+    (void)path;
+    response(fd, 404, "text/plain", "Not found");
+}
+static void career_post(int fd, const char *path, char *body, size_t have, size_t length)
+{
+#ifdef PS5
+    if (atomic_load(&startup_pending))
+    {
+        response(fd, 409, "text/plain", "Startup is still running. Please retry shortly.");
+        return;
+    }
+    if (!strncmp(path, "/api/career/upload?", 19))
+    {
+        char file[256], part[256];
+        if (!length || career_upload_path(path + 19, file, sizeof(file), part, sizeof(part)))
+        {
+            response(fd, 400, "text/plain", "Use a file name made of letters, digits, dots, dashes and underscores.");
+            return;
+        }
+        int out = open(part, O_WRONLY | O_CREAT | O_TRUNC, 0755);
+        size_t done = have < length ? have : length;
+        int ok = out >= 0 && write(out, body, done) == (ssize_t)done;
+        static char buf[65536];
+        while (ok && done < length)
+        {
+            size_t want = length - done < sizeof(buf) ? length - done : sizeof(buf);
+            ssize_t n = recv(fd, buf, want, 0);
+            ok = n > 0 && write(out, buf, (size_t)n) == n;
+            done += ok ? (size_t)n : 0;
+        }
+        if (out >= 0 && fsync(out))
+            ok = 0;
+        if (out >= 0)
+            close(out);
+        if (!ok || rename(part, file))
+        {
+            unlink(part);
+            response(fd, 400, "text/plain", "The upload did not complete.");
+            return;
+        }
+        career_upload_done(file, length);
+        response(fd, 200, "application/json", "{}");
+        return;
+    }
+    char form[256];
+    if (length >= sizeof(form) || have > length)
+    {
+        response(fd, 400, "text/plain", "Invalid request");
+        return;
+    }
+    memcpy(form, body, have);
+    while (have < length)
+    {
+        ssize_t r = recv(fd, form + have, length - have, 0);
+        if (r <= 0)
+            return;
+        have += (size_t)r;
+    }
+    form[length] = 0;
+    char *text = NULL;
+    int code;
+    if (!strcmp(path, "/api/career/move"))
+        code = career_move(form, &text);
+    else if (!strcmp(path, "/api/career/restore"))
+        code = career_restore(form, &text);
+    else if (!strcmp(path, "/api/career/delete"))
+        code = career_delete(form, &text);
+    else if (!strcmp(path, "/api/career/remove-added"))
+        code = career_remove_added(form, &text);
+    else
+    {
+        response(fd, 404, "text/plain", "Not found");
+        return;
+    }
+    career_reply(fd, code, text);
+    return;
+#else
+    (void)path;
+    (void)body;
+    (void)have;
+    (void)length;
+    response(fd, 404, "text/plain", "Not found");
+#endif
+}
 static void serve(int fd)
 {
     /* Requests are capped at 256 KiB below. Keep the buffer bounded to that
@@ -1313,7 +1449,7 @@ static void serve(int fd)
         {
             char *end;
             unsigned long l = strtoul(h + 15, &end, 10);
-            if (has_length || *end || l > 262144)
+            if (has_length || *end || l > (strncmp(path, "/api/career/upload?", 19) ? 262144ul : CAREER_UPLOAD_MAX))
             {
                 response(fd, 400, "text/plain", "Invalid Content-Length");
                 return;
@@ -1336,6 +1472,8 @@ static void serve(int fd)
             response(fd, 200, "text/html; charset=utf-8", page_html());
         else if (!strcmp(path, "/api/status"))
             json_status(fd);
+        else if (!strncmp(path, "/api/career", 11) && (!path[11] || path[11] == '?' || path[11] == '/'))
+            career_get(fd, path);
         else if (!strncmp(path, "/api/update-notify", 18) && (!path[18] || path[18] == '?'))
         {
 #ifdef PS5
@@ -1868,6 +2006,11 @@ static void serve(int fd)
     if (!has_length)
     {
         response(fd, 400, "text/plain", "Content-Length required");
+        return;
+    }
+    if (!strncmp(path, "/api/career/", 12))
+    {
+        career_post(fd, path, body, used - (size_t)(body - req), length);
         return;
     }
     if ((size_t)(body - req) + length >= sizeof(req))
@@ -2473,6 +2616,7 @@ int main(int argc, char **argv)
      * so process enumerators report the payload's real name. */
     syscall(SYS_thr_set_name, -1, "gt7patcher.elf");
     notify("GT7Patcher %s: starting on port 7210.", VERSION);
+    career_init(running_gt7);
 #endif
     signal(SIGPIPE, SIG_IGN);
     signal(SIGTERM, stop);
