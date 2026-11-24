@@ -629,6 +629,83 @@
     h2 {
         font-weight: 100;
     }
+
+    /* Career tab */
+    #career h3 {
+        margin: 20px 0 8px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: .14em;
+        text-transform: uppercase;
+        color: #999999
+    }
+
+    .career-source {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        margin: 8px 0;
+        padding: 12px 14px;
+        border: 1px solid #444444;
+        border-radius: 8px;
+        background: #262626;
+        cursor: pointer
+    }
+
+    .career-source.off {
+        opacity: .55;
+        cursor: default
+    }
+
+    .career-source input {
+        margin-top: 5px
+    }
+
+    .career-meta {
+        font-size: 14px;
+        color: #999999
+    }
+
+    .career-msg {
+        margin: 10px 0;
+        padding: 10px 12px;
+        border-radius: 8px;
+        font-size: 15px;
+        line-height: 1.45
+    }
+
+    .career-msg.ok {
+        background: #1f3324;
+        color: #9ad6a6
+    }
+
+    .career-msg.warn {
+        background: #3a2f1a;
+        color: #e8c07a
+    }
+
+    .career-msg.bad {
+        background: #3d1f1f;
+        color: #f0a0a0
+    }
+
+    .career-backup {
+        padding: 12px 0 4px;
+        border-top: 1px solid #3a3a3a
+    }
+
+    .career-backup .actions {
+        margin-top: 8px
+    }
+
+    .career-backup button:not([role="tab"]) {
+        padding: 6px 12px;
+        font-size: 14px
+    }
+
+    #career a {
+        color: #9fb8e8
+    }
 </style>
 <div class="sticky-top">
     <header>
@@ -660,6 +737,7 @@
         <button id="patch-tab" role="tab" aria-controls="patches" aria-selected="true">Patches</button>
         <button id="game-tab" role="tab" aria-controls="game" aria-selected="false">Game Settings</button>
         <button id="live-tab" role="tab" aria-controls="live" aria-selected="false" hidden>Live Settings</button>
+        <button id="career-tab" role="tab" aria-controls="career" aria-selected="false">Career</button>
         <button id="help-tab" role="tab" aria-controls="help" aria-selected="false">Help</button>
     </nav>
 </div>
@@ -837,6 +915,27 @@
                 <button type="button" id="race-reload">Reload from console</button>
             </div>
             <p id="race-status" class="detail" role="status"></p>
+        </div>
+    </section>
+    <section id="career" role="tabpanel" aria-labelledby="career-tab" hidden>
+        <div class="card">
+            <h2>Move your online career to Offline Mode</h2>
+            <p>The online game keeps a full copy of your career on the console. This moves it into the Offline Mode
+                save, so your garage, credits and progress carry over. Your Offline Mode save is backed up first, and
+                every backup can be restored here.</p>
+            <p>Close GT7 first. The Offline Mode save must exist: start GT7 once with Offline Mode on and reach the
+                world map.</p>
+            <div class="actions"><button type="button" id="career-check">Check saves</button></div>
+            <div id="career-status"></div>
+        </div>
+        <div id="career-users"></div>
+        <div class="card">
+            <h2>Add a copy of an online save</h2>
+            <p>If the online save is no longer on the console but you kept a copy of it (the file
+                sdimg_sce_sdmemory, from FTP or a save manager), add it here. It must come from this console.</p>
+            <div class="actions" style="align-items:center"><input type="file" id="career-file" aria-label="Online save file"><button
+                    type="button" id="career-upload">Add it</button></div>
+            <div id="career-add-result"></div>
         </div>
     </section>
     <section id="help" role="tabpanel" aria-labelledby="help-tab" hidden>
@@ -1303,8 +1402,8 @@
     $('form').addEventListener('change', e => { if (e.target.id === 'credits' || e.target.id.startsWith('clean-')) return; if (e.target.dataset?.bit !== undefined) updateFeatureTile(e.target); if (e.target.id === 'patch-11') freeCameraTile(e.target.checked); if (e.target.id === 'patch-6') liveTab(e.target.checked); if (e.target.id === 'patch-2' && e.target.checked) { $('patch-0').checked = true; updateFeatureTile($('patch-0')) } if (e.target.id === 'patch-0' && !e.target.checked) { $('patch-2').checked = false; updateFeatureTile($('patch-2')) } if (e.target.id === 'units') units(); if (['speed', 'mass', 'power', 'torque', 'temperature', 'language'].includes(e.target.id)) $('preset').value = 0; mark() });
     const presets = { 1: { language: 2, speed: 0, mass: 0, power: 2, torque: 2, temperature: 1 }, 2: { language: 2, speed: 0, mass: 0, power: 1, torque: 2, temperature: 1 }, 3: { language: 1, speed: 1, mass: 1, power: 1, torque: 1, temperature: 2 }, 4: { language: 0, speed: 0, mass: 0, power: 0, torque: 0, temperature: 1 }, 5: { language: 2, speed: 1, mass: 0, power: 1, torque: 2, temperature: 1 } };
     $('preset').addEventListener('change', () => { const p = presets[$('preset').value]; if (p) { for (const [k, v] of Object.entries(p)) $(k).value = v; $('units').value = 1; units() } });
-    const tabs = [['patch-tab', 'patches'], ['game-tab', 'game'], ['live-tab', 'live'], ['help-tab', 'help']].filter(([id]) => $(id));
-    for (const [id, panel] of tabs) $(id).onclick = () => { activePanel = panel; for (const [t, p] of tabs) { $(t).setAttribute('aria-selected', String(t === id)); $(p).hidden = p !== panel } $('launch-guidance').hidden = panel === 'help' || panel === 'live'; $('controls').hidden = false; pageStatus(persistentMessage) };
+    const tabs = [['patch-tab', 'patches'], ['game-tab', 'game'], ['live-tab', 'live'], ['career-tab', 'career'], ['help-tab', 'help']].filter(([id]) => $(id));
+    for (const [id, panel] of tabs) $(id).onclick = () => { activePanel = panel; for (const [t, p] of tabs) { $(t).setAttribute('aria-selected', String(t === id)); $(p).hidden = p !== panel } $('launch-guidance').hidden = panel === 'help' || panel === 'live' || panel === 'career'; if (panel === 'career' && !careerState) careerLoad(false); $('controls').hidden = false; pageStatus(persistentMessage) };
 
     let raceDraft, raceDragging, raceLoading = false, raceDirty = false, raceRequested = false, raceSaveTimer = 0, raceRefreshAfter = 0, raceEditing = false;
     const raceUrl = '/api/live/hud/config';
@@ -1522,6 +1621,121 @@
     read();
     setInterval(() => { if (!busy && !halted) read() }, 5000);
     setInterval(() => { if (token && raceDraft && !raceEditing && Date.now() >= raceRefreshAfter && !raceLoading && !raceDirty) raceFetch(false, true) }, 1000);
+
+    /* Career tab: moves the online career into the Offline Mode save. The saves are only scanned when the
+       tab is opened or Check saves is pressed. */
+    let careerState = null, careerBusy = false;
+    const careerEsc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    const careerSize = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? Math.round(n / 1024) + ' KB' : n + ' bytes';
+    const careerMsg = (kind, html) => `<div class="career-msg ${kind}">${html}</div>`;
+    function careerButtons() { document.querySelectorAll('#career button').forEach(b => { b.disabled = careerBusy || b.dataset.off === '1' }) }
+    function careerWorking(text) { careerBusy = Boolean(text); $('career-status').innerHTML = text ? careerMsg('warn', careerEsc(text)) : ''; careerButtons() }
+    async function careerPost(path, body) {
+        const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-GT7-Token': token }, body });
+        const text = await r.text(); if (!r.ok) throw Error(text || `The console answered ${r.status}.`); return JSON.parse(text);
+    }
+    async function careerLoad(rescan) {
+        careerWorking('Checking the saves on the console. This takes a few seconds per user.');
+        try { const r = await fetch('/api/career' + (rescan ? '?rescan=1' : ''), { cache: 'no-store' }); const text = await r.text(); if (!r.ok) throw Error(text); careerState = JSON.parse(text); careerWorking(''); careerRender() }
+        catch (e) { careerWorking(''); $('career-status').innerHTML = careerMsg('bad', careerEsc(e.message)) }
+    }
+    function careerSourceText(s) {
+        const when = (s.key.startsWith('add:') ? 'added ' : 'saved ') + careerEsc(s.date);
+        if (s.error) return `${careerEsc(s.label)}: <span class="career-meta">${careerEsc(s.error)}</span>`;
+        if (!s.career) return `${careerEsc(s.label)}, ${when}: <span class="career-meta">no career in it</span>`;
+        let t = `<b>${careerEsc(s.label)}</b><br><span class="career-meta">${when[0].toUpperCase() + when.slice(1)}, career data ${careerSize(s.bytes)} (garage ${careerSize(s.garage)})</span>`;
+        if (s.salvaged) t += careerMsg('warn', 'Recovered from a save that GT7 had partly overwritten.');
+        if (s.newer) t += careerMsg('warn', `Written by a newer GT7 than the one installed (${careerEsc(s.newer)}). The installed game may not be able to read it.`);
+        if (s.key.startsWith('add:')) t += `<div class="actions" style="margin-top:8px"><button type="button" data-remove="${careerEsc(s.key.slice(4))}">Remove this file</button></div>`;
+        return t;
+    }
+    function careerUser(u) {
+        const o = u.offline, id = `${u.uid}-${u.title}`;
+        let h = `<div class="card"><h2>${careerEsc(u.name)}</h2><h3>Offline Mode save</h3>`;
+        if (!o.found) h += careerMsg('warn', 'Not found. Start GT7 once with Offline Mode on and reach the world map, then close GT7 and press Check saves.');
+        else if (!o.usable) h += careerMsg('bad', `Found, but it cannot be read${o.error ? ': ' + careerEsc(o.error) : ''}. Play until the game saves once, then close GT7 and press Check saves.`);
+        else h += `<p>Found, saved ${careerEsc(o.date)}. Career data ${careerSize(o.bytes)} (garage ${careerSize(o.garage)}).</p>`;
+        h += '<h3>Online career</h3>';
+        const careers = u.sources.filter(s => s.career && !s.error);
+        const best = careers.slice().sort((a, b) => b.date.localeCompare(a.date) || b.bytes - a.bytes)[0];
+        if (!u.sources.length) h += '<p>No online save found for this user.</p>';
+        for (const s of u.sources) {
+            const on = s.career && !s.error;
+            h += `<label class="career-source${on ? '' : ' off'}"><input type="radio" name="career-src-${id}" value="${careerEsc(s.key)}"${on ? '' : ' disabled'}${s === best ? ' checked' : ''}><span>${careerSourceText(s)}</span></label>`;
+        }
+        if (!careers.length) h += '<p>If you kept a copy of this user\'s online save, add it with Add a copy of an online save below.</p>';
+        const can = !careerState.gameRunning && o.usable && careers.length;
+        h += `<div class="actions"><button type="button" class="primary" data-move="${id}"${can ? '' : ' data-off="1"'}>Move this career to Offline Mode</button></div><div id="career-result-${id}"></div>`;
+        if (u.backups.length) {
+            h += '<h3>Backups</h3>';
+            for (const b of u.backups) {
+                const image = b.files.some(f => f.name === 'sdimg_gt7offline');
+                const links = b.files.map(f => `<a href="/api/career/download?id=${encodeURIComponent(b.id)}&file=${encodeURIComponent(f.name)}">${careerEsc(f.name)}</a> ${careerSize(f.size)}`).join(', ');
+                h += `<div class="career-backup"><div>${careerEsc(b.date)}: ${careerEsc(b.note)}</div><div class="career-meta">${links}</div><div class="actions">${image ? `<button type="button" data-restore="${careerEsc(b.id)}"${careerState.gameRunning ? ' data-off="1"' : ''}>Restore</button>` : ''}<button type="button" data-delete="${careerEsc(b.id)}">Delete</button></div></div>`;
+            }
+        }
+        return h + '</div>';
+    }
+    function careerRender() {
+        const users = careerState.users;
+        if (careerState.gameRunning) $('career-status').innerHTML = careerMsg('bad', 'GT7 is running. Close it, then press Check saves.');
+        $('career-users').innerHTML = !careerState.gameRunning && !users.length ? '<div class="card"><p>No user on this console has GT7 saves.</p></div>' : users.map(careerUser).join('');
+        for (const b of document.querySelectorAll('[data-move]')) b.onclick = () => careerMove(users.find(u => `${u.uid}-${u.title}` === b.dataset.move));
+        for (const b of document.querySelectorAll('[data-restore]')) b.onclick = () => careerRestore(b.dataset.restore);
+        for (const b of document.querySelectorAll('[data-delete]')) b.onclick = () => careerDelete(b.dataset.delete);
+        for (const b of document.querySelectorAll('[data-remove]')) b.onclick = e => { e.preventDefault(); careerRemoveAdded(b.dataset.remove) };
+        careerButtons();
+    }
+    async function careerMove(u) {
+        const id = `${u.uid}-${u.title}`, pick = document.querySelector(`input[name="career-src-${id}"]:checked`);
+        if (!pick) return;
+        const s = u.sources.find(x => x.key === pick.value);
+        let q = `Replace the Offline Mode career of ${u.name} with the online career from: ${s.label}?\n\nThe current Offline Mode save is backed up first, and you can restore it here.`;
+        if (s.newer) q += '\n\nWarning: the online save was written by a newer GT7 than the one installed.';
+        if (!confirm(q)) return;
+        careerWorking(`Moving the career for ${u.name}. Do not start GT7 now.`);
+        let html;
+        try {
+            const r = await careerPost('/api/career/move', `uid=${u.uid}&title=${u.title}&source=${s.key}`);
+            html = careerMsg('ok', `<b>Done.</b> The online career is now in the Offline Mode save of ${careerEsc(u.name)}. Start GT7 with Offline Mode on; the game updates the old data to its current format the first time it saves.<br><span class="career-meta">${r.carried} career records moved${r.dropped ? '; left out (online only): ' + careerEsc(r.dropped) : ''}.</span>`);
+        } catch (e) { html = careerMsg('bad', careerEsc(e.message)) }
+        careerWorking(''); await careerLoad(false);
+        const box = $(`career-result-${id}`); if (box) box.innerHTML = html;
+    }
+    async function careerRestore(backup) {
+        if (!confirm('Put the Offline Mode save back to this backup?\n\nThe save as it is now gets a backup of its own first.')) return;
+        careerWorking('Restoring the backup. Do not start GT7 now.');
+        let html;
+        try { await careerPost('/api/career/restore', `id=${backup}`); html = careerMsg('ok', 'Restored. The save as it was before is in the newest backup.') }
+        catch (e) { html = careerMsg('bad', careerEsc(e.message)) }
+        careerWorking(''); await careerLoad(false);
+        const u = careerState && careerState.users.find(x => backup.startsWith(`${x.uid}-${x.title}-`));
+        const box = u && $(`career-result-${u.uid}-${u.title}`); if (box) box.innerHTML = html;
+    }
+    async function careerDelete(backup) {
+        if (!confirm('Delete this backup for good?')) return;
+        try { await careerPost('/api/career/delete', `id=${backup}`) } catch (e) { alert(e.message) }
+        careerLoad(false);
+    }
+    async function careerRemoveAdded(name) {
+        if (!confirm(`Remove the file ${name} from the console?`)) return;
+        try { await careerPost('/api/career/remove-added', `name=${name}`) } catch (e) { alert(e.message) }
+        careerLoad(true);
+    }
+    $('career-check').onclick = () => careerLoad(true);
+    $('career-upload').onclick = async () => {
+        const f = $('career-file').files[0]; if (!f) return;
+        const name = f.name.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '') || 'online-save';
+        careerWorking(`Sending ${f.name} to the console.`);
+        let html;
+        try {
+            const r = await fetch(`/api/career/upload?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'X-GT7-Token': token, 'Content-Type': 'application/octet-stream' }, body: f });
+            if (!r.ok) throw Error(await r.text());
+            html = careerMsg('ok', 'Added. It is listed under each user above.'); $('career-file').value = '';
+        } catch (e) { html = careerMsg('bad', careerEsc(e.message)) }
+        careerWorking(''); $('career-add-result').innerHTML = html;
+        if (html.includes('Added.')) careerLoad(true);
+    };
 </script>
 
 <!-- CLEANER_SCRIPTS -->

@@ -45,15 +45,21 @@ build/wheel_patch.bin: build/wheel_patch.elf
 	$(OBJCOPY) -O binary --only-section=.blob $< $@
 build/live_blob.h: build/wheel_patch.bin build/wheel_patch.elf build/live_boot.bin build/live_bridge.bin build/live_boot.elf build/live_bridge.elf build_live_bridge.py src/live_trace.c
 	python3 build_live_bridge.py $(NM)
-build/gt7patcher.elf: src/main.c src/config.c src/config.h src/engine.c src/wheel_patch.h src/engine.h src/engine_diagnostics.h src/live_bridge.h src/hud_tree.h build/assets.h build/race_menu_groups.h build/hook_blob.h build/live_blob.h build/notify.o
-	$(CC) $(CFLAGS) $(DEVELOPMENT_CFLAGS) -DPS5 src/main.c src/config.c src/engine.c build/notify.o -lSceSystemService -lSceUserService -o $@
+build/gt7patcher.elf: src/main.c src/config.c src/config.h src/engine.c src/career.c src/career.h src/career_import.c src/career_import.h src/wheel_patch.h src/engine.h src/engine_diagnostics.h src/live_bridge.h src/hud_tree.h build/assets.h build/race_menu_groups.h build/hook_blob.h build/live_blob.h build/notify.o
+	$(CC) $(CFLAGS) $(DEVELOPMENT_CFLAGS) -DPS5 src/main.c src/config.c src/engine.c src/career.c src/career_import.c build/notify.o -lSceSystemService -lSceUserService -lSceFsInternalForVsh -o $@
 host: build/assets.h
 	gcc $(CFLAGS) -D_DEFAULT_SOURCE src/main.c src/config.c -o build/gt7patcher-host
-build/gt7patcher-live-test.elf: src/main.c src/config.c src/engine.c src/engine_diagnostics.h src/live_bridge.h build/assets.h build/race_menu_groups.h build/hook_blob.h build/live_blob.h build/notify.o
-	$(CC) $(CFLAGS) $(DEVELOPMENT_CFLAGS) -Wno-unused-function -DPS5 -DGT7_LIVE_TEST -DPORT=7212 src/main.c src/config.c src/engine.c build/notify.o -lSceSystemService -lSceUserService -o $@
-.PHONY: all host release diagnostic
+build/gt7patcher-live-test.elf: src/main.c src/config.c src/engine.c src/career.c src/career_import.c src/engine_diagnostics.h src/live_bridge.h build/assets.h build/race_menu_groups.h build/hook_blob.h build/live_blob.h build/notify.o
+	$(CC) $(CFLAGS) $(DEVELOPMENT_CFLAGS) -Wno-unused-function -DPS5 -DGT7_LIVE_TEST -DPORT=7212 src/main.c src/config.c src/engine.c src/career.c src/career_import.c build/notify.o -lSceSystemService -lSceUserService -lSceFsInternalForVsh -o $@
+# Host test of the career merge, against decrypted saves:
+# make test-career MEMORY=memory.dat OFFLINE=gt7save.bin [EXPECTED=gt7save.bin]
+test-career: tests/test_career.c src/career.c src/career.h
+	mkdir -p build
+	gcc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined tests/test_career.c src/career.c -o build/test_career
+	build/test_career $(MEMORY) $(OFFLINE) $(EXPECTED)
+.PHONY: all host release diagnostic test-career
 
 release: build/assets.h build/race_menu_groups.h build/hook_blob.h build/live_blob.h build/notify.o
-	$(CC) $(CFLAGS) -DPS5 src/main.c src/config.c src/engine.c build/notify.o -lSceSystemService -lSceUserService -o build/gt7patcher.elf
+	$(CC) $(CFLAGS) -DPS5 src/main.c src/config.c src/engine.c src/career.c src/career_import.c build/notify.o -lSceSystemService -lSceUserService -lSceFsInternalForVsh -o build/gt7patcher.elf
 
 diagnostic: all

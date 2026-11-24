@@ -19,6 +19,7 @@ Included patches as of version 0.41:
 - Silence short music jingles (race start, race finish, car purchase)
 - Sync game clock to PS5 system clock
 - File cleaner to remove old offline patches from game files
+- Career import: move your online career into the Offline Mode save
 
 
 Configuration is via the web interface on port `7210`, which can be access via a shortcut installed to the PS5's Media tab, or from any device on the same LAN.
@@ -48,6 +49,22 @@ The file restoration manifest is in `data/cleaner.json`. It identifies supported
 python3 build_cleaner.py --reference /path/to/GRAN_TURISMO_7_Clean_Backport --old /path/to/PPSA01317-app
 ```
 
+## Move your online career to Offline Mode
+
+Offline Mode starts a new career, but the online game keeps a full copy of your career on the console, in each user's `sce_sdmemory` save. The **Career** tab moves it into the Offline Mode save, so your garage, credits and progress carry over.
+
+1. Start GT7 once with Offline Mode on and reach the world map, so the Offline Mode save exists. Close GT7.
+2. Open **Career**. It lists each user with GT7 saves, their Offline Mode save and the online career it found.
+3. Press **Move this career to Offline Mode**, then start GT7 with Offline Mode on. The game updates the old data to its current format the first time it saves.
+
+![Career tab after a move](docs/career/3-moved.png)
+
+Before writing anything, the tab copies the Offline Mode save to `/data/gt7p/career/backups/`. The new save is written into a mounted copy, mounted again and read back, and only then replaces the save. Every backup can be restored, downloaded or deleted from the tab. The online save is only read. It is your career as of the last time GT7 saved it on this console. Two online-only records have no place in Offline Mode and are left out: the queue of changes waiting for the server (`BATCHQUE`) and broadcast data (`BROADCAS`). Liveries and the driver file live in saves of their own, which Offline Mode uses as they are.
+
+If the online save is no longer on the console but you kept a copy of `sdimg_sce_sdmemory` from this console, add it with **Add a copy of an online save**. Saves from another console cannot be opened. If GT7 rewrote the start of the online save, the tab searches the rest of it for the career and says so; if the online save was written by a newer GT7 than the one installed, it warns before moving.
+
+How it works: `memory.dat` (online) holds records as `{ u32 size; char name[8]; body }`, and Offline Mode's `gt7save.bin` holds the same bodies as `{ u64 index; u32 flag; u32 size; u64 stamp; char name[32]; body }`. The tab keeps the Offline Mode save's order, indexes and stamps and puts in the online body of every record with the same name (`src/career.c`). `make test-career MEMORY=memory.dat OFFLINE=gt7save.bin [EXPECTED=gt7save.bin]` checks the merge on a PC against decrypted saves.
+
 ## Build
 
 Install [ps5-payload-sdk](https://github.com/ps5-payload-dev/sdk) at `/opt/ps5-payload-sdk`, then run from WSL or Linux:
@@ -74,4 +91,4 @@ python3 package.py
 
 GT7Patcher is licensed under GPL-3.0-only. See [LICENSE](LICENSE).
 
-The GT7 patch definitions were AI-generated and released without author attribution. They build on work by High-Speed007 and PSVIETHOA, with testing credited to Dr.Yenyen. The notification helper is from `ps5-payload-dev/elfldr`; the physical-memory write method is based on `illusionyy/ps-patch-system`; and firmware offsets are derived from ShadowMountPlus by drakmor. Full notices and retained upstream licenses are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and `vendor/`.
+The GT7 patch definitions were AI-generated and released without author attribution. They build on work by High-Speed007 and PSVIETHOA, with testing credited to Dr.Yenyen. The notification helper is from `ps5-payload-dev/elfldr`; the physical-memory write method is based on `illusionyy/ps-patch-system`; and firmware offsets are derived from ShadowMountPlus by drakmor. The Career tab mounts save images the way Garlic SaveMgr by earthonion does. Full notices and retained upstream licenses are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and `vendor/`.
